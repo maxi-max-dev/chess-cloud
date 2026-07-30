@@ -80,7 +80,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 | `engine.js` | 309 | **唯一的评估函数** + 搜索 + 逐层展开 + 走法排序 |
 | `worker.js` | 91 | Web Worker：AI 应手 / 第 1～4 层路径。页面开两个实例，互不排队 |
 | `verify.mjs` | 94 | Node 端棋核验收，导出 `count(fen, depth)` 给别人对数用 |
-| `live-check.mjs` | 2547 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、路径几何、助手、触控与竞态） |
+| `live-check.mjs` | 2550 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、路径几何、助手、触控与竞态） |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | | 对外说明 / 待裁决清单 / 迭代过程记录 |
 
 没有构建工具、没有框架、没有后端。chess.js 和 three.js 直接从 CDN 引，版本钉死：
@@ -323,16 +323,16 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 | `live-check.mjs` 项数 | 固定 70 项；本轮聚焦反向验证准确抓到隐藏 L1 与反转回应 |
 | `verify.mjs` 项数 | 固定 8 项 |
 | 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 70/70 |
-| 线上完整验收 | 发布后更新 |
+| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 70/70 |
 | AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,539ms / 1,544ms / 971ms |
 | 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 947ms / 1,655ms / 2,251ms |
 | 正预算 deadline 探针 | 正常 140.4ms；临时关周期查钟 210.7ms 并按预期报红 |
 | 桌面白/黑棋截图中位亮度 | 195.7 / 57.4；逐类型最小差 122.9 |
-| 线上 AI 首屏云并发 / 正常桌面 / 真实手机 | 1,591ms / 1,533ms / 1,029ms |
-| 线上 4× CPU / reset / Worker 被杀保底 | 952ms / 1,627ms / 2,257ms |
+| 线上 AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,585ms / 1,570ms / 1,065ms |
+| 线上 4× CPU / reset / Worker 被杀保底 | 946ms / 1,617ms / 2,230ms |
 | 环境 | node v22.23.1、chess.js 1.4.0、three 0.160.0 |
 
-本轮待发布的运行文件 SHA-256（发布后必须与 GitHub Pages 对撞）：
+本轮发布后逐字节哈希（本地与 GitHub Pages 完全一致）：
 
 ```text
 50a2da5b2093d8041b181c913d582cc59f0f9fca235d8fd13cd13e188069723c  index.html
@@ -388,5 +388,8 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
   两段动画；局势优先显示人话；主视图是连续分叉；全景图是零光点的真实父子路径线网，带 SAN、
   局势和当前主路线标签；手机竖屏/短横屏均已适配。
 - 本轮最终本地输出：`node verify.mjs` **8/8**、`node live-check.mjs` **70/70**。
-- 本轮最终线上输出：发布后更新为 `node live-check.mjs --url ...` **70/70**；三个运行文件哈希应与本地一致。
+- 本轮最终线上输出：`node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`
+  **70/70**；三个运行文件 SHA-256 与本地逐字节一致。
 - `main` 已推送；GitHub Pages 已更新。交接时工作树与 `origin/main` 必须保持同步。
+- 线上首次复验在分叉交互后把路径窗留在视口外，页面正确停在 L3 `deepPending`；验收脚本原先却无条件
+  等 L4，因而自行超时。现在要求 L4 前会真实滚回路径窗再验证完整续建，没有放松数量或可见性断言。

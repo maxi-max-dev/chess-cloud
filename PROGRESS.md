@@ -149,8 +149,9 @@ Worker/星云生命周期和旧分叉隔离等关键路径，完整验收准确�
   `8902` 在页面代码里也无匹配。
   （README.md 里有「197,281」这种带千位逗号的说明文字，是文档不是代码，grep 裸数字不命中。）
 - 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 70/70。
-- 线上复验：发布后更新为 `live-check.mjs` 70/70，并写入三个运行文件的新哈希。
-- 发布状态：待本轮提交后用三个运行文件的 SHA-256 确认 GitHub Pages 已换版。
+- 线上复验 ✅ `live-check.mjs` 70/70；三个运行文件与本地逐字节一致：
+  `index.html` `50a2da5b…`、`engine.js` `64a26efa…`、`worker.js` `a065d664…`。
+- 发布状态 ✅ `main` 已推送，GitHub Pages 已换到本轮运行文件。
 - BLOCKED.md 已提交，19 条待裁决。
 
 ## 期间为什么改过方向（如实记录）

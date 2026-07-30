@@ -2494,6 +2494,9 @@ async function main() {
     `上一手 ${previousAiSan || '无'}｜新请求 pending=${!!secondRequest.pending}`
       + `｜thinking=${secondRequest.state.thinking}｜ai=${secondRequest.ai ? secondRequest.ai.san : 'null'}`);
   for (let i = 0; i < 200 && !(await evalJs('window.__test.state().history.length >= 4')); i++) await sleep(50);
+  // L4 的产品契约是「路径窗可见才续建」。前面的分叉交互可能让浏览器把路径窗滚出视口；
+  // 明确滚回来再要求长满，避免把正确的 deepPending 节流误判成 Worker 卡死。
+  await evalJs('document.getElementById("skyBox").scrollIntoView({ block: "center", inline: "nearest" })');
   await waitCloud();
   const cols2 = await evalJs('window.__forkStats()');
   const st3 = await evalJs('window.__test.state()');
