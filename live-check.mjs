@@ -1,8 +1,10 @@
 // live-check.mjs —— 无头 Chrome + CDP 真机验收（本地或线上都能跑）
 // 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333]
+// 默认自动选空闲 CDP/静态服务端口；只有需要并行复现某次运行时才显式传 --port。
 // 不给 --url 就自己起一个静态服务器伺候 ~/code/chess-cloud
 
 import http from 'node:http';
+import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -15,7 +17,7 @@ import { Chess } from 'chess.js';
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
 const arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
-const PORT = Number(arg('--port', '9333'));
+let PORT = Number(arg('--port', '0'));
 const SHOT = arg('--shot', path.join(os.tmpdir(), 'chess-cloud-shot.png'));
 let URL_ = arg('--url', null);
 
@@ -25,29 +27,61 @@ let server = null, chromeProcess = null;
 async function serveLocal() {
   server = http.createServer((req, res) => {
     const rel = decodeURIComponent(req.url.split('?')[0]);
-    const file = path.join(ROOT, rel === '/' ? 'index.html' : rel);
-    if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+    const file = path.resolve(ROOT, `.${rel === '/' ? '/index.html' : rel}`);
+    const insideRoot = file === ROOT || file.startsWith(`${ROOT}${path.sep}`);
+    if (!insideRoot || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
       res.writeHead(404); res.end('nope'); return;
     }
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
   });
-  await new Promise((r) => server.listen(8123, '127.0.0.1', r));
-  return 'http://127.0.0.1:8123/index.html';
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const address = server.address();
+  return `http://127.0.0.1:${address.port}/index.html`;
+}
+
+function portInUse(port) {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port });
+    const done = (used) => { socket.destroy(); resolve(used); };
+    socket.once('connect', () => done(true));
+    socket.once('error', () => done(false));
+    socket.setTimeout(500, () => done(false));
+  });
 }
 
 // ─────────────────────────── CDP 最小客户端
 let ws = null, nextId = 1;
 const waiting = new Map();
 const pageErrors = [];
+let chromeDir = null;
 
 function send(method, params = {}) {
   const id = nextId++;
   return new Promise((resolve, reject) => {
-    waiting.set(id, { resolve, reject });
-    ws.send(JSON.stringify({ id, method, params }));
+    const timer = setTimeout(() => {
+      waiting.delete(id);
+      reject(new Error(`CDP ${method} 超过 30 秒无响应`));
+    }, 30000);
+    waiting.set(id, { resolve, reject, timer });
+    try {
+      ws.send(JSON.stringify({ id, method, params }));
+    } catch (error) {
+      clearTimeout(timer);
+      waiting.delete(id);
+      reject(error);
+    }
   });
 }
+
+function rejectWaiting(error) {
+  for (const pending of waiting.values()) {
+    clearTimeout(pending.timer);
+    pending.reject(error);
+  }
+  waiting.clear();
+}
+
 async function evalJs(expression, awaitPromise = false) {
   const r = await send('Runtime.evaluate', {
     expression, returnByValue: true, awaitPromise, userGesture: true,
@@ -59,10 +93,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function launchChrome() {
   const bin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-  const dir = path.join(os.tmpdir(), `chess-cloud-chrome-${PORT}`);
-  fs.rmSync(dir, { recursive: true, force: true });
+  chromeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chess-cloud-chrome-'));
   const p = spawn(bin, [
-    '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${dir}`,
+    '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${chromeDir}`,
     '--window-size=1440,900',
     // 无头下 WebGL：走 angle+swiftshader，别用 --disable-gpu（会出合成伪影/黑画布）
     '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
@@ -70,7 +103,15 @@ async function launchChrome() {
     'about:blank',
   ], { stdio: 'ignore', detached: false });
   for (let i = 0; i < 80; i++) {
+    if (PORT === 0) {
+      try {
+        const active = fs.readFileSync(path.join(chromeDir, 'DevToolsActivePort'), 'utf8').trim().split(/\r?\n/);
+        const actualPort = Number(active[0]);
+        if (Number.isInteger(actualPort) && actualPort > 0) PORT = actualPort;
+      } catch {}
+    }
     try {
+      if (PORT === 0) throw new Error('Chrome 尚未写出 DevToolsActivePort');
       const v = await fetch(`http://127.0.0.1:${PORT}/json/version`);
       if (v.ok) return p;
     } catch {}
@@ -89,6 +130,7 @@ async function attach() {
     const m = JSON.parse(ev.data);
     if (m.id && waiting.has(m.id)) {
       const w = waiting.get(m.id); waiting.delete(m.id);
+      clearTimeout(w.timer);
       m.error ? w.reject(new Error(JSON.stringify(m.error))) : w.resolve(m.result);
     } else if (m.method === 'Runtime.exceptionThrown') {
       pageErrors.push((m.params.exceptionDetails.text || '') + ' ' + String(m.params.exceptionDetails.exception?.description || ''));
@@ -96,6 +138,8 @@ async function attach() {
       pageErrors.push('console.error: ' + JSON.stringify(m.params.args.map((a) => a.value ?? a.description)));
     }
   };
+  ws.onerror = () => rejectWaiting(new Error('CDP WebSocket 通信失败'));
+  ws.onclose = () => rejectWaiting(new Error('CDP WebSocket 已关闭'));
   await send('Page.enable');
   await send('Runtime.enable');
   // 坑：CDP 新 tab document.hidden=true，rAF 全冻结 → three.js 一帧都不画
@@ -199,7 +243,260 @@ function edgeStats(file, cssW, cssH) {
   };
 }
 
+function expectedBoardPieces(fen) {
+  const board = new Chess(fen).board();
+  const files = 'abcdefgh';
+  const out = [];
+  for (let r = 0; r < 8; r++) {
+    for (let f = 0; f < 8; f++) {
+      const piece = board[r][f];
+      if (piece) out.push({ sq: `${files[f]}${8 - r}`, color: piece.color, type: piece.type });
+    }
+  }
+  return out.sort((a, b) => a.sq.localeCompare(b.sq));
+}
+
+function auditBoardDom(snapshot) {
+  const actual = snapshot.pieces
+    .map(({ sq, color, type }) => ({ sq, color, type }))
+    .sort((a, b) => a.sq.localeCompare(b.sq));
+  const expected = expectedBoardPieces(snapshot.fen);
+  const exactFen = JSON.stringify(actual) === JSON.stringify(expected);
+  const colorCounts = { w: 0, b: 0 };
+  const typeCounts = { w: {}, b: {} };
+  for (const piece of snapshot.pieces) {
+    colorCounts[piece.color] = (colorCounts[piece.color] || 0) + 1;
+    typeCounts[piece.color][piece.type] = (typeCounts[piece.color][piece.type] || 0) + 1;
+  }
+  const initialProfile = colorCounts.w === 16 && colorCounts.b === 16
+    && ['w', 'b'].every((color) =>
+      typeCounts[color].p === 8
+      && typeCounts[color].r === 2
+      && typeCounts[color].n === 2
+      && typeCounts[color].b === 2
+      && typeCounts[color].q === 1
+      && typeCounts[color].k === 1);
+
+  const geometryByType = new Map();
+  for (const piece of snapshot.pieces) {
+    if (!geometryByType.has(piece.type)) geometryByType.set(piece.type, new Set());
+    geometryByType.get(piece.type).add(piece.geometry);
+  }
+  const sameGeometryAcrossColors =
+    geometryByType.size === 6
+    && [...geometryByType.values()].every((signatures) => signatures.size === 1);
+  const sixDistinctModels =
+    new Set([...geometryByType.values()].map((signatures) => [...signatures][0])).size === 6;
+  const templateTypes = snapshot.templates.map((template) => template.type).sort().join('');
+  const templateGeometry = new Map(snapshot.templates.map((template) => [template.type, template.geometry]));
+  const instancesMatchTemplates = snapshot.pieces.every(
+    (piece) => piece.geometry === templateGeometry.get(piece.type),
+  );
+  const layeredTemplates =
+    templateTypes === 'bknpqr'
+    && snapshot.templates.every((template) => template.parts >= 6)
+    && snapshot.pieces.every((piece) => piece.parts >= 6);
+  const templateDepthRoles = snapshot.templates.every(
+    (template) =>
+      template.sideParts >= 1
+      && template.shineParts >= 1
+      && template.groundShadows === 1,
+  );
+
+  const whiteMaterials = new Set(snapshot.pieces.filter((p) => p.color === 'w').map((p) => p.material));
+  const blackMaterials = new Set(snapshot.pieces.filter((p) => p.color === 'b').map((p) => p.material));
+  const materialOk =
+    whiteMaterials.size === 1
+    && blackMaterials.size === 1
+    && [...whiteMaterials][0]
+    && [...blackMaterials][0]
+    && [...whiteMaterials][0] !== [...blackMaterials][0];
+
+  const cell = snapshot.boardRect.w / 8;
+  const boundsOk = snapshot.pieces.every((piece) => {
+    const file = piece.sq.charCodeAt(0) - 97;
+    const row = 8 - Number(piece.sq[1]);
+    const left = snapshot.boardRect.x + file * cell;
+    const top = snapshot.boardRect.y + row * cell;
+    return piece.rect.w >= cell * .34
+      && piece.rect.h >= cell * .48
+      && piece.rect.x >= left - 1
+      && piece.rect.y >= top - 1
+      && piece.rect.right <= left + cell + 1
+      && piece.rect.bottom <= top + cell + 1;
+  });
+
+  return {
+    exactFen,
+    initialProfile,
+    sameGeometryAcrossColors,
+    sixDistinctModels,
+    instancesMatchTemplates,
+    layeredTemplates,
+    templateDepthRoles,
+    materialOk,
+    boundsOk,
+    colorCounts,
+    typeCounts,
+    actual,
+    expected,
+  };
+}
+
+function quantile(values, q) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+}
+
+// 用“正常截图 - 隐藏棋子层截图”取得真实像素掩膜，避免只相信 DOM 上写了什么颜色。
+function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
+  const normal = decodePng(fs.readFileSync(normalFile));
+  const blank = decodePng(fs.readFileSync(blankFile));
+  if (normal.w !== blank.w || normal.h !== blank.h || normal.ch !== blank.ch) {
+    throw new Error('棋盘像素对照图尺寸不一致');
+  }
+  const sx = normal.w / viewport.w;
+  const sy = normal.h / viewport.h;
+  const cellW = snapshot.boardRect.w / 8;
+  const cellH = snapshot.boardRect.h / 8;
+  const pieces = [];
+  const allByColor = { w: [], b: [] };
+  const UPPER_REGION_RATIO = .68; // 排除 y≈36 之后六类共有的底座，只看真正区分棋种的上半身。
+  for (const piece of snapshot.pieces) {
+    const file = piece.sq.charCodeAt(0) - 97;
+    const row = 8 - Number(piece.sq[1]);
+    const x0 = Math.max(0, Math.floor((snapshot.boardRect.x + file * cellW + cellW * .03) * sx));
+    const x1 = Math.min(normal.w, Math.ceil((snapshot.boardRect.x + (file + 1) * cellW - cellW * .03) * sx));
+    const y0 = Math.max(0, Math.floor((snapshot.boardRect.y + row * cellH + cellH * .02) * sy));
+    const y1 = Math.min(normal.h, Math.ceil((snapshot.boardRect.y + (row + 1) * cellH - cellH * .02) * sy));
+    const luminance = [];
+    const maskW = Math.max(1, x1 - x0);
+    const maskH = Math.max(1, y1 - y0);
+    const mask = new Uint8Array(maskW * maskH);
+    const upperRows = Math.max(1, Math.floor(maskH * UPPER_REGION_RATIO));
+    let minVisibleY = maskH, maxVisibleY = -1, upperPixels = 0;
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const o = (y * normal.w + x) * normal.ch;
+        const delta =
+          Math.abs(normal.px[o] - blank.px[o])
+          + Math.abs(normal.px[o + 1] - blank.px[o + 1])
+          + Math.abs(normal.px[o + 2] - blank.px[o + 2]);
+        if (delta < 30) continue;
+        const localY = y - y0;
+        mask[localY * maskW + (x - x0)] = 1;
+        minVisibleY = Math.min(minVisibleY, localY);
+        maxVisibleY = Math.max(maxVisibleY, localY);
+        if (localY < upperRows) upperPixels++;
+        const lum = normal.px[o] * .2126 + normal.px[o + 1] * .7152 + normal.px[o + 2] * .0722;
+        luminance.push(lum);
+        allByColor[piece.color].push(lum);
+      }
+    }
+    const cropArea = Math.max(1, (x1 - x0) * (y1 - y0));
+    pieces.push({
+      sq: piece.sq,
+      color: piece.color,
+      type: piece.type,
+      pixels: luminance.length,
+      coverage: luminance.length / cropArea,
+      p10: quantile(luminance, .1),
+      median: quantile(luminance, .5),
+      p90: quantile(luminance, .9),
+      visibleHeightRatio: maxVisibleY >= minVisibleY
+        ? (maxVisibleY - minVisibleY + 1) / maskH
+        : 0,
+      upperCoverage: upperPixels / Math.max(1, maskW * upperRows),
+      mask,
+      maskW,
+      maskH,
+    });
+  }
+  const white = quantile(allByColor.w, .5);
+  const black = quantile(allByColor.b, .5);
+  const whitePieces = pieces.filter((piece) => piece.color === 'w');
+  const blackPieces = pieces.filter((piece) => piece.color === 'b');
+  const byType = ['p', 'r', 'n', 'b', 'q', 'k'].map((type) => {
+    const whiteType = whitePieces.filter((piece) => piece.type === type).map((piece) => piece.median);
+    const blackType = blackPieces.filter((piece) => piece.type === type).map((piece) => piece.median);
+    const whiteMedian = quantile(whiteType, .5);
+    const blackMedian = quantile(blackType, .5);
+    return {
+      type,
+      white: whiteMedian,
+      black: blackMedian,
+      gap: whiteType.length && blackType.length ? whiteMedian - blackMedian : Infinity,
+    };
+  });
+  const SHAPE_GRID = 18;
+  const SHAPE_ROWS = 15; // 只比上方轮廓，避开六类共有的底座。
+  const shapeVector = (piece) => {
+    const vector = [];
+    for (let gy = 0; gy < SHAPE_ROWS; gy++) {
+      const y0 = Math.floor(gy * piece.maskH / SHAPE_GRID);
+      const y1 = Math.max(y0 + 1, Math.floor((gy + 1) * piece.maskH / SHAPE_GRID));
+      for (let gx = 0; gx < SHAPE_GRID; gx++) {
+        const x0 = Math.floor(gx * piece.maskW / SHAPE_GRID);
+        const x1 = Math.max(x0 + 1, Math.floor((gx + 1) * piece.maskW / SHAPE_GRID));
+        let on = 0, total = 0;
+        for (let y = y0; y < Math.min(y1, piece.maskH); y++) {
+          for (let x = x0; x < Math.min(x1, piece.maskW); x++) {
+            on += piece.mask[y * piece.maskW + x];
+            total++;
+          }
+        }
+        vector.push(on / Math.max(1, total));
+      }
+    }
+    return vector;
+  };
+  const shapeStats = (colorPieces) => {
+    const typeShapes = new Map();
+    for (const type of ['p', 'r', 'n', 'b', 'q', 'k']) {
+      const vectors = colorPieces.filter((piece) => piece.type === type).map(shapeVector);
+      if (!vectors.length) continue;
+      typeShapes.set(type, vectors[0].map((_, i) =>
+        vectors.reduce((sum, vector) => sum + vector[i], 0) / vectors.length));
+    }
+    const shapePairs = [];
+    const shapeEntries = [...typeShapes.entries()];
+    for (let i = 0; i < shapeEntries.length; i++) {
+      for (let j = i + 1; j < shapeEntries.length; j++) {
+        const [aType, a] = shapeEntries[i], [bType, b] = shapeEntries[j];
+        const distance = a.reduce((sum, value, k) => sum + Math.abs(value - b[k]), 0) / a.length;
+        shapePairs.push({ types: `${aType}/${bType}`, distance });
+      }
+    }
+    shapePairs.sort((a, b) => a.distance - b.distance);
+    return {
+      typeCount: typeShapes.size,
+      minDistance: shapePairs[0]?.distance || 0,
+      closestTypes: shapePairs[0]?.types || '',
+    };
+  };
+  const whiteShape = shapeStats(whitePieces);
+  const blackShape = shapeStats(blackPieces);
+  return {
+    white,
+    black,
+    gap: white - black,
+    minWhiteMedian: Math.min(...whitePieces.map((piece) => piece.median)),
+    maxBlackMedian: Math.max(...blackPieces.map((piece) => piece.median)),
+    minTypeGap: Math.min(...byType.map((row) => row.gap)),
+    byType,
+    whiteShape,
+    blackShape,
+    minVisibleHeightRatio: Math.min(...pieces.map((piece) => piece.visibleHeightRatio)),
+    minUpperCoverage: Math.min(...pieces.map((piece) => piece.upperCoverage)),
+    minCoverage: Math.min(...pieces.map((piece) => piece.coverage)),
+    minToneRange: Math.min(...pieces.map((piece) => piece.p90 - piece.p10)),
+    pieces: pieces.map(({ mask, maskW, maskH, ...piece }) => piece),
+  };
+}
+
 // ─────────────────────────── 验收
+const EXPECTED_RESULTS = 64;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -211,13 +508,26 @@ async function waitCloud(timeoutMs = 90000) {
   let last = null;
   while (Date.now() - t0 < timeoutMs) {
     last = await evalJs('typeof window.__cloudStats === "function" ? window.__cloudStats() : null');
+    if (last?.error) throw new Error(`星云 Worker 报错: ${last.error}`);
     if (last && last.growing === false && last.depth >= 4) return last;
     await sleep(400);
   }
   throw new Error('等星云长满超时，最后状态: ' + JSON.stringify(last));
 }
 
+function hasExactCloudDepths(stats, maxDepth) {
+  const actual = stats?.layers?.map((layer) => layer.depth) || [];
+  const expected = Array.from({ length: maxDepth + 1 }, (_, depth) => depth);
+  return JSON.stringify(actual) === JSON.stringify(expected);
+}
+
 async function checkNodesMatchCount(stats, tag) {
+  const actualDepths = stats.layers.map((layer) => layer.depth);
+  const expectedDepths = Array.from({ length: stats.depth + 1 }, (_, depth) => depth);
+  record(
+    hasExactCloudDepths(stats, stats.depth),
+    `①${tag} 星云层集合完整且连续`,
+    `页面 ${JSON.stringify(actualDepths)} vs 应有 ${JSON.stringify(expectedDepths)}`);
   // ① __cloudStats().nodes 与 count(同 fen 同 depth) 完全相等
   const expect = count(stats.fen, stats.depth);
   record(stats.nodes === expect,
@@ -459,7 +769,75 @@ async function runMobileChecks() {
   await evalJs('window.scrollTo(0, 0)');
   await settleLayout();
   const portrait = await evalJs('window.__test.layout()');
+  let releasedFullCloud = null;
+  for (let i = 0; i < 75; i++) {
+    releasedFullCloud = await evalJs('window.__cloudStats()');
+    if (
+      releasedFullCloud.depth === 3
+      && releasedFullCloud.deepPending
+      && !releasedFullCloud.layers.some((layer) => layer.depth === 4)
+    ) break;
+    await sleep(40);
+  }
+  await sleep(250);
+  const releasedIdleCloud = await evalJs('window.__cloudStats()');
   const portraitProblems = layoutProblems(portrait);
+  const portraitBoard = await evalJs('window.__test.board()');
+  const portraitBoardAudit = auditBoardDom(portraitBoard);
+  record(
+    portraitBoardAudit.exactFen
+      && portraitBoard.unicodeGlyphs === 0
+      && portraitBoard.renderModes.length === 1
+      && portraitBoard.renderModes[0] === 'vector-3d'
+      && portraitBoardAudit.instancesMatchTemplates
+      && portraitBoardAudit.templateDepthRoles
+      && portraitBoardAudit.boundsOk,
+    '⑤ 手机竖屏的全部棋子仍用统一 3D 模型并逐格吻合 FEN',
+    `实际 ${portraitBoard.total} 枚｜逐格 ${portraitBoardAudit.exactFen ? '一致' : '不一致'}`
+      + `｜renderer=${portraitBoard.renderModes.join('/')}｜边界=${portraitBoardAudit.boundsOk}`);
+
+  const portraitBoardFile = `${shotBase}-mobile-board.png`;
+  const portraitBoardShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(portraitBoardFile, Buffer.from(portraitBoardShot.data, 'base64'));
+  await evalJs('document.getElementById("boardPieces").style.visibility = "hidden"');
+  await settleLayout();
+  const portraitBlankFile = `${shotBase}-mobile-board-blank.png`;
+  const portraitBlankShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(portraitBlankFile, Buffer.from(portraitBlankShot.data, 'base64'));
+  await evalJs('document.getElementById("boardPieces").style.visibility = ""');
+  await settleLayout();
+  const portraitPixels = boardPiecePixelStats(
+    portraitBoardFile,
+    portraitBlankFile,
+    portraitBoard,
+    portrait.viewport,
+  );
+  record(
+    portraitPixels.white >= 150
+      && portraitPixels.black <= 120
+      && portraitPixels.gap >= 70
+      && portraitPixels.minWhiteMedian >= 150
+      && portraitPixels.maxBlackMedian <= 120
+      && portraitPixels.minTypeGap >= 60
+      && portraitPixels.whiteShape.typeCount === 6
+      && portraitPixels.blackShape.typeCount === 6
+      && portraitPixels.whiteShape.minDistance >= .02
+      && portraitPixels.blackShape.minDistance >= .02
+      && portraitPixels.minVisibleHeightRatio >= .62
+      && portraitPixels.minUpperCoverage >= .035
+      && portraitPixels.minCoverage >= .045
+      && portraitPixels.minToneRange >= 24,
+    '⑤ 手机真实截图中白棋没有发黑，黑白材质和立体明暗都保留',
+    `白中位 ${portraitPixels.white.toFixed(1)}｜黑中位 ${portraitPixels.black.toFixed(1)}`
+      + `｜差 ${portraitPixels.gap.toFixed(1)}`
+      + `｜逐枚白最低/黑最高 ${portraitPixels.minWhiteMedian.toFixed(1)}/${portraitPixels.maxBlackMedian.toFixed(1)}`
+      + `｜逐类型最小差 ${portraitPixels.minTypeGap.toFixed(1)}`
+      + `｜白最近轮廓 ${portraitPixels.whiteShape.closestTypes} Δ${portraitPixels.whiteShape.minDistance.toFixed(3)}`
+      + `｜黑最近轮廓 ${portraitPixels.blackShape.closestTypes} Δ${portraitPixels.blackShape.minDistance.toFixed(3)}`
+      + `｜逐枚最小可见高度 ${(portraitPixels.minVisibleHeightRatio * 100).toFixed(1)}%`
+      + `｜逐枚最小上半区覆盖 ${(portraitPixels.minUpperCoverage * 100).toFixed(1)}%`
+      + `｜最小覆盖 ${(portraitPixels.minCoverage * 100).toFixed(1)}%`
+      + `｜最小明暗跨度 ${portraitPixels.minToneRange.toFixed(1)}`);
   const orderOk =
     portrait.panels.boardPanel.docY < portrait.panels.stage.docY
     && portrait.panels.stage.docY < portrait.panels.cloudPanel.docY;
@@ -489,7 +867,7 @@ async function runMobileChecks() {
   const targetsOk = targets.length > 0 && targets.every((r) => r.h >= 43.9);
   const minTarget = targets.length ? Math.min(...targets.map((r) => r.h)) : 0;
   record(boardOk && targetsOk,
-    '④ 手机棋盘保持正方形，触控目标不小于 44px',
+    '④ 手机棋盘保持正方形，按钮和走法卡触控目标不小于 44px',
     `棋盘 ${Math.round(portrait.board.w)}×${Math.round(portrait.board.h)}｜单格 ${(portrait.board.w / 8).toFixed(1)}px｜最小目标 ${minTarget.toFixed(1)}px`);
 
   const forkGesture = await evalJs(`(() => {
@@ -549,6 +927,81 @@ async function runMobileChecks() {
     '④ 分叉可真实横滑，最后一列可触摸选择',
     `手势滑到 ${Math.round(gestureScrollLeft)}px｜末列点 ${forkReach.target?.san || '无卡片'}→${touchedBranch || '未选'}｜根页面 ${forkReach.rootClientW}/${forkReach.rootScrollW}px`);
 
+  const resetUi = await evalJs(`(() => {
+    const before = {
+      scrollLeft: document.getElementById('forkWrap').scrollLeft,
+      status: document.getElementById('status').textContent,
+      foot: document.getElementById('forkFoot').textContent,
+    };
+    window.scrollTo(0, 0);
+    window.__test.reset();
+    return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve({
+      before,
+      after: {
+        scrollLeft: document.getElementById('forkWrap').scrollLeft,
+        status: document.getElementById('status').textContent,
+        foot: document.getElementById('forkFoot').textContent,
+        state: window.__test.state(),
+        ai: window.__test.ai(),
+        pending: window.__test.aiPending(),
+      },
+    }))));
+  })()`, true);
+  record(
+    resetUi.before.scrollLeft > 10
+      && resetUi.after.scrollLeft <= 1
+      && resetUi.after.state.history.length === 0
+      && resetUi.after.state.thinking === false
+      && resetUi.after.ai === null
+      && resetUi.after.pending === null
+      && resetUi.after.status.includes('你执白')
+      && resetUi.after.foot.includes('亮蓝主干')
+      && !resetUi.after.foot.includes(forkReach.target?.san || '\u0000'),
+    '④ 重开会清掉旧状态、走法详情和分叉横滚位置',
+    `scrollLeft ${Math.round(resetUi.before.scrollLeft)}→${Math.round(resetUi.after.scrollLeft)}`
+      + `｜history=${JSON.stringify(resetUi.after.state.history)}`
+      + `｜AI/pending=${resetUi.after.ai}/${resetUi.after.pending}`
+      + `｜状态「${resetUi.after.status}」`);
+
+  let offscreenCloud = null;
+  for (let i = 0; i < 100; i++) {
+    offscreenCloud = await evalJs(`({
+      stats: window.__cloudStats(),
+      sky: (() => {
+        const r = document.getElementById('skyBox').getBoundingClientRect();
+        return { top: r.top, bottom: r.bottom };
+      })(),
+    })`);
+    if (
+      !offscreenCloud.stats.growing
+      && offscreenCloud.stats.depth >= 3
+    ) break;
+    await sleep(40);
+  }
+  record(
+    releasedFullCloud.depth === 3
+      && releasedFullCloud.deepPending === true
+      && hasExactCloudDepths(releasedFullCloud, 3)
+      && !releasedFullCloud.layers.some((layer) => layer.depth === 4)
+      && hasExactCloudDepths(releasedIdleCloud, 3)
+      && Math.abs(releasedIdleCloud.ms - releasedFullCloud.ms) <= 2
+      && offscreenCloud.stats.depth === 3
+      && offscreenCloud.stats.growing === false
+      && offscreenCloud.stats.deepPending === true
+      && hasExactCloudDepths(offscreenCloud.stats, 3)
+      && !offscreenCloud.stats.error
+      && (
+        offscreenCloud.sky.top >= portrait.viewport.h
+        || offscreenCloud.sky.bottom <= 0
+      ),
+    '④ 手机星图离屏会释放已长满的第四层，屏外重建也只铺真实三层',
+    `已满云离屏 layers=${JSON.stringify(releasedFullCloud.layers.map((layer) => layer.depth))}`
+      + `｜闲置 250ms 的 active ms ${releasedFullCloud.ms}→${releasedIdleCloud.ms}`
+      + `｜重开后 sky y=${Math.round(offscreenCloud.sky.top)}..${Math.round(offscreenCloud.sky.bottom)}`
+      + `｜layers=${JSON.stringify(offscreenCloud.stats.layers.map((layer) => layer.depth))}`
+      + `｜growing=${offscreenCloud.stats.growing}`
+      + `｜deepPending=${offscreenCloud.stats.deepPending}｜error=${offscreenCloud.stats.error || '无'}`);
+
   // 背景不是只铺首屏：页面顶部和滚到底后的四周都直接数截图像素。
   await evalJs('window.scrollTo(0, 0)');
   await settleLayout();
@@ -572,6 +1025,7 @@ async function runMobileChecks() {
       && bottomPosition.y >= bottomPosition.max - 1,
     '④ 手机背景从页面顶部铺到底部，无白边或透明断层',
     `顶部深色 ${topEdge.darkRatio}｜底部深色 ${bottomEdge.darkRatio}｜滚动 ${Math.round(bottomPosition.y)}/${Math.round(bottomPosition.max)}`);
+  const mobileEnteredCloud = await waitCloud(30000);
 
   // 全屏要真占满 viewport，四角的命中层也必须属于星云，而不是后面的面板。
   const skyTap = await evalJs(`(() => {
@@ -756,6 +1210,41 @@ async function runMobileChecks() {
       + `｜画布 ${fsc.pixelW}×${fsc.pixelH}｜四角命中 ${full.cornersHit}`
       + `｜收起按钮 ${Math.round(closeTap.w)}×${Math.round(closeTap.h)}｜关闭后 full=${closed.layout.cloudFull}`);
 
+  await evalJs('document.getElementById("board").scrollIntoView({ block: "center" })');
+  await settleLayout();
+  let mobileLeftCloud = null;
+  for (let i = 0; i < 75; i++) {
+    mobileLeftCloud = await evalJs('window.__cloudStats()');
+    if (
+      mobileLeftCloud.depth === 3
+      && mobileLeftCloud.deepPending
+      && !mobileLeftCloud.layers.some((layer) => layer.depth === 4)
+    ) break;
+    await sleep(40);
+  }
+  await evalJs('document.getElementById("skyBox").scrollIntoView({ block: "center" })');
+  await settleLayout();
+  const mobileReenteredCloud = await waitCloud(30000);
+  record(
+    offscreenCloud.stats.depth === 3
+      && hasExactCloudDepths(offscreenCloud.stats, 3)
+      && mobileEnteredCloud.depth === 4
+      && hasExactCloudDepths(mobileEnteredCloud, 4)
+      && mobileEnteredCloud.layers.some((layer) => layer.depth === 4)
+      && mobileLeftCloud.depth === 3
+      && hasExactCloudDepths(mobileLeftCloud, 3)
+      && mobileLeftCloud.deepPending === true
+      && !mobileLeftCloud.layers.some((layer) => layer.depth === 4)
+      && mobileReenteredCloud.depth === 4
+      && hasExactCloudDepths(mobileReenteredCloud, 4)
+      && mobileReenteredCloud.layers.some((layer) => layer.depth === 4)
+      && mobileReenteredCloud.nodes === count(mobileReenteredCloud.fen, 4),
+    '④ 手机星图进视口长满 L4、离屏释放、再进入会完整长回',
+    `屏外 ${JSON.stringify(offscreenCloud.stats.layers.map((layer) => layer.depth))}`
+      + ` → 进入 ${JSON.stringify(mobileEnteredCloud.layers.map((layer) => layer.depth))}/${mobileEnteredCloud.nodes}`
+      + ` → 离屏 ${JSON.stringify(mobileLeftCloud.layers.map((layer) => layer.depth))}/pending=${mobileLeftCloud.deepPending}`
+      + ` → 再入 ${JSON.stringify(mobileReenteredCloud.layers.map((layer) => layer.depth))}/${mobileReenteredCloud.nodes}`);
+
   // 不走测试钩子，发真实 touch 事件点 e2 → e4。
   await evalJs(`(() => {
     window.__test.reset();
@@ -778,12 +1267,16 @@ async function runMobileChecks() {
     const mobileState = await evalJs('({ state: window.__test.state(), ai: window.__test.ai() })');
     touched = mobileState.state.history;
     mobileAi = mobileState.ai;
-    if (mobileAi && touched.length >= 2 && !mobileState.state.thinking) break;
+    if (mobileAi?.painted && touched.length >= 2 && !mobileState.state.thinking) break;
     await sleep(50);
   }
   const mobileAiWall = Date.now() - mobileAiStart;
   record(
-    touched[0] === 'e4' && touched.length === 2 && !!mobileAi && mobileAiWall <= 3000,
+    touched[0] === 'e4'
+      && touched.length === 2
+      && mobileAi?.painted === true
+      && mobileAi?.totalMs <= 3000
+      && mobileAiWall <= 3000,
     '④ 手机真实触摸能走 e4，AI 仍在 3 秒内合法应手',
     `外部秒表 ${mobileAiWall}ms｜棋谱 ${JSON.stringify(touched)}｜${mobileAi ? `搜到 ${mobileAi.depth} 层` : 'AI 未返回'}`);
 
@@ -860,7 +1353,7 @@ async function runMobileChecks() {
       && tabletProblems.length === 0
       && tabletTwoColumn
       && tabletTargets.length > 0 && tabletTargets.every((r) => r.h >= 43.9),
-    '④ 常见手机横屏与平板均完整，触控目标不小于 44px',
+    '④ 常见手机横屏与平板均完整，按钮和走法卡不小于 44px',
     `844 棋盘 ${Math.round(landscape.board.w)}px｜667 双栏 ${smallTwoColumn ? '是' : '否'} / ${smallProblems.length ? smallProblems.join('; ') : '无重叠'}｜1024 双栏 ${tabletTwoColumn ? '是' : '否'} / ${tabletProblems.length ? tabletProblems.join('; ') : '无重叠'}`);
 
   } finally {
@@ -874,14 +1367,59 @@ async function runMobileChecks() {
 }
 
 async function main() {
+  if (PORT > 0) {
+    if (await portInUse(PORT)) throw new Error(`CDP 端口 ${PORT} 已被占用，请换一个 --port`);
+  }
   if (!URL_) URL_ = await serveLocal();
-  console.log(`验收目标: ${URL_}\n`);
   chromeProcess = await launchChrome();
+  console.log(`验收目标: ${URL_}（CDP ${PORT}）\n`);
   await attach();
 
   await send('Page.navigate', { url: URL_ });
-  await sleep(1500);
+  let ready = false;
+  for (let i = 0; i < 160; i++) {
+    try {
+      ready = await evalJs('typeof window.__test === "object"');
+      if (ready) break;
+    } catch {}
+    await sleep(25);
+  }
+  if (!ready) throw new Error('页面自检钩子未就绪');
   await send('Page.bringToFront');
+
+  // 用户不会等第四层云长满才落子：首屏一能操作就立刻走，AI 仍必须守住 3 秒。
+  const coldCloud = await evalJs('window.__cloudStats()');
+  const coldStartedAt = Date.now();
+  const coldPlayed = await evalJs(`window.__test.tryMove('e2','e4')`);
+  let coldAi = null, coldState = null;
+  while (Date.now() - coldStartedAt < 6000) {
+    const current = await evalJs('({ ai: window.__test.ai(), state: window.__test.state() })');
+    coldAi = current.ai;
+    coldState = current.state;
+    if (coldAi?.painted && coldState.history.length >= 2 && !coldState.thinking) break;
+    await sleep(40);
+  }
+  const coldWall = Date.now() - coldStartedAt;
+  let coldReplayOk = false;
+  try {
+    const replay = new Chess();
+    for (const san of coldState?.history || []) replay.move(san);
+    coldReplayOk = replay.fen() === coldState?.fen && coldState?.history?.length === 2;
+  } catch {}
+  record(
+    coldCloud.growing === true
+      && coldCloud.depth < 4
+      && coldPlayed === true
+      && !!coldAi
+      && coldAi.painted === true
+      && coldWall <= 3000
+      && coldReplayOk,
+    '首屏云仍在计算时立即落子，AI 仍在 3 秒内合法应手',
+    `落子时云 depth=${coldCloud.depth}/growing=${coldCloud.growing}`
+      + `｜外部 ${coldWall}ms｜页面 ${coldAi?.totalMs ?? '无'}ms`
+      + `｜${coldAi?.fallback ? `保底(${coldAi.reason})` : `搜到 ${coldAi?.depth ?? '无'} 层`}`
+      + `｜棋谱 ${JSON.stringify(coldState?.history || [])}`);
+  await evalJs('window.__test.reset()');
 
   // 1) 初始局面：等第 4 层长满，对数
   const s1 = await waitCloud();
@@ -908,6 +1446,76 @@ async function main() {
     cloudShape1.coherence >= 0.35 && cloudShape1.positiveRatio >= 0.8,
     '② 第一层沿未来方向展开，不再围成球壳',
     `方向一致性 ${cloudShape1.coherence.toFixed(3)}｜正向比例 ${cloudShape1.positiveRatio.toFixed(3)}`);
+  record(
+    cloudMap1.layers.length === s1.layers.length && cloudMap1.layers.every((layer) => layer.finite),
+    '② 连续取消和重建后，所有星点坐标仍为有限数',
+    cloudMap1.layers.map((layer) => `L${layer.depth}:${layer.count}/${layer.finite ? 'finite' : 'NaN'}`).join('　'));
+
+  const board1 = await evalJs('window.__test.board()');
+  const boardAudit1 = auditBoardDom(board1);
+  record(
+    board1.total === 32 && boardAudit1.exactFen && boardAudit1.initialProfile,
+    '⑤ 初始 32 枚棋子与 FEN 逐格一致，黑白各 16 枚',
+    `DOM ${board1.total}｜白/黑 ${boardAudit1.colorCounts.w}/${boardAudit1.colorCounts.b}`
+      + `｜逐格 ${boardAudit1.exactFen ? '一致' : '不一致'}`
+      + `｜类型 ${JSON.stringify(boardAudit1.typeCounts)}`);
+  record(
+    board1.unicodeGlyphs === 0
+      && board1.renderModes.length === 1
+      && board1.renderModes[0] === 'vector-3d'
+      && boardAudit1.sameGeometryAcrossColors
+      && boardAudit1.sixDistinctModels
+      && boardAudit1.instancesMatchTemplates
+      && boardAudit1.layeredTemplates
+      && boardAudit1.templateDepthRoles
+      && boardAudit1.materialOk
+      && boardAudit1.boundsOk,
+    '⑤ 六种棋子全部走统一 3D 矢量管线，零 Unicode 字体依赖',
+    `glyph=${board1.unicodeGlyphs}｜renderer=${board1.renderModes.join('/')}`
+      + `｜六种独立造型=${boardAudit1.sixDistinctModels}`
+      + `｜黑白同几何=${boardAudit1.sameGeometryAcrossColors}`
+      + `｜实例吻合模板=${boardAudit1.instancesMatchTemplates}`
+      + `｜分层模型=${boardAudit1.layeredTemplates}`
+      + `｜侧面/高光/地影=${boardAudit1.templateDepthRoles}`
+      + `｜独立材质=${boardAudit1.materialOk}｜边界=${boardAudit1.boundsOk}`);
+
+  // 搜索自己的 deadline 必须独立成立，不能只靠页面 watchdog 遮住超时。
+  const deadlineProbe = await evalJs(`(async () => {
+    const { search } = await import('./engine.js');
+    const t0 = performance.now();
+    const result = search(window.__test.state().fen, { timeBudgetMs: 0, maxDepth: 1 });
+    return { depth: result.depth, nodes: result.nodes, ms: performance.now() - t0 };
+  })()`, true);
+  record(
+    deadlineProbe.depth === 0 && deadlineProbe.nodes === 0 && deadlineProbe.ms < 100,
+    'AI 搜索引擎自身会在根节点执行 deadline，不靠 watchdog 掩盖超时',
+    `depth=${deadlineProbe.depth}｜nodes=${deadlineProbe.nodes}｜${deadlineProbe.ms.toFixed(2)}ms`);
+
+  const timedDeadlineProbe = await evalJs(`(async () => {
+    const { search } = await import('./engine.js');
+    // 该局面白方只有 Ke2 一个合法根走法，走后黑方有 37 种回应。
+    // 根层检查无法在同一棵大子树中救场，必须靠 negamax 内部的周期检查。
+    const fen = 'r2n4/6k1/Bq1p1p2/1p1PQ3/Pb1pp3/3R4/1PP3PR/1NBK2r1 w - - 4 40';
+    const t0 = performance.now();
+    const result = search(fen, { timeBudgetMs: 140, maxDepth: 12 });
+    return {
+      depth: result.depth,
+      nodes: result.nodes,
+      searchMs: result.ms,
+      elapsed: performance.now() - t0,
+    };
+  })()`, true);
+  record(
+    timedDeadlineProbe.depth >= 1
+      && timedDeadlineProbe.depth < 12
+      && timedDeadlineProbe.nodes > 0
+      && timedDeadlineProbe.searchMs >= 90
+      && timedDeadlineProbe.searchMs < 200
+      && timedDeadlineProbe.elapsed < 250,
+    'AI 深搜在正预算下也会周期查钟，不会困在一棵子树里',
+    `depth=${timedDeadlineProbe.depth}｜nodes=${timedDeadlineProbe.nodes}`
+      + `｜search=${timedDeadlineProbe.searchMs.toFixed(1)}ms`
+      + `｜外部=${timedDeadlineProbe.elapsed.toFixed(1)}ms`);
 
   // 1.5) 顺手看一眼评估分的实际分布，星色刻度是照这个定的，不是拍脑袋
   const dist = await evalJs(`(async () => {
@@ -932,6 +1540,42 @@ async function main() {
   record(ss.warmOfLit > 0.02 && ss.coldOfLit > 0.02,
     '② 暖/冷两色都真的看得出来', `暖 ${ss.warm} (${ss.warmOfLit})｜冷 ${ss.cold} (${ss.coldOfLit})`);
 
+  const boardBlankFile = SHOT.replace(/\.png$/i, '-board-blank.png');
+  await evalJs('document.getElementById("boardPieces").style.visibility = "hidden"');
+  await settleLayout();
+  const boardBlankShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(boardBlankFile, Buffer.from(boardBlankShot.data, 'base64'));
+  await evalJs('document.getElementById("boardPieces").style.visibility = ""');
+  await settleLayout();
+  const desktopLayout = await evalJs('window.__test.layout()');
+  const boardPixels1 = boardPiecePixelStats(SHOT, boardBlankFile, board1, desktopLayout.viewport);
+  record(
+    boardPixels1.white >= 150
+      && boardPixels1.black <= 120
+      && boardPixels1.gap >= 70
+      && boardPixels1.minWhiteMedian >= 150
+      && boardPixels1.maxBlackMedian <= 120
+      && boardPixels1.minTypeGap >= 60
+      && boardPixels1.whiteShape.typeCount === 6
+      && boardPixels1.blackShape.typeCount === 6
+      && boardPixels1.whiteShape.minDistance >= .02
+      && boardPixels1.blackShape.minDistance >= .02
+      && boardPixels1.minVisibleHeightRatio >= .62
+      && boardPixels1.minUpperCoverage >= .035
+      && boardPixels1.minCoverage >= .045
+      && boardPixels1.minToneRange >= 24,
+    '⑤ 真实截图里白棋明显亮于黑棋，每颗都有高光和暗部',
+    `白中位 ${boardPixels1.white.toFixed(1)}｜黑中位 ${boardPixels1.black.toFixed(1)}`
+      + `｜差 ${boardPixels1.gap.toFixed(1)}`
+      + `｜逐枚白最低/黑最高 ${boardPixels1.minWhiteMedian.toFixed(1)}/${boardPixels1.maxBlackMedian.toFixed(1)}`
+      + `｜逐类型最小差 ${boardPixels1.minTypeGap.toFixed(1)}`
+      + `｜白最近轮廓 ${boardPixels1.whiteShape.closestTypes} Δ${boardPixels1.whiteShape.minDistance.toFixed(3)}`
+      + `｜黑最近轮廓 ${boardPixels1.blackShape.closestTypes} Δ${boardPixels1.blackShape.minDistance.toFixed(3)}`
+      + `｜逐枚最小可见高度 ${(boardPixels1.minVisibleHeightRatio * 100).toFixed(1)}%`
+      + `｜逐枚最小上半区覆盖 ${(boardPixels1.minUpperCoverage * 100).toFixed(1)}%`
+      + `｜最小覆盖 ${(boardPixels1.minCoverage * 100).toFixed(1)}%`
+      + `｜最小明暗跨度 ${boardPixels1.minToneRange.toFixed(1)}`);
+
   // 3) 非法走子被拒
   const bad = await evalJs(`(() => {
     const before = window.__test.state().fen;
@@ -943,21 +1587,159 @@ async function main() {
   record(bad.r1 === false && bad.r2 === false && bad.r3 === false && bad.changed === false,
     '非法走子被拒', JSON.stringify(bad));
 
+  // 棋子不是只在开局摆对：吃子、升变、王车易位都必须由真实 FEN 重新生成正确模型。
+  const capture = await evalJs(`(() => {
+    const loaded = window.__test.loadFen('8/8/8/3p4/4P3/8/8/K6k w - - 0 1');
+    const played = window.__test.tryMove('e4', 'd5');
+    return { loaded, played, state: window.__test.state(), board: window.__test.board() };
+  })()`);
+  const captureAudit = auditBoardDom(capture.board);
+  await evalJs('window.__test.reset()');
+
+  const promotion = await evalJs(`(() => {
+    const loaded = window.__test.loadFen('7k/P7/8/8/8/8/8/K7 w - - 0 1');
+    const played = window.__test.tryMove('a7', 'a8', 'n');
+    return { loaded, played, state: window.__test.state(), board: window.__test.board() };
+  })()`);
+  const promotionAudit = auditBoardDom(promotion.board);
+  await evalJs('window.__test.reset()');
+
+  const castling = await evalJs(`(() => {
+    const loaded = window.__test.loadFen('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1');
+    const played = window.__test.tryMove('e1', 'g1');
+    return { loaded, played, state: window.__test.state(), board: window.__test.board() };
+  })()`);
+  const castlingAudit = auditBoardDom(castling.board);
+  await evalJs('window.__test.reset()');
+
+  const pieceAt = (snapshot, sq, color, type) =>
+    snapshot.pieces.some((piece) => piece.sq === sq && piece.color === color && piece.type === type);
+  const noPieceAt = (snapshot, sq) => !snapshot.pieces.some((piece) => piece.sq === sq);
+  record(
+    capture.loaded && capture.played
+      && captureAudit.exactFen
+      && capture.board.total === 3
+      && pieceAt(capture.board, 'd5', 'w', 'p')
+      && noPieceAt(capture.board, 'e4')
+      && promotion.loaded && promotion.played
+      && promotionAudit.exactFen
+      && promotion.board.total === 3
+      && pieceAt(promotion.board, 'a8', 'w', 'n')
+      && noPieceAt(promotion.board, 'a7')
+      && castling.loaded && castling.played
+      && castlingAudit.exactFen
+      && castling.board.total === 6
+      && pieceAt(castling.board, 'g1', 'w', 'k')
+      && pieceAt(castling.board, 'f1', 'w', 'r')
+      && noPieceAt(castling.board, 'e1')
+      && noPieceAt(castling.board, 'h1'),
+    '⑤ 吃子、升变、王车易位后，3D 棋子仍与 FEN 逐格一致',
+    `吃子 ${capture.played}/${capture.board.total}枚/${captureAudit.exactFen}`
+      + `｜升变 ${promotion.played}/${promotion.board.total}枚/${promotionAudit.exactFen}`
+      + `｜易位 ${castling.played}/${castling.board.total}枚/${castlingAudit.exactFen}`);
+
+  // 4× CPU 的 390px 手机上以“棋盘已绘制 + painted 标记”为终点，
+  // 防止页面先记账、再同步算云，造成自报 2 秒而用户 4 秒才看到的假绿。
+  await setViewport(390, 844, 'portraitPrimary');
+  await send('Emulation.setCPUThrottlingRate', { rate: 4 });
+  await evalJs('window.__test.reset()');
+  const slowCloud = await evalJs('window.__cloudStats()');
+  const slowStartedAt = Date.now();
+  const slowStart = await evalJs(`(() => {
+    const generation = window.__test.workerGeneration();
+    const t0 = performance.now();
+    const played = window.__test.tryMove('e2', 'e4');
+    return { played, callMs: performance.now() - t0, generation };
+  })()`);
+  let slowResult = null;
+  while (Date.now() - slowStartedAt < 6000) {
+    slowResult = await evalJs(`({
+      ai: window.__test.ai(),
+      state: window.__test.state(),
+      board: window.__test.board(),
+      status: document.getElementById('status').textContent,
+    })`);
+    if (
+      slowResult.ai?.painted
+      && !slowResult.state.thinking
+      && slowResult.state.history.length === 2
+    ) break;
+    await sleep(35);
+  }
+  const slowWall = Date.now() - slowStartedAt;
+  const slowBoardAudit = slowResult?.board ? auditBoardDom(slowResult.board) : { exactFen: false };
+  let slowReplayOk = false;
+  try {
+    const replay = new Chess();
+    for (const san of slowResult?.state?.history || []) replay.move(san);
+    slowReplayOk = replay.fen() === slowResult?.state?.fen;
+  } catch {}
+  record(
+    slowCloud.growing === true
+      && slowStart.played
+      && slowStart.callMs < 500
+      && slowResult?.ai?.painted === true
+      && slowResult?.ai?.totalMs <= 3000
+      && slowWall <= 3000
+      && slowReplayOk
+      && slowBoardAudit.exactFen
+      && slowResult?.status?.includes('轮到你'),
+    '④ 4× 慢速手机以真实可见状态计时，AI 应手仍 ≤3 秒',
+    `落子调用 ${slowStart.callMs.toFixed(1)}ms｜外部可见 ${slowWall}ms`
+      + `｜页面可见 ${slowResult?.ai?.totalMs ?? '无'}ms｜painted=${slowResult?.ai?.painted}`
+      + `｜云 depth=${slowCloud.depth}/growing=${slowCloud.growing}`
+      + `｜棋谱 ${JSON.stringify(slowResult?.state?.history || [])}`);
+  await evalJs('window.__test.reset()');
+  await send('Emulation.setCPUThrottlingRate', { rate: 1 });
+  await send('Emulation.clearDeviceMetricsOverride');
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await settleLayout();
+
   // 旧 AI 回包不能穿过 reset 污染新棋局：先触发一次搜索，马上重开，
   // 等过完整桌面预算后再看真实棋谱/思考态/回包和页面错误。
   const errorsBeforeResetRace = pageErrors.length;
   const resetRaceStarted = await evalJs(`(() => {
+    const before = window.__forkStats().map((column) => column.chosenSan);
     const played = window.__test.tryMove('e2','e4');
+    const picked = window.__test.pickBranch(0, 2);
+    const toggled = window.__test.toggleCol(0);
+    document.querySelector('#fork g.card[data-col="0"][data-idx="2"]')
+      ?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const staleUi = {
+      forkPending: window.__test.forkPending(),
+      inert: document.getElementById('forkWrap').inert,
+      busy: document.getElementById('fork').getAttribute('aria-busy'),
+      buttonDisabled: document.getElementById('btnPlayLine').disabled,
+      opacity: getComputedStyle(document.getElementById('fork')).opacity,
+      after: window.__forkStats().map((column) => column.chosenSan),
+      history: window.__test.state().history,
+    };
     window.__test.reset();
-    return played;
+    return { played, picked, toggled, before, staleUi };
   })()`);
+  record(
+    resetRaceStarted.played
+      && resetRaceStarted.picked === false
+      && resetRaceStarted.toggled === false
+      && resetRaceStarted.staleUi.forkPending === true
+      && resetRaceStarted.staleUi.inert === true
+      && resetRaceStarted.staleUi.busy === 'true'
+      && resetRaceStarted.staleUi.buttonDisabled === true
+      && Number(resetRaceStarted.staleUi.opacity) < .6
+      && JSON.stringify(resetRaceStarted.staleUi.after) === JSON.stringify(resetRaceStarted.before)
+      && resetRaceStarted.staleUi.history.length === 1,
+    'AI 思考与新分叉就绪前，旧分叉彻底不可点也不会偷跑排序',
+    `pick/toggle=${resetRaceStarted.picked}/${resetRaceStarted.toggled}`
+      + `｜pending/inert/busy=${resetRaceStarted.staleUi.forkPending}/${resetRaceStarted.staleUi.inert}/${resetRaceStarted.staleUi.busy}`
+      + `｜按钮 disabled=${resetRaceStarted.staleUi.buttonDisabled}`
+      + `｜路径未变=${JSON.stringify(resetRaceStarted.staleUi.after) === JSON.stringify(resetRaceStarted.before)}`);
   await sleep(2200);
   const resetRace = await evalJs(`({
     state: window.__test.state(),
     ai: window.__test.ai(),
   })`);
   const resetRaceOk =
-    resetRaceStarted === true
+    resetRaceStarted.played === true
     && resetRace.state.history.length === 0
     && resetRace.state.thinking === false
     && resetRace.ai === null
@@ -965,9 +1747,94 @@ async function main() {
   record(
     resetRaceOk,
     '重开会作废途中 AI 回包，不会把旧应手塞进新棋局',
-    `触发 e4=${resetRaceStarted}｜等 2200ms 后 history=${JSON.stringify(resetRace.state.history)}`
+    `触发 e4=${resetRaceStarted.played}｜等 2200ms 后 history=${JSON.stringify(resetRace.state.history)}`
       + `｜thinking=${resetRace.state.thinking}｜AI=${resetRace.ai ? resetRace.ai.san : 'null'}`
       + `｜新增错误=${pageErrors.length - errorsBeforeResetRace}`);
+  await evalJs('window.__test.reset()');
+
+  // 旧 Worker 不能只丢回包却继续占队列：e4→立刻重开→d4，新请求仍须独立守住 3 秒。
+  const rapidResetAt = Date.now();
+  const rapidStarted = await evalJs(`(() => {
+    const generationBefore = window.__test.workerGeneration();
+    const first = window.__test.tryMove('e2','e4');
+    window.__test.reset();
+    const generationAfterReset = window.__test.workerGeneration();
+    const t0 = performance.now();
+    const second = window.__test.tryMove('d2','d4');
+    return {
+      first,
+      second,
+      secondCallMs: performance.now() - t0,
+      generationBefore,
+      generationAfterReset,
+    };
+  })()`);
+  let rapidAi = null, rapidState = null;
+  while (Date.now() - rapidResetAt < 6000) {
+    const current = await evalJs('({ ai: window.__test.ai(), state: window.__test.state() })');
+    rapidAi = current.ai;
+    rapidState = current.state;
+    if (rapidAi?.painted && !rapidState.thinking && rapidState.history.length >= 2) break;
+    await sleep(40);
+  }
+  const rapidWall = Date.now() - rapidResetAt;
+  let rapidReplayOk = false;
+  try {
+    const replay = new Chess();
+    for (const san of rapidState?.history || []) replay.move(san);
+    rapidReplayOk = replay.fen() === rapidState?.fen;
+  } catch {}
+  record(
+    rapidStarted.first && rapidStarted.second
+      && rapidWall <= 3000
+      && rapidAi?.totalMs <= 3000
+      && rapidAi?.painted === true
+      && rapidStarted.secondCallMs < 500
+      && rapidStarted.generationAfterReset > rapidStarted.generationBefore
+      && rapidState?.history?.[0] === 'd4'
+      && rapidState.history.length === 2
+      && rapidReplayOk,
+    '重开会终止旧搜索，紧接的新 AI 请求不排队且 ≤3 秒',
+    `e4/reset/d4=${rapidStarted.first}/${rapidStarted.second}`
+      + `｜Worker 代际 ${rapidStarted.generationBefore}→${rapidStarted.generationAfterReset}`
+      + `｜第二次落子调用 ${rapidStarted.secondCallMs.toFixed(1)}ms`
+      + `｜外部 ${rapidWall}ms｜页面 ${rapidAi?.totalMs ?? '无'}ms`
+      + `｜棋谱 ${JSON.stringify(rapidState?.history || [])}`);
+  await evalJs('window.__test.reset()');
+
+  // 即使搜索 Worker 被杀，主线程 watchdog 也必须在硬时限内走预存的合法保底步。
+  const fallbackAt = Date.now();
+  const fallbackStarted = await evalJs(`(() => {
+    const played = window.__test.tryMove('e2','e4');
+    const terminated = window.__test.terminateAiWorker();
+    return { played, terminated };
+  })()`);
+  let fallbackAi = null, fallbackState = null;
+  while (Date.now() - fallbackAt < 6000) {
+    const current = await evalJs('({ ai: window.__test.ai(), state: window.__test.state() })');
+    fallbackAi = current.ai;
+    fallbackState = current.state;
+    if (fallbackAi?.painted && !fallbackState.thinking && fallbackState.history.length >= 2) break;
+    await sleep(40);
+  }
+  const fallbackWall = Date.now() - fallbackAt;
+  let fallbackReplayOk = false;
+  try {
+    const replay = new Chess();
+    for (const san of fallbackState?.history || []) replay.move(san);
+    fallbackReplayOk = replay.fen() === fallbackState?.fen;
+  } catch {}
+  record(
+    fallbackStarted.played && fallbackStarted.terminated
+      && fallbackWall <= 3000
+      && fallbackAi?.fallback === true
+      && fallbackAi?.painted === true
+      && fallbackAi?.totalMs <= 3000
+      && fallbackState?.history?.length === 2
+      && fallbackReplayOk,
+    '搜索 Worker 失败时仍在 3 秒内走合法保底步',
+    `外部 ${fallbackWall}ms｜页面 ${fallbackAi?.totalMs ?? '无'}ms`
+      + `｜原因 ${fallbackAi?.reason || '无'}｜棋谱 ${JSON.stringify(fallbackState?.history || [])}`);
   await evalJs('window.__test.reset()');
 
   // 4) e4 → AI ≤3 秒应一步合法棋
@@ -977,11 +1844,18 @@ async function main() {
   let ai = null;
   while (Date.now() - t0 < 20000) {
     ai = await evalJs('window.__test.ai()');
-    if (ai) break;
+    if (ai?.painted) break;
     await sleep(50);
   }
   const wall = Date.now() - t0;
-  record(!!ai && wall <= 3000, 'e4 后 AI 应手 ≤3 秒',
+  record(
+    ai?.painted === true
+      && ai?.fallback === false
+      && ai?.depth >= 1
+      && ai?.nodes > 0
+      && ai?.totalMs <= 3000
+      && wall <= 3000,
+    'e4 后搜索 Worker 正常深搜并在 ≤3 秒应手',
     ai ? `外部秒表 ${wall}ms｜页面自计 ${ai.totalMs}ms｜走 ${ai.san}｜搜到 ${ai.depth} 层 ${ai.nodes} 节点` : '超时没应手');
 
   // AI 走的这步合不合法？拿棋谱在 node 里用 chess.js 独立重放一遍
@@ -994,6 +1868,18 @@ async function main() {
   } catch (e) { replayOk = false; replayErr = e.message; }
   record(replayOk, 'AI 那步经 node 端 chess.js 独立重放合法',
     `棋谱 ${JSON.stringify(st.history)}｜重放后 FEN ${replayOk ? '一致' : '不一致 ' + replayErr}`);
+  const board2 = await evalJs('window.__test.board()');
+  const boardAudit2 = auditBoardDom(board2);
+  record(
+    boardAudit2.exactFen
+      && board2.unicodeGlyphs === 0
+      && board2.renderModes.length === 1
+      && board2.renderModes[0] === 'vector-3d'
+      && boardAudit2.boundsOk,
+    '⑤ 落子与 AI 应手后棋子模型仍逐格吻合 FEN，没有幽灵棋子',
+    `棋谱 ${JSON.stringify(st.history)}｜实际 ${board2.total} 枚`
+      + `｜逐格 ${boardAudit2.exactFen ? '一致' : '不一致'}`
+      + `｜renderer=${board2.renderModes.join('/')}｜边界=${boardAudit2.boundsOk}`);
 
   // 5) AI 走完后的新局面，再对一次数（这次的 fen 不是起始局面，能证明不是对着写死的数字）
   const s2 = await waitCloud();
@@ -1122,7 +2008,19 @@ async function main() {
       + `｜棋谱未变=${JSON.stringify(historyAfterOutside) === JSON.stringify(historyBeforeOutside)}`);
 
   // 7) 再走一个回合，让分叉图换一批局面重算，再对一次
-  await evalJs(`window.__test.tryMove('d2','d4')`);
+  const previousAiSan = (await evalJs('window.__test.ai()'))?.san || '';
+  const secondRequest = await evalJs(`(() => {
+    const played = window.__test.tryMove('d2','d4');
+    return { played, ai: window.__test.ai(), pending: window.__test.aiPending(), state: window.__test.state() };
+  })()`);
+  record(
+    secondRequest.played
+      && secondRequest.ai === null
+      && !!secondRequest.pending
+      && secondRequest.state.thinking,
+    '新一轮 AI 思考会清掉上一手结果，不会把旧应手冒充完成',
+    `上一手 ${previousAiSan || '无'}｜新请求 pending=${!!secondRequest.pending}`
+      + `｜thinking=${secondRequest.state.thinking}｜ai=${secondRequest.ai ? secondRequest.ai.san : 'null'}`);
   for (let i = 0; i < 200 && !(await evalJs('window.__test.state().history.length >= 4')); i++) await sleep(50);
   await waitCloud();
   const cols2 = await evalJs('window.__forkStats()');
@@ -1146,6 +2044,13 @@ async function main() {
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
 
+  if (results.length !== EXPECTED_RESULTS) {
+    record(
+      false,
+      '验收项总数没有静默缩水或意外膨胀',
+      `运行到 ${results.length} 项，应为固定 ${EXPECTED_RESULTS} 项`);
+  }
+
   console.log('');
   const failed = results.filter((r) => !r.ok);
   console.log(failed.length === 0
@@ -1155,6 +2060,7 @@ async function main() {
   try { ws.close(); } catch {}
   try { chromeProcess && chromeProcess.kill('SIGKILL'); } catch {}
   if (server) server.close();
+  try { chromeDir && fs.rmSync(chromeDir, { recursive: true, force: true }); } catch {}
   process.exit(failed.length === 0 ? 0 : 1);
 }
 
@@ -1164,5 +2070,6 @@ main().catch((e) => {
   try { ws && ws.close(); } catch {}
   try { chromeProcess && chromeProcess.kill('SIGKILL'); } catch {}
   try { server && server.close(); } catch {}
+  try { chromeDir && fs.rmSync(chromeDir, { recursive: true, force: true }); } catch {}
   process.exit(2);
 });

@@ -206,7 +206,8 @@ function orderMoves(moves) {
 // 负极大值搜索 + alpha-beta。返回值站在 game.turn() 这一方的视角（正 = 我好）。
 function negamax(game, depth, alpha, beta, ply, ctx) {
   ctx.nodes++;
-  if ((ctx.nodes & 1023) === 0 && performance.now() > ctx.deadline) throw TIMEOUT;
+  // 不能隔 1024 节点才看钟：冷启动或与 WebGL/Worker 并发时，前 1024 节点本身就可能跑数秒。
+  if ((ctx.nodes & 31) === 0 && performance.now() > ctx.deadline) throw TIMEOUT;
 
   const moves = game.moves({ verbose: true });
   const white = game.turn() === 'w';
@@ -222,6 +223,7 @@ function negamax(game, depth, alpha, beta, ply, ctx) {
   orderMoves(moves);
   let best = -Infinity;
   for (let i = 0; i < moves.length; i++) {
+    if ((i & 15) === 0 && performance.now() > ctx.deadline) throw TIMEOUT;
     const m = moves[i];
     let v;
     if (depth === 1) {
@@ -268,6 +270,8 @@ export function search(fen, opts = {}) {
     let localBest = null;
     try {
       for (const m of ordered) {
+        // 根节点每个候选前都查时间，保证浅层/低节点数时也不会越过预算。
+        if (performance.now() > ctx.deadline) throw TIMEOUT;
         game.move({ from: m.from, to: m.to, promotion: m.promotion });
         const v = -negamax(game, d - 1, -Infinity, -alpha, 1, ctx);
         game.undo();

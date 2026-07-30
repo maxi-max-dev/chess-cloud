@@ -183,8 +183,59 @@
 
   /* ── 左下：棋盘 */
   #boardPanel { left: 22px; bottom: 22px; width: 434px; padding: 15px 16px 12px; }
-  #board { display: block; width: 380px; height: 380px; margin: 0 auto; border-radius: 8px; overflow: hidden; touch-action: manipulation; }
-  #board text.glyph { pointer-events: none; user-select: none; }
+  #board {
+    display: block; width: 380px; height: 380px; margin: 0 auto;
+    border-radius: 8px; overflow: hidden; touch-action: manipulation;
+    background: #22293a;
+  }
+  /* 棋子完全由本地 SVG 几何组成，不再依赖系统 Unicode 棋子字形。
+     黑白双方共用六种造型，只切换材质，避免某些系统把白棋也画成黑色。 */
+  #board .piece3d { pointer-events: none; user-select: none; }
+  #board .piece3d[data-color="w"] {
+    --piece-main: url(#board-white-main);
+    --piece-side: url(#board-white-side);
+    --piece-edge: #626d82;
+    --piece-shine: rgba(255,255,255,.92);
+    --piece-cut: #747f93;
+  }
+  #board .piece3d[data-color="b"] {
+    --piece-main: url(#board-black-main);
+    --piece-side: url(#board-black-side);
+    --piece-edge: #a8b3c7;
+    --piece-shine: rgba(216,228,247,.72);
+    --piece-cut: #020309;
+  }
+  #board .piece-ground-shadow { fill: rgba(2,4,10,.34); }
+  #board .piece-body {
+    fill: var(--piece-main);
+    stroke: var(--piece-edge);
+    stroke-width: .85;
+    stroke-linejoin: round;
+  }
+  #board .piece-side {
+    fill: var(--piece-side);
+    stroke: var(--piece-edge);
+    stroke-width: .72;
+    stroke-linejoin: round;
+  }
+  #board .piece-shine {
+    fill: none;
+    stroke: var(--piece-shine);
+    stroke-width: 1.15;
+    stroke-linecap: round;
+    opacity: .72;
+  }
+  #board .piece-cut {
+    fill: none;
+    stroke: var(--piece-cut);
+    stroke-width: 2.1;
+    stroke-linecap: round;
+  }
+  #board .piece-eye {
+    fill: var(--piece-cut);
+    stroke: var(--piece-shine);
+    stroke-width: .55;
+  }
   #status { margin-top: 10px; min-height: 34px; font-size: 13px; color: var(--dim); }
   #status b { color: var(--ink); font-weight: 600; }
   .row { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
@@ -317,7 +368,108 @@
 </div>
 
 <div class="panel" id="boardPanel">
-  <svg id="board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg id="board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"
+       role="grid" aria-label="国际象棋棋盘，白方在下">
+    <defs id="boardPieceDefs">
+      <linearGradient id="board-white-main" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#fffef8"/>
+        <stop offset=".38" stop-color="#f1eee5"/>
+        <stop offset=".72" stop-color="#cbd1dc"/>
+        <stop offset="1" stop-color="#929caf"/>
+      </linearGradient>
+      <linearGradient id="board-white-side" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#e8e7e1"/>
+        <stop offset=".58" stop-color="#b9c0cf"/>
+        <stop offset="1" stop-color="#7d879b"/>
+      </linearGradient>
+      <linearGradient id="board-black-main" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#68748a"/>
+        <stop offset=".28" stop-color="#3d4658"/>
+        <stop offset=".7" stop-color="#171b25"/>
+        <stop offset="1" stop-color="#05070c"/>
+      </linearGradient>
+      <linearGradient id="board-black-side" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#303747"/>
+        <stop offset=".55" stop-color="#11151e"/>
+        <stop offset="1" stop-color="#020307"/>
+      </linearGradient>
+
+      <!-- 六种 Staunton 风格的分层矢量模型。模板不会直接渲染；每颗棋克隆同一份几何。 -->
+      <g id="board-piece-p" data-piece-template="p">
+        <ellipse class="piece-ground-shadow" cx="25" cy="44.5" rx="17.5" ry="3"/>
+        <path class="piece-side" d="M8 39.5 Q25 36.2 42 39.5 L39.7 44 Q25 47 10.3 44Z"/>
+        <path class="piece-body" d="M11 37.8 Q25 34.8 39 37.8 L42 40.8 Q25 44.1 8 40.8Z"/>
+        <path class="piece-body" d="M16 36.5 C18.2 31.8 21.4 29.1 21.7 21.3 H28.3 C28.6 29.1 31.8 31.8 34 36.5Z"/>
+        <ellipse class="piece-side" cx="25" cy="21.5" rx="9" ry="3.1"/>
+        <circle class="piece-body" cx="25" cy="13.1" r="7.2"/>
+        <path class="piece-shine" d="M21.3 9.2 C19.3 12.1 19.8 15.4 21.8 17.1"/>
+        <path class="piece-shine" d="M13 38.8 Q20 37.1 27.5 37.5"/>
+      </g>
+
+      <g id="board-piece-r" data-piece-template="r">
+        <ellipse class="piece-ground-shadow" cx="25" cy="44.5" rx="18" ry="3"/>
+        <path class="piece-side" d="M7.5 39.5 Q25 36.2 42.5 39.5 L40 44.2 Q25 47.2 10 44.2Z"/>
+        <path class="piece-body" d="M10 37.7 Q25 34.7 40 37.7 L42.5 40.8 Q25 44 7.5 40.8Z"/>
+        <path class="piece-body" d="M15 36.6 L17.3 17 H32.7 L35 36.6Z"/>
+        <path class="piece-side" d="M29 17 H32.7 L35 36.6 H30.8Z"/>
+        <ellipse class="piece-side" cx="25" cy="17" rx="10.7" ry="3"/>
+        <path class="piece-body" d="M13 7.2 H19 V11.1 H22.2 V7.2 H27.8 V11.1 H31 V7.2 H37 V17.2 Q25 20.5 13 17.2Z"/>
+        <path class="piece-shine" d="M18.6 21 L17.2 33.3"/>
+        <path class="piece-shine" d="M15.5 9 V15"/>
+      </g>
+
+      <g id="board-piece-n" data-piece-template="n">
+        <ellipse class="piece-ground-shadow" cx="25" cy="44.5" rx="18" ry="3"/>
+        <path class="piece-side" d="M7.5 39.5 Q25 36.2 42.5 39.5 L40 44.2 Q25 47.2 10 44.2Z"/>
+        <path class="piece-body" d="M10 37.7 Q25 34.7 40 37.7 L42.5 40.8 Q25 44 7.5 40.8Z"/>
+        <path class="piece-body" d="M14.8 36.7 C16.3 30.6 18.5 25.9 23.3 21.7 C19 19.2 18.4 14.2 21 7.2 L26 11 L29.1 8.7 C35.2 12.1 38 16.3 37 21.7 L31.1 18.8 C32.6 24.8 29.8 28.2 27.2 31.4 L34.8 36.7Z"/>
+        <path class="piece-side" d="M29.1 8.7 C35.2 12.1 38 16.3 37 21.7 L31.1 18.8 C32.6 24.8 29.8 28.2 27.2 31.4 L31 36.7 H34.8 L27.2 31.4 C31 26.8 34.2 21.3 29.1 8.7Z"/>
+        <path class="piece-shine" d="M22.6 10.2 C20.9 15.4 22.1 18.2 25.2 20.1"/>
+        <circle class="piece-eye" cx="29.2" cy="14.5" r="1.25"/>
+        <path class="piece-cut" d="M31.5 19.1 L35 20.2"/>
+      </g>
+
+      <g id="board-piece-b" data-piece-template="b">
+        <ellipse class="piece-ground-shadow" cx="25" cy="44.5" rx="18" ry="3"/>
+        <path class="piece-side" d="M7.5 39.5 Q25 36.2 42.5 39.5 L40 44.2 Q25 47.2 10 44.2Z"/>
+        <path class="piece-body" d="M10 37.7 Q25 34.7 40 37.7 L42.5 40.8 Q25 44 7.5 40.8Z"/>
+        <path class="piece-body" d="M14.7 36.6 C17.5 31.8 21 28.4 21.7 24.2 H28.3 C29 28.4 32.5 31.8 35.3 36.6Z"/>
+        <ellipse class="piece-side" cx="25" cy="24" rx="9.4" ry="3"/>
+        <path class="piece-body" d="M25 5.3 C31.1 10.4 34 14.3 32.2 18.7 C31 21.7 28.3 23.4 25 25.2 C21.7 23.4 19 21.7 17.8 18.7 C16 14.3 18.9 10.4 25 5.3Z"/>
+        <path class="piece-cut" d="M28.8 10.3 L21.8 19.3"/>
+        <path class="piece-shine" d="M21.2 10.8 C18.8 14.1 19.2 17.2 21 19.4"/>
+      </g>
+
+      <g id="board-piece-q" data-piece-template="q">
+        <ellipse class="piece-ground-shadow" cx="25" cy="44.5" rx="18.5" ry="3"/>
+        <path class="piece-side" d="M7 39.5 Q25 36 43 39.5 L40.2 44.2 Q25 47.3 9.8 44.2Z"/>
+        <path class="piece-body" d="M9.5 37.5 Q25 34.4 40.5 37.5 L43 40.8 Q25 44 7 40.8Z"/>
+        <path class="piece-body" d="M13.8 36.5 C16.8 31.4 20.5 28.2 20.8 22.2 H29.2 C29.5 28.2 33.2 31.4 36.2 36.5Z"/>
+        <ellipse class="piece-side" cx="25" cy="22.3" rx="10.4" ry="3.1"/>
+        <path class="piece-body" d="M13.3 10.2 L19.1 17.9 L21 8.1 L25 17.2 L29 8.1 L30.9 17.9 L36.7 10.2 L34.2 21.7 Q25 24.9 15.8 21.7Z"/>
+        <circle class="piece-body" cx="13.1" cy="8.5" r="2.2"/>
+        <circle class="piece-body" cx="21" cy="6.4" r="2.2"/>
+        <circle class="piece-body" cx="29" cy="6.4" r="2.2"/>
+        <circle class="piece-body" cx="36.9" cy="8.5" r="2.2"/>
+        <path class="piece-shine" d="M17.3 27 C16.2 30.4 15.8 32.7 15.5 34.3"/>
+      </g>
+
+      <g id="board-piece-k" data-piece-template="k">
+        <ellipse class="piece-ground-shadow" cx="25" cy="44.5" rx="18.5" ry="3"/>
+        <path class="piece-side" d="M7 39.5 Q25 36 43 39.5 L40.2 44.2 Q25 47.3 9.8 44.2Z"/>
+        <path class="piece-body" d="M9.5 37.5 Q25 34.4 40.5 37.5 L43 40.8 Q25 44 7 40.8Z"/>
+        <path class="piece-body" d="M14 36.5 C17.1 31.1 20.1 27.7 20.7 20.9 H29.3 C29.9 27.7 32.9 31.1 36 36.5Z"/>
+        <ellipse class="piece-side" cx="25" cy="21.2" rx="10.2" ry="3.1"/>
+        <path class="piece-body" d="M18.3 17.7 Q25 13.8 31.7 17.7 L30.1 21.6 Q25 24 19.9 21.6Z"/>
+        <path class="piece-body" d="M22.7 4 H27.3 V8.1 H31.1 V12.4 H27.3 V17 H22.7 V12.4 H18.9 V8.1 H22.7Z"/>
+        <path class="piece-side" d="M27.3 4 V8.1 H31.1 V12.4 H27.3 V17 H25 V4Z"/>
+        <path class="piece-shine" d="M17.5 27 C16.1 30.5 15.7 33.2 15.4 34.5"/>
+      </g>
+    </defs>
+    <g id="boardSquares"></g>
+    <g id="boardPieces"></g>
+    <g id="boardOverlay"></g>
+  </svg>
   <div id="status">正在算分叉…</div>
   <div class="row">
     <button id="btnReset">重开</button>
@@ -337,13 +489,14 @@
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { Chess, expand, rankMoves, MATE } from './engine.js';
+import { Chess, rankMoves, MATE } from './engine.js';
 
 // ─────────────────────────────────────────────── 常量
-const SYNC_DEPTH = 3;      // 星云前几层主线程同步铺开
-const DEEP_DEPTH = 4;      // 这一层交给 Worker 渐进生长
+const SYNC_DEPTH = 3;      // 屏外最多预备到这一层；计算仍全部在 Worker
+const DEEP_DEPTH = 4;      // 星图可见时，Worker 渐进生长到这一层
 const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，应手有硬上限）
 const COMPACT_AI_BUDGET_MS = 900;  // 手机/矮视口给渲染与触控留足余量，守住总应手 ≤3 秒
+const AI_WATCHDOG_MS = 2200; // Worker/JIT 再慢也在这里切到预存的合法保底步
 const BATCH_PARENTS = 400; // Worker 每批处理多少个父节点
 const ROOT_FAN = 0.62;      // 第一层只向「未来」方向张开，不再围成球壳
 const CLOUD_TARGET_X = 8.2; // 镜头看树体中段，让「现在」留在画面左边
@@ -446,11 +599,15 @@ function cssColor(score, boost = 1) {
 // ─────────────────────────────────────────────── 星云的层账本
 // 铁律：星数一律从几何体 position.count 现读，绝不自己记数。
 const layers = new Map();
-let cloudState = { fen: '', depth: 0, ms: 0, t0: 0, growing: false, gen: 0 };
+let cloudState = {
+  fen: '', depth: 0, ms: 0, workerMs: 0, mainMs: 0,
+  growing: false, deepPending: false, error: '', paused: false, gen: 0,
+};
 let cloudFirstMoves = [];
 let cloudRouteLine = null;
 const cloudLayerFens = new Map();
 const cloudLayerParents = new Map();
+const cloudTimingByDepth = new Map();
 
 function nodesAt(depth) {
   const rec = layers.get(depth);
@@ -474,8 +631,31 @@ function clearCloud() {
   cloudFirstMoves = [];
   cloudLayerFens.clear();
   cloudLayerParents.clear();
+  cloudTimingByDepth.clear();
   cloudLabelsEl.replaceChildren();
   layers.clear();
+}
+
+function removeCloudLayer(depth) {
+  const rec = layers.get(depth);
+  if (!rec) return;
+  for (const obj of rec.objects) {
+    cloudGroup.remove(obj);
+    obj.geometry.dispose();
+  }
+  if (rec.lines) {
+    cloudGroup.remove(rec.lines);
+    rec.lines.geometry.dispose();
+  }
+  layers.delete(depth);
+}
+
+function restoreCloudTiming(depth) {
+  const timing = cloudTimingByDepth.get(depth);
+  if (!timing) return;
+  cloudState.workerMs = timing.workerMs;
+  cloudState.mainMs = timing.mainMs;
+  cloudState.ms = timing.workerMs + timing.mainMs;
 }
 
 function hash01(n) {
@@ -592,96 +772,347 @@ let thinking = false;
 let lastAi = null;
 let aiClock = 0;
 let aiRequestId = 0;
+let aiPending = null;
+let aiWatchdog = 0;
+let searchWorker = null;
+let searchWorkerGeneration = 0;
 
-const searchWorker = new Worker('./worker.js', { type: 'module' });
-searchWorker.postMessage({ type: 'ping' });
-searchWorker.onmessage = (ev) => {
-  const m = ev.data;
-  if ((m.type === 'searchDone' || m.type === 'searchError') && m.id !== aiRequestId) return;
-  if (m.type === 'searchDone') onAiMove(m.result);
-  else if (m.type === 'searchError') { thinking = false; setStatus(`AI 出错：${m.message}`); }
-};
+function clearAiWatchdog() {
+  if (aiWatchdog) clearTimeout(aiWatchdog);
+  aiWatchdog = 0;
+}
+
+function createSearchWorker() {
+  const worker = new Worker('./worker.js', { type: 'module' });
+  searchWorker = worker;
+  searchWorkerGeneration++;
+  worker.onmessage = (ev) => {
+    const m = ev.data;
+    if (worker !== searchWorker || !aiPending) return;
+    if ((m.type === 'searchDone' || m.type === 'searchError')
+      && (m.id !== aiPending.id || aiPending.fen !== game.fen())) return;
+    if (m.type === 'searchDone') onAiMove(m.result);
+    else if (m.type === 'searchError') useFallbackAi('搜索出错');
+  };
+  worker.onerror = () => {
+    if (worker === searchWorker && aiPending) useFallbackAi('Worker 加载失败');
+  };
+  worker.onmessageerror = () => {
+    if (worker === searchWorker && aiPending) useFallbackAi('Worker 通信失败');
+  };
+  worker.postMessage({ type: 'ping' });
+  return worker;
+}
+
+function restartSearchWorker() {
+  if (searchWorker) searchWorker.terminate();
+  searchWorker = null;
+  return createSearchWorker();
+}
+
+function useFallbackAi(reason) {
+  const pending = aiPending;
+  if (!pending || !thinking || pending.fen !== game.fen()) return false;
+  restartSearchWorker(); // 同步搜索无法取消消息，只能终止实例，下一盘绝不排在它后面。
+  onAiMove({
+    move: pending.fallback.move,
+    san: pending.fallback.san,
+    score: 0,
+    depth: 0,
+    nodes: 0,
+    ms: performance.now() - aiClock,
+    fallback: true,
+    reason,
+  });
+  return true;
+}
+
+createSearchWorker();
 
 let cloudWorker = null;
+let cloudWorkerTargetDepth = 0;
+let cloudWorkerBaseMs = 0;
 
-function rebuildCloud() {
+function skyIsVisibleNow() {
+  const r = skyBox.getBoundingClientRect();
+  return !document.hidden
+    && r.width > 0 && r.height > 0
+    && r.right > 0 && r.bottom > 0
+    && r.left < innerWidth && r.top < innerHeight;
+}
+
+function prepareCloud() {
   const gen = ++cloudState.gen;
   if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }
+  cloudWorkerTargetDepth = 0;
   clearCloud();
   cloudTarget.set(CLOUD_TARGET_X, 0, 0);
   cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
 
   const fen = game.fen();
-  const t0 = performance.now();
   addRoot(0);
-  const firstMoves = new Chess(fen).moves({ verbose: true });
-
-  let parentFens = [fen];
-  for (let d = 1; d <= SYNC_DEPTH; d++) {
-    const { parents, scores, fens } = expand(parentFens, { keepFens: true });
-    appendLayer(d, parents, scores);
-    cloudLayerFens.set(d, fens);
-    cloudLayerParents.set(d, parents);
-    if (d === 1) {
-      cloudFirstMoves = firstMoves.map((m, index) => ({
-        san: m.san, after: m.after, from: m.from, to: m.to,
-        promotion: m.promotion, score: scores[index], index,
-      }));
-    }
-    parentFens = fens;
-  }
-  const syncMs = performance.now() - t0;
-  cloudState = { fen, depth: SYNC_DEPTH, ms: syncMs, t0, growing: parentFens.length > 0, gen };
-  updateHud();
-
-  if (parentFens.length === 0) { cloudState.growing = false; updateHud(); return; }
-
-  cloudWorker = new Worker('./worker.js', { type: 'module' });
-  cloudWorker.onmessage = (ev) => {
-    const m = ev.data;
-    if (m.id !== gen) return;
-    if (m.type === 'cloudBatch') { appendLayer(m.depth, m.parents, m.scores); updateHud(); }
-    else if (m.type === 'cloudDone') {
-      cloudState.depth = DEEP_DEPTH;
-      cloudState.ms = performance.now() - cloudState.t0;
-      cloudState.growing = false;
-      updateHud();
-    } else if (m.type === 'cloudError') { cloudState.growing = false; setStatus(`星云出错：${m.message}`); }
+  cloudState = {
+    fen, depth: 0, ms: 0, workerMs: 0, mainMs: 0,
+    growing: false, deepPending: false, error: '', paused: false, gen,
   };
-  cloudWorker.postMessage({ type: 'cloud', id: gen, depth: DEEP_DEPTH, parentFens, batchParents: BATCH_PARENTS });
+  updateHud();
+  return gen;
+}
+
+function startCloudWorker({
+  gen = cloudState.gen,
+  startDepth = 1,
+  targetDepth = DEEP_DEPTH,
+  parentFens = null,
+} = {}) {
+  if (gen !== cloudState.gen || thinking || document.hidden) return false;
+  if (cloudWorker) cloudWorker.terminate();
+
+  const worker = new Worker('./worker.js', { type: 'module' });
+  cloudWorker = worker;
+  cloudWorkerTargetDepth = targetDepth;
+  cloudWorkerBaseMs = cloudState.workerMs;
+  cloudState.growing = true;
+  cloudState.deepPending = false;
+  cloudState.error = '';
+  cloudState.paused = false;
+  updateHud();
+  worker.onmessage = (ev) => {
+    const m = ev.data;
+    if (worker !== cloudWorker || m.id !== cloudState.gen) return;
+    if (m.type === 'cloudLayer') {
+      const mainStarted = performance.now();
+      appendLayer(m.depth, m.parents, m.scores);
+      cloudLayerFens.set(m.depth, m.fens);
+      cloudLayerParents.set(m.depth, m.parents);
+      if (m.depth === 1) {
+        const firstMoves = new Chess(cloudState.fen).moves({ verbose: true });
+        cloudFirstMoves = firstMoves.map((move, index) => ({
+          san: move.san, after: move.after, from: move.from, to: move.to,
+          promotion: move.promotion, score: m.scores[index], index,
+        }));
+      }
+      cloudState.depth = Math.max(cloudState.depth, m.depth);
+      syncCloudMap();
+      cloudState.mainMs += performance.now() - mainStarted;
+      cloudState.workerMs = cloudWorkerBaseMs + m.ms;
+      cloudState.ms = cloudState.workerMs + cloudState.mainMs;
+      cloudTimingByDepth.set(m.depth, {
+        workerMs: cloudState.workerMs,
+        mainMs: cloudState.mainMs,
+      });
+      updateHud();
+    } else if (m.type === 'cloudBatch') {
+      const mainStarted = performance.now();
+      appendLayer(m.depth, m.parents, m.scores);
+      cloudState.depth = Math.max(cloudState.depth, m.depth);
+      cloudState.mainMs += performance.now() - mainStarted;
+      cloudState.workerMs = cloudWorkerBaseMs + m.ms;
+      cloudState.ms = cloudState.workerMs + cloudState.mainMs;
+      updateHud();
+    } else if (m.type === 'cloudDone') {
+      cloudState.depth = m.depth;
+      cloudState.workerMs = cloudWorkerBaseMs + m.ms;
+      cloudState.ms = cloudState.workerMs + cloudState.mainMs;
+      cloudTimingByDepth.set(m.depth, {
+        workerMs: cloudState.workerMs,
+        mainMs: cloudState.mainMs,
+      });
+      cloudState.growing = false;
+      cloudState.deepPending = m.depth < DEEP_DEPTH;
+      updateHud();
+      worker.terminate();
+      if (cloudWorker === worker) cloudWorker = null;
+      cloudWorkerTargetDepth = 0;
+      maybeStartDeepCloud();
+    } else if (m.type === 'cloudError') {
+      cloudState.growing = false;
+      cloudState.deepPending = false;
+      cloudState.error = m.message || '未知错误';
+      cloudState.workerMs = cloudWorkerBaseMs + (m.ms || 0);
+      cloudState.ms = cloudState.workerMs + cloudState.mainMs;
+      updateHud();
+      worker.terminate();
+      if (cloudWorker === worker) cloudWorker = null;
+      cloudWorkerTargetDepth = 0;
+    }
+  };
+  worker.onerror = worker.onmessageerror = () => {
+    if (worker !== cloudWorker) return;
+    cloudState.growing = false;
+    cloudState.deepPending = false;
+    cloudState.error = 'Worker 加载或通信失败';
+    updateHud();
+    worker.terminate();
+    cloudWorker = null;
+    cloudWorkerTargetDepth = 0;
+  };
+  worker.postMessage({
+    type: 'cloud',
+    id: gen,
+    fen: cloudState.fen,
+    startDepth,
+    targetDepth,
+    parentFens,
+    batchParents: matchMedia('(max-width: 1100px), (max-height: 780px)').matches
+      ? Math.min(120, BATCH_PARENTS)
+      : BATCH_PARENTS,
+  });
+  return true;
+}
+
+function maybeStartDeepCloud() {
+  if (
+    thinking
+    || document.hidden
+    || cloudWorker
+    || cloudState.error
+    || cloudState.depth !== SYNC_DEPTH
+    || !cloudState.deepPending
+    || !skyIsVisibleNow()
+  ) return false;
+  const parentFens = cloudLayerFens.get(SYNC_DEPTH);
+  if (!parentFens?.length) return false;
+  return startCloudWorker({
+    gen: cloudState.gen,
+    startDepth: DEEP_DEPTH,
+    targetDepth: DEEP_DEPTH,
+    parentFens,
+  });
+}
+
+function growPreparedCloud(gen = cloudState.gen) {
+  if (gen !== cloudState.gen || thinking) return false;
+  if (document.hidden) {
+    cloudState.paused = true;
+    updateHud();
+    return false;
+  }
+  const targetDepth = skyIsVisibleNow() ? DEEP_DEPTH : SYNC_DEPTH;
+  return startCloudWorker({ gen, startDepth: 1, targetDepth });
+}
+
+function rebuildCloud() {
+  const gen = prepareCloud();
+  if (!thinking) growPreparedCloud(gen);
+  return gen;
 }
 
 function requestAi() {
   if (game.isGameOver()) { thinking = false; return; }
   thinking = true;
+  lastAi = null;
   aiClock = performance.now();
   const timeBudgetMs = matchMedia('(max-width: 1100px), (max-height: 780px)').matches
     ? COMPACT_AI_BUDGET_MS
     : AI_BUDGET_MS;
   const id = ++aiRequestId;
-  searchWorker.postMessage({ type: 'search', id, fen: game.fen(), timeBudgetMs });
+  const fen = game.fen();
+  const first = game.moves({ verbose: true })[0];
+  if (!first) { thinking = false; return; }
+  aiPending = {
+    id,
+    fen,
+    fallback: {
+      move: { from: first.from, to: first.to, promotion: first.promotion },
+      san: first.san,
+    },
+  };
+  clearAiWatchdog();
+  aiWatchdog = setTimeout(() => useFallbackAi('超过硬时限'), AI_WATCHDOG_MS);
+  if (!searchWorker) createSearchWorker();
+  searchWorker.postMessage({ type: 'search', id, fen, timeBudgetMs });
+}
+
+let presentationGen = 0;
+
+function aiStatusHtml(ai) {
+  if (game.isGameOver()) return describeEnd();
+  return `黑走 <b>${ai.san}</b>（${
+    ai.fallback
+      ? '硬时限内采用合法保底步'
+      : `想了 ${ai.totalMs}ms，搜到 ${ai.depth} 层`
+  }）。轮到你。`;
+}
+
+/**
+ * AI 落子和状态先交给浏览器绘制；分叉排序与星云生长放到后续任务。
+ * 这样慢手机上用户看到的应手时间不会被非关键可视化工作偷偷拖长。
+ */
+function finishAiPresentation(ai, fen, cloudGen) {
+  const gen = ++presentationGen;
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      if (gen !== presentationGen || lastAi !== ai || game.fen() !== fen) return;
+      ai.totalMs = Math.round(performance.now() - aiClock);
+      ai.painted = true;
+      setStatus(aiStatusHtml(ai));
+      updateHud();
+
+      // 留出一帧让最终状态文字也上屏，再计算新局面的分叉并启动云 Worker。
+      setTimeout(() => {
+        if (gen !== presentationGen || lastAi !== ai || game.fen() !== fen) return;
+        renderFork(true);
+        growPreparedCloud(cloudGen);
+      }, 120);
+    }, 0);
+  });
 }
 
 function onAiMove(result) {
+  const pending = aiPending;
+  clearAiWatchdog();
+  aiPending = null;
   thinking = false;
-  if (!result) { renderBoard(); renderFork(); setStatus(describeEnd()); return; }
-  const mv = game.move(result.move);
+  if (!result) {
+    forkStale = false;
+    renderBoard();
+    renderFork();
+    setStatus(describeEnd());
+    return;
+  }
+  let mv = null;
+  try { mv = game.move(result.move); } catch {}
+  let usedFallback = !!result.fallback;
+  if (!mv && pending?.fallback) {
+    try { mv = game.move(pending.fallback.move); } catch {}
+    result = {
+      ...result,
+      ...pending.fallback,
+      depth: 0,
+      nodes: 0,
+      fallback: true,
+      reason: '搜索返回了无效走法',
+    };
+    usedFallback = true;
+  }
+  if (!mv) {
+    forkStale = false;
+    renderBoard();
+    renderFork();
+    setStatusText(game.isGameOver() ? describeEnd() : 'AI 未能生成合法走法，请重开后再试。');
+    return;
+  }
   lastAi = {
     san: mv ? mv.san : result.san,
     depth: result.depth, nodes: result.nodes,
     searchMs: Math.round(result.ms),
     totalMs: Math.round(performance.now() - aiClock),
+    painted: false,
+    fallback: usedFallback,
+    reason: usedFallback ? result.reason : '',
   };
   selected = null;
   preview = null;
   branchPath = [];
   expanded = [];
+  resetForkTransient();
   renderBoard();
-  rebuildCloud();
-  renderFork();
-  setStatus(game.isGameOver()
-    ? describeEnd()
-    : `黑走 <b>${lastAi.san}</b>（想了 ${lastAi.totalMs}ms，搜到 ${lastAi.depth} 层）。轮到你。`);
+  const cloudGen = prepareCloud();
+  const ai = lastAi;
+  const fen = game.fen();
+  setStatus(aiStatusHtml(ai));
+  finishAiPresentation(ai, fen, cloudGen);
 }
 
 /** 落子入口。棋盘点击、分叉图、测试钩子走的都是这一条路，合法性一律由 chess.js 判。 */
@@ -694,10 +1125,19 @@ function tryMove(from, to, promotion) {
   preview = null;
   branchPath = [];
   expanded = [];
+  lastAi = null;
+  presentationGen++;
+  resetForkTransient();
   renderBoard();
   requestAi();       // 先派活给 AI 的 Worker，让它和主线程并行
-  rebuildCloud();
-  renderFork();
+  if (!thinking) {
+    rebuildCloud();
+    renderFork();
+    setStatus(describeEnd());
+    return true;
+  }
+  prepareCloud();    // 只清掉旧局面；思考时不做任何注定会被应手替换的云计算
+  markForkStale();
   setStatus(game.isGameOver() ? describeEnd() : `你走 <b>${mv.san}</b>，黑方在想…`);
   return true;
 }
@@ -714,9 +1154,12 @@ function describeEnd() {
 // ─────────────────────────────────────────────── 棋盘（自绘 SVG）
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const boardEl = document.getElementById('board');
+const boardSquaresEl = document.getElementById('boardSquares');
+const boardPiecesEl = document.getElementById('boardPieces');
+const boardOverlayEl = document.getElementById('boardOverlay');
 const CELL = 50;
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
-const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+const PIECE_NAME = { k: '王', q: '后', r: '车', b: '象', n: '马', p: '兵' };
 let preview = null;      // 鼠标停在分叉图某条上时，棋盘要画出来的那一步
 
 function squareXY(sq) {
@@ -724,78 +1167,110 @@ function squareXY(sq) {
   return [f * CELL + CELL / 2, r * CELL + CELL / 2];
 }
 
+function svgElement(tag, attrs = {}) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+  return el;
+}
+
+function appendPieceModel(pc, sq, f, r) {
+  const template = document.getElementById(`board-piece-${pc.type}`);
+  if (!template) throw new Error(`缺少棋子模型：${pc.type}`);
+  const piece = svgElement('g', {
+    class: 'piece3d',
+    transform: `translate(${f * CELL} ${r * CELL})`,
+    'data-sq': sq,
+    'data-color': pc.color,
+    'data-type': pc.type,
+    'data-render': 'vector-3d',
+    role: 'img',
+    'aria-label': `${pc.color === 'w' ? '白' : '黑'}${PIECE_NAME[pc.type]} ${sq}`,
+  });
+  const model = template.cloneNode(true);
+  model.removeAttribute('id');
+  model.removeAttribute('data-piece-template');
+  piece.appendChild(model);
+  boardPiecesEl.appendChild(piece);
+}
+
 function renderBoard() {
-  while (boardEl.firstChild) boardEl.removeChild(boardEl.firstChild);
+  boardSquaresEl.replaceChildren();
+  boardPiecesEl.replaceChildren();
+  boardOverlayEl.replaceChildren();
   const legal = selected ? game.moves({ square: selected, verbose: true }).map((m) => m.to) : [];
   const board = game.board();
   const last = game.history({ verbose: true }).slice(-1)[0];
 
+  // 第一层只画格子，保证棋子的 pointer-events:none 时点击稳定落到真实格子上。
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
       const sq = FILES[f] + (8 - r);
       const dark = (r + f) % 2 === 1;
-      const rect = document.createElementNS(SVG_NS, 'rect');
-      rect.setAttribute('x', f * CELL); rect.setAttribute('y', r * CELL);
-      rect.setAttribute('width', CELL); rect.setAttribute('height', CELL);
+      const rect = svgElement('rect', {
+        x: f * CELL, y: r * CELL, width: CELL, height: CELL,
+        stroke: dark ? 'rgba(8,12,21,.34)' : 'rgba(236,242,255,.08)',
+        'stroke-width': .55,
+        'data-sq': sq,
+        role: 'gridcell',
+        'aria-label': sq,
+      });
       let fill = dark ? '#3b4560' : '#8b97b4';
       if (last && (sq === last.from || sq === last.to)) fill = dark ? '#5c6132' : '#b3b06a';
       if (sq === selected) fill = '#c9a24a';
       rect.setAttribute('fill', fill);
-      rect.dataset.sq = sq;
-      boardEl.appendChild(rect);
+      boardSquaresEl.appendChild(rect);
+    }
+  }
 
-      if (legal.includes(sq)) {
-        const dot = document.createElementNS(SVG_NS, 'circle');
-        dot.setAttribute('cx', f * CELL + CELL / 2);
-        dot.setAttribute('cy', r * CELL + CELL / 2);
-        dot.setAttribute('r', board[r][f] ? 21 : 7.5);
-        dot.setAttribute('fill', 'none');
-        dot.setAttribute('stroke', 'rgba(255,240,190,.85)');
-        dot.setAttribute('stroke-width', board[r][f] ? 2.5 : 15);
-        dot.dataset.sq = sq;
-        boardEl.appendChild(dot);
-      }
-
+  // 第二层统一画六种矢量 3D 模型；黑白只换材质，不换造型、不走字体回退。
+  for (let r = 0; r < 8; r++) {
+    for (let f = 0; f < 8; f++) {
+      const sq = FILES[f] + (8 - r);
       const pc = board[r][f];
-      if (pc) {
-        const t = document.createElementNS(SVG_NS, 'text');
-        t.setAttribute('x', f * CELL + CELL / 2);
-        t.setAttribute('y', r * CELL + CELL / 2 + 1);
-        t.setAttribute('text-anchor', 'middle');
-        t.setAttribute('dominant-baseline', 'central');
-        t.setAttribute('font-size', 38);
-        t.setAttribute('class', 'glyph');
-        t.setAttribute('fill', pc.color === 'w' ? '#f6f3ea' : '#14161f');
-        t.setAttribute('stroke', pc.color === 'w' ? '#1b1d26' : '#9aa3bb');
-        t.setAttribute('stroke-width', 1.1);
-        t.setAttribute('paint-order', 'stroke');
-        t.textContent = GLYPH[pc.type];
-        boardEl.appendChild(t);
+      if (pc) appendPieceModel(pc, sq, f, r);
+    }
+  }
+
+  // 第三层画合法落点和预览，覆盖在棋子之上但仍把触控交给格子。
+  for (let r = 0; r < 8; r++) {
+    for (let f = 0; f < 8; f++) {
+      const sq = FILES[f] + (8 - r);
+      if (legal.includes(sq)) {
+        const dot = svgElement('circle', {
+          cx: f * CELL + CELL / 2,
+          cy: r * CELL + CELL / 2,
+          r: board[r][f] ? 21 : 7.5,
+          fill: 'none',
+          stroke: 'rgba(255,240,190,.85)',
+          'stroke-width': board[r][f] ? 2.5 : 15,
+          'data-sq': sq,
+        });
+        boardOverlayEl.appendChild(dot);
       }
     }
   }
 
   if (preview) {
     const [x1, y1] = squareXY(preview.from), [x2, y2] = squareXY(preview.to);
-    const ring = document.createElementNS(SVG_NS, 'circle');
-    ring.setAttribute('cx', x1); ring.setAttribute('cy', y1); ring.setAttribute('r', 21);
-    ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', preview.color);
-    ring.setAttribute('stroke-width', 3); ring.setAttribute('stroke-dasharray', '5 4');
-    ring.setAttribute('pointer-events', 'none');
-    boardEl.appendChild(ring);
-    const ln = document.createElementNS(SVG_NS, 'line');
-    ln.setAttribute('x1', x1); ln.setAttribute('y1', y1);
-    ln.setAttribute('x2', x2); ln.setAttribute('y2', y2);
-    ln.setAttribute('stroke', preview.color); ln.setAttribute('stroke-width', 5);
-    ln.setAttribute('stroke-linecap', 'round'); ln.setAttribute('opacity', '.9');
-    ln.setAttribute('pointer-events', 'none');
-    boardEl.appendChild(ln);
-    const dot = document.createElementNS(SVG_NS, 'circle');
-    dot.setAttribute('cx', x2); dot.setAttribute('cy', y2); dot.setAttribute('r', 9);
-    dot.setAttribute('fill', preview.color);
-    dot.setAttribute('pointer-events', 'none');
-    boardEl.appendChild(dot);
+    const ring = svgElement('circle', {
+      cx: x1, cy: y1, r: 21, fill: 'none', stroke: preview.color,
+      'stroke-width': 3, 'stroke-dasharray': '5 4', 'pointer-events': 'none',
+    });
+    boardOverlayEl.appendChild(ring);
+    const ln = svgElement('line', {
+      x1, y1, x2, y2, stroke: preview.color, 'stroke-width': 5,
+      'stroke-linecap': 'round', opacity: '.9', 'pointer-events': 'none',
+    });
+    boardOverlayEl.appendChild(ln);
+    const dot = svgElement('circle', {
+      cx: x2, cy: y2, r: 9, fill: preview.color, 'pointer-events': 'none',
+    });
+    boardOverlayEl.appendChild(dot);
   }
+  boardEl.setAttribute(
+    'aria-label',
+    `国际象棋棋盘，${game.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${boardPiecesEl.childElementCount} 枚棋子`,
+  );
 }
 
 boardEl.addEventListener('click', (ev) => {
@@ -811,17 +1286,29 @@ boardEl.addEventListener('click', (ev) => {
 });
 
 function setStatus(html) { document.getElementById('status').innerHTML = html; }
+function setStatusText(text) { document.getElementById('status').textContent = text; }
 
 function updateHud() {
   let total = 0;
   for (const d of builtDepths()) total += nodesAt(d);
   const layerTxt = cloudState.growing ? `${cloudState.depth}+ 层` : `${cloudState.depth} 层`;
+  const deepest = nodesAt(cloudState.depth);
+  if (cloudState.error) {
+    document.getElementById('cloudStats').innerHTML =
+      `星云计算失败 · 已保留真实绘制到第 <b>${cloudState.depth}</b> 层`;
+    document.getElementById('cloudCount').innerHTML =
+      `<span class="grow">计算中断：${esc(cloudState.error)}</span> · 已绘制 ${total.toLocaleString('en-US')} 个节点`;
+    cloudLayerLegendEl.textContent = builtDepths()
+      .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
+      .join('　·　');
+    return;
+  }
   document.getElementById('cloudStats').innerHTML =
-    `铺了 <b>${layerTxt}</b>　·　${Math.round(cloudState.ms)} ms 成云`
+    `铺了 <b>${layerTxt}</b>　·　当前可见层 ${Math.round(cloudState.ms)} ms 计算`
     + (lastAi ? `　·　AI 应手 <b>${lastAi.totalMs} ms</b>（搜到 ${lastAi.depth} 层）` : '');
   document.getElementById('cloudCount').innerHTML = cloudState.growing
-    ? `这一步之后 <span class="grow">${total.toLocaleString('en-US')}</span> 种未来，还在长`
-    : `这一步之后 ${total.toLocaleString('en-US')} 种未来`;
+    ? `已绘制 <span class="grow">${total.toLocaleString('en-US')}</span> 个路径节点，还在长`
+    : `${cloudState.depth} 步后 ${deepest.toLocaleString('en-US')} 条路径 · 共绘制 ${total.toLocaleString('en-US')} 个节点`;
   cloudLayerLegendEl.textContent = builtDepths()
     .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
     .join('　·　');
@@ -832,7 +1319,28 @@ function updateHud() {
 // 其余折成一行「还有 N 条」。点哪条，右边就顺它接着分叉。
 const forkEl = document.getElementById('fork');
 const forkWrap = document.getElementById('forkWrap');
+const FORK_IDLE_TEXT = '亮蓝主干就是当前选路；点走法只预览，确认后再落子。';
 const CARD_H = 44, CARD_GAP = 8, HEAD_H = 62;
+let forkScrollGen = 0;
+let forkStale = false;
+
+function markForkStale() {
+  forkStale = true;
+  forkWrap.inert = true;
+  forkEl.style.opacity = '.45';
+  forkEl.setAttribute('aria-busy', 'true');
+  document.getElementById('btnPlayLine').disabled = true;
+  document.getElementById('forkFoot').textContent = '黑方应手后，未来路径会从新局面重新长出。';
+}
+
+function resetForkTransient() {
+  const gen = ++forkScrollGen;
+  document.getElementById('forkFoot').textContent = FORK_IDLE_TEXT;
+  forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
+  requestAnimationFrame(() => {
+    if (gen === forkScrollGen) forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
+  });
+}
 let branchPath = [];     // 每列选中的是排序后的第几条
 let expanded = [];       // 哪些列被点开了「还有 N 条」
 let columns = [];
@@ -868,9 +1376,18 @@ function scoreText(s) {
   if (s <= -MATE) return '被将死';
   return (s >= 0 ? '+' : '') + (s / 100).toFixed(2);
 }
-function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[ch]);
+}
 
-function renderFork() {
+function renderFork(force = false) {
+  if (forkStale && !force) return false;
+  forkStale = false;
+  forkWrap.inert = false;
+  forkEl.style.opacity = '';
+  forkEl.removeAttribute('aria-busy');
   columns = buildColumns();
   const compact = matchMedia('(max-width: 1100px), (max-height: 780px)').matches;
   const minColW = compact ? 150 : 112;
@@ -996,9 +1513,11 @@ function renderFork() {
   document.getElementById('btnPlayLine').disabled =
     !(columns.length && game.turn() === 'w' && !thinking && !game.isGameOver());
   syncCloudMap();
+  return true;
 }
 
 function setColumnExpanded(col, open) {
+  if (thinking || forkStale) return false;
   if (!columns[col] || columns[col].ranked.length <= columns[col].baseShown) return false;
   expanded[col] = !!open;
   renderFork();
@@ -1010,7 +1529,9 @@ function toggleColumnExpanded(col) {
 }
 
 function scrollForkToward(col) {
+  const gen = ++forkScrollGen;
   requestAnimationFrame(() => {
+    if (gen !== forkScrollGen) return;
     const target = forkEl.querySelector(`g.card[data-col="${Math.min(col, columns.length - 1)}"][data-selected="true"]`);
     if (!target) return;
     const wr = forkWrap.getBoundingClientRect(), tr = target.getBoundingClientRect();
@@ -1020,6 +1541,7 @@ function scrollForkToward(col) {
 }
 
 function chooseForkBranch(i, rank, scrollNext = false) {
+  if (thinking || forkStale) return false;
   const chosen = columns[i] && columns[i].ranked[rank];
   if (!chosen) return false;
   branchPath = branchPath.slice(0, i);
@@ -1033,6 +1555,7 @@ function chooseForkBranch(i, rank, scrollNext = false) {
 }
 
 function activateForkTarget(target) {
+  if (thinking || forkStale) return false;
   const more = target.closest ? target.closest('g.more') : null;
   if (more) return toggleColumnExpanded(+more.dataset.col);
   const card = target.closest ? target.closest('g.card') : null;
@@ -1059,6 +1582,7 @@ function showMoveDetails(c, m, rank) {
 }
 
 forkEl.addEventListener('mouseover', (ev) => {
+  if (thinking || forkStale) return;
   const card = ev.target.closest ? ev.target.closest('g.card') : null;
   if (!card) return;
   const c = columns[+card.dataset.col];
@@ -1067,11 +1591,13 @@ forkEl.addEventListener('mouseover', (ev) => {
   showMoveDetails(c, m, +card.dataset.idx);
 });
 forkEl.addEventListener('mouseleave', () => {
+  if (thinking || forkStale) return;
   preview = null; renderBoard();
-  document.getElementById('forkFoot').textContent = '亮蓝主干就是当前选路；点走法只预览，确认后再落子。';
+  document.getElementById('forkFoot').textContent = FORK_IDLE_TEXT;
 });
 
 document.getElementById('btnPlayLine').onclick = () => {
+  if (thinking || forkStale) return;
   if (!columns.length) return;
   const m = columns[0].ranked[columns[0].chosen];
   tryMove(m.from, m.to, m.promotion);
@@ -1283,6 +1809,7 @@ function toggleCloudFull(force) {
     ? (coarse ? '拖动旋转 · 点标签选路' : '拖动旋转 · 滚轮缩放 · 点标签选路')
     : '点开全景 · 拖动旋转';
   scheduleResize();
+  if (full) maybeStartDeepCloud();
   return full;
 }
 document.getElementById('cloudClose').onclick = () => toggleCloudFull(false);
@@ -1298,7 +1825,8 @@ function resize() {
   if (fw !== forkViewportW || fh !== forkViewportH) {
     forkViewportW = fw;
     forkViewportH = fh;
-    renderFork();
+    // 思考阶段不为即将失效的中间局面重排分叉，避免 resize 把 watchdog 卡住。
+    if (!thinking && !forkStale) renderFork();
   }
 }
 function scheduleResize() {
@@ -1310,20 +1838,88 @@ function scheduleResize() {
 }
 addEventListener('resize', scheduleResize);
 
+let cloudInView = true;
+if ('IntersectionObserver' in window) {
+  const cloudObserver = new IntersectionObserver((entries) => {
+    cloudInView = entries.some((entry) => entry.isIntersecting);
+    if (cloudInView) {
+      maybeStartDeepCloud();
+      return;
+    }
+
+    // 第四层可能有几十万节点：离开视口就停，不截断冒充完整结果。
+    // 已有三层时保留真实三层；尚未铺到三层则在屏外只重建到三层。
+    if (cloudWorker && cloudWorkerTargetDepth === DEEP_DEPTH) {
+      cloudWorker.terminate();
+      cloudWorker = null;
+      cloudWorkerTargetDepth = 0;
+      if (cloudState.depth >= SYNC_DEPTH && cloudLayerFens.get(SYNC_DEPTH)?.length) {
+        removeCloudLayer(DEEP_DEPTH);
+        restoreCloudTiming(SYNC_DEPTH);
+        cloudState.depth = SYNC_DEPTH;
+        cloudState.growing = false;
+        cloudState.deepPending = true;
+        updateHud();
+      } else if (!thinking) {
+        const gen = prepareCloud();
+        startCloudWorker({ gen, startDepth: 1, targetDepth: SYNC_DEPTH });
+      }
+    } else if (
+      !cloudWorker
+      && cloudState.depth === DEEP_DEPTH
+      && cloudLayerFens.get(SYNC_DEPTH)?.length
+    ) {
+      // 长满后离开视口也释放最重的一层；回来看时从真实第 3 层完整续长。
+      removeCloudLayer(DEEP_DEPTH);
+      restoreCloudTiming(SYNC_DEPTH);
+      cloudState.depth = SYNC_DEPTH;
+      cloudState.growing = false;
+      cloudState.deepPending = true;
+      updateHud();
+    }
+  }, { threshold: 0 });
+  cloudObserver.observe(skyBox);
+}
+
+addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    if (cloudWorker) {
+      cloudWorker.terminate();
+      cloudWorker = null;
+      cloudWorkerTargetDepth = 0;
+    }
+    if (layers.has(DEEP_DEPTH)) {
+      removeCloudLayer(DEEP_DEPTH);
+      restoreCloudTiming(SYNC_DEPTH);
+      cloudState.depth = Math.min(cloudState.depth, SYNC_DEPTH);
+      cloudState.deepPending = cloudLayerFens.get(SYNC_DEPTH)?.length > 0;
+    }
+    cloudState.growing = false;
+    cloudState.paused = true;
+    updateHud();
+    return;
+  }
+  if (cloudState.paused && !thinking && cloudState.fen === game.fen()) rebuildCloud();
+});
+
 function frame() {
-  if (view.auto) view.yaw += 0.0009;
-  cloudTarget.lerp(cloudTargetGoal, 0.055);
-  const cp = Math.cos(view.pitch);
-  // 竖屏全屏时保持近似相同的水平视野，避免星云被放大裁成一块“背景”。
-  const fitDist = view.dist / Math.min(1, Math.max(0.55, camera.aspect));
-  camera.position.set(
-    cloudTarget.x + Math.sin(view.yaw) * cp * fitDist,
-    cloudTarget.y + Math.sin(view.pitch) * fitDist,
-    cloudTarget.z + Math.cos(view.yaw) * cp * fitDist,
-  );
-  camera.lookAt(cloudTarget);
-  renderer.render(scene, camera);
-  positionCloudLabels();
+  const active = !document.hidden
+    && (cloudInView || document.body.classList.contains('cloud-full'));
+  if (active) {
+    if (view.auto) view.yaw += 0.0009;
+    cloudTarget.lerp(cloudTargetGoal, 0.055);
+    const cp = Math.cos(view.pitch);
+    // 竖屏全屏时保持近似相同的水平视野，避免星云被放大裁成一块“背景”。
+    const fitDist = view.dist / Math.min(1, Math.max(0.55, camera.aspect));
+    camera.position.set(
+      cloudTarget.x + Math.sin(view.yaw) * cp * fitDist,
+      cloudTarget.y + Math.sin(view.pitch) * fitDist,
+      cloudTarget.z + Math.cos(view.yaw) * cp * fitDist,
+    );
+    camera.lookAt(cloudTarget);
+    renderer.render(scene, camera);
+    positionCloudLabels();
+  }
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -1345,6 +1941,9 @@ window.__cloudStats = () => {
     layers: layerList,
     totalNodes: total,
     growing: cloudState.growing,
+    deepPending: cloudState.deepPending,
+    paused: cloudState.paused,
+    error: cloudState.error,
   };
 };
 
@@ -1371,6 +1970,54 @@ window.__forkStats = () => columns.map((c, i) => ({
   topScores: c.ranked.slice(0, 3).map((m) => m.score),
 }));
 
+/**
+ * 棋盘现状。棋子清单从实际渲染的 g.piece3d 读取，测试可拿 FEN 独立逐格对撞；
+ * material 是实例真正继承到的 SVG paint，geometry 是实际子图元签名。
+ */
+function boardSnapshot() {
+  const boardRect = boardEl.getBoundingClientRect();
+  const geometryOf = (root) => [...root.querySelectorAll('path,ellipse,circle,rect,polygon')].map((part) => {
+    const attrs = ['d', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'width', 'height', 'points']
+      .map((name) => part.hasAttribute(name) ? `${name}=${part.getAttribute(name)}` : '')
+      .filter(Boolean)
+      .join(',');
+    return `${part.tagName}:${attrs}`;
+  }).join('|');
+  const pieces = [...boardPiecesEl.querySelectorAll('g.piece3d')].map((piece) => {
+    const r = piece.getBoundingClientRect();
+    const style = getComputedStyle(piece);
+    return {
+      sq: piece.dataset.sq,
+      color: piece.dataset.color,
+      type: piece.dataset.type,
+      render: piece.dataset.render,
+      material: style.getPropertyValue('--piece-main').trim(),
+      parts: piece.querySelectorAll('path,ellipse,circle,rect,polygon').length,
+      geometry: geometryOf(piece),
+      rect: { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom },
+    };
+  });
+  return {
+    fen: game.fen(),
+    total: pieces.length,
+    boardRect: {
+      x: boardRect.x, y: boardRect.y, w: boardRect.width, h: boardRect.height,
+      right: boardRect.right, bottom: boardRect.bottom,
+    },
+    pieces,
+    templates: [...document.querySelectorAll('#boardPieceDefs [data-piece-template]')].map((model) => ({
+      type: model.dataset.pieceTemplate,
+      parts: model.querySelectorAll('path,ellipse,circle,rect,polygon').length,
+      sideParts: model.querySelectorAll('.piece-side').length,
+      shineParts: model.querySelectorAll('.piece-shine').length,
+      groundShadows: model.querySelectorAll('.piece-ground-shadow').length,
+      geometry: geometryOf(model),
+    })),
+    unicodeGlyphs: boardEl.querySelectorAll('text.glyph').length,
+    renderModes: [...new Set(pieces.map((piece) => piece.render))],
+  };
+}
+
 function cloudMapSnapshot() {
   const pointLayers = new Map();
   let firstLinks = 0;
@@ -1380,9 +2027,14 @@ function cloudMapSnapshot() {
     if (!attr) continue;
     if (obj.userData.kind === 'cloud-points') {
       const d = obj.userData.depth;
-      if (!pointLayers.has(d)) pointLayers.set(d, { count: 0, positions: [] });
+      if (!pointLayers.has(d)) pointLayers.set(d, { count: 0, positions: [], finite: true });
       const rec = pointLayers.get(d);
       rec.count += attr.count;
+      if (rec.finite) {
+        for (let i = 0; i < attr.array.length; i++) {
+          if (!Number.isFinite(attr.array[i])) { rec.finite = false; break; }
+        }
+      }
       if (d <= 1) rec.positions.push(...Array.from(attr.array));
     } else if (obj.userData.kind === 'cloud-links' && obj.userData.depth === 1) {
       firstLinks += attr.count / 2;
@@ -1406,7 +2058,7 @@ function cloudMapSnapshot() {
   });
   const layerRows = [...pointLayers.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([depth, rec]) => ({ depth, count: rec.count, positions: rec.positions }));
+    .map(([depth, rec]) => ({ depth, count: rec.count, positions: rec.positions, finite: rec.finite }));
   return {
     layers: layerRows,
     firstLinks,
@@ -1468,6 +2120,33 @@ function layoutSnapshot() {
   };
 }
 
+function resetGame(fen = null) {
+  if (fen) {
+    try { new Chess(fen); } catch { return false; }
+  }
+  aiRequestId++;
+  presentationGen++;
+  clearAiWatchdog();
+  aiPending = null;
+  restartSearchWorker();
+  if (fen) game.load(fen); else game.reset();
+  selected = null;
+  preview = null;
+  lastAi = null;
+  thinking = false;
+  branchPath = [];
+  expanded = [];
+  forkStale = false;
+  resetForkTransient();
+  renderBoard();
+  rebuildCloud();
+  renderFork();
+  setStatusText(fen
+    ? `${game.turn() === 'w' ? '白方' : '黑方'}行棋。`
+    : '你执白。右侧从「现在」向右选路；星图点开后也能直接选择第一步。');
+  return true;
+}
+
 // 验收用的钩子：走的是和点棋盘完全同一条路
 window.__test = {
   tryMove,
@@ -1476,7 +2155,16 @@ window.__test = {
     history: game.history(), over: game.isGameOver(), thinking,
   }),
   ai: () => lastAi,
+  aiPending: () => aiPending ? { id: aiPending.id, fen: aiPending.fen } : null,
+  forkPending: () => forkStale,
+  workerGeneration: () => searchWorkerGeneration,
+  terminateAiWorker: () => {
+    if (!searchWorker) return false;
+    searchWorker.terminate();
+    return true;
+  },
   layout: layoutSnapshot,
+  board: boardSnapshot,
   cloudMap: cloudMapSnapshot,
   pickBranch: (col, idx) => chooseForkBranch(col, idx),
   expandCol: (col) => setColumnExpanded(col, true),
@@ -1487,12 +2175,8 @@ window.__test = {
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   },
   toggleCloudFull,
-  reset: () => {
-    aiRequestId++;
-    game.reset(); selected = null; preview = null; lastAi = null; thinking = false;
-    branchPath = []; expanded = [];
-    renderBoard(); rebuildCloud(); renderFork();
-  },
+  reset: () => resetGame(),
+  loadFen: (fen) => resetGame(fen),
 };
 
 document.getElementById('btnReset').onclick = () => window.__test.reset();

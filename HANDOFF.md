@@ -1,7 +1,8 @@
 # 交接文档 · chess-cloud
 
 写给下一个接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**，
-照着做就能接着干。截止 2026-07-30，三次迭代都已上线并验收通过。
+照着做就能接着干。截止 2026-07-30，当前最终架构已经写进这份文档；本地最终复验已是
+`verify.mjs` 8/8、`live-check.mjs` 64/64。线上发布状态和文件哈希必须以第 8 节的发布后实测为准。
 
 - 线上：https://maxi-max-dev.github.io/chess-cloud/
 - 仓库：https://github.com/maxi-max-dev/chess-cloud （main 分支，GitHub Pages 从 main 根目录发布）
@@ -32,7 +33,7 @@
 cd ~/code/chess-cloud && npm i chess.js@1.4.0
 ```
 
-**棋核验收**（约 7 秒）：
+**棋核验收**：
 
 ```bash
 node verify.mjs
@@ -42,15 +43,16 @@ node verify.mjs
 断言的是 perft 标准值：起始局面 20 / 400 / 8902 / 197281，Kiwipete 局面 48 / 2039 / 97862，
 外加 `count(fen, 0) === 1` 的约定。
 
-**真机验收**（无头 Chrome + CDP，本地约 90–130 秒）：
+**真机验收**（无头 Chrome + CDP）：
 
 ```bash
 node live-check.mjs
 ```
 
-期望：`全绿：43/43 项通过`。它会自己起静态服务器、拉起无头 Chrome、走棋、截图、对数，
+脚本用 `EXPECTED_RESULTS = 64` 锁定固定 64 项；成功时应输出 `全绿：64/64 项通过`。它会自己起
+静态服务器、拉起无头 Chrome、走棋、截图、对数，
 并切到 390×844 / 667×375 / 844×390 / 1024×768 验手机与平板布局、
-真实触摸/滑动、背景和星云全屏。
+真实触摸/滑动、黑白棋子像素、AI 竞态、背景和星云全屏。
 
 **打线上**：
 
@@ -58,7 +60,8 @@ node live-check.mjs
 node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
-参数：`--url`（不给就打本地）、`--port`（CDP 端口，默认 9333，多开要换）、`--shot`（截图落盘路径）。
+参数：`--url`（不给就打本地）、`--port`（默认自动选空闲 CDP 端口；显式端口已占用会拒绝）、
+`--shot`（截图落盘路径）。本地静态服务也自动选空闲端口。
 
 > 如果这三条有任何一条是红的，**先把它弄绿再动新功能**。绿是基线。
 
@@ -68,11 +71,11 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 
 | 文件 | 行数 | 干什么 |
 |---|---|---|
-| `index.html` | 1507 | 整个页面：SVG 棋盘、three.js 星图、分叉路径、响应式布局、所有交互 |
-| `engine.js` | 295 | **唯一的评估函数** + 搜索 + 逐层展开 + 走法排序 |
-| `worker.js` | 58 | Web Worker：AI 应手 / 第 4 层星云。页面开两个实例，互不排队 |
+| `index.html` | 2191 | 整个页面：分层 SVG 3D 棋子、SVG 棋盘、three.js 星图、分叉、响应式与交互 |
+| `engine.js` | 299 | **唯一的评估函数** + 搜索 + 逐层展开 + 走法排序 |
+| `worker.js` | 91 | Web Worker：AI 应手 / 第 1～4 层星云。页面开两个实例，互不排队 |
 | `verify.mjs` | 94 | Node 端棋核验收，导出 `count(fen, depth)` 给别人对数用 |
-| `live-check.mjs` | 1168 | 无头 Chrome 验收（含 PNG 解码、路径几何、桌面/手机真实触控检查） |
+| `live-check.mjs` | 2075 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、路径几何、触控与竞态） |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | | 对外说明 / 待裁决清单 / 迭代过程记录 |
 
 没有构建工具、没有框架、没有后端。chess.js 和 three.js 直接从 CDN 引，版本钉死：
@@ -94,22 +97,40 @@ export function search(fen, opts)       // 迭代加深 alpha-beta，返回 {mov
 
 ### 为什么拆成三个文件（不是一个 HTML）
 
-因为「评估函数只准有一份」。主线程要用它给星上色和给分叉排序，Worker 要用它做 minimax 叶子打分。
-只有 import 同一个 ES module 才可能是同一份。要塞进单文件，就得把评估函数源码字符串化再拼
-Blob URL 造 Worker，那才是真的坑。
+因为「评估函数只准有一份」。页面的分叉排序调用 `engine.js`，cloud Worker 用它展开并给星打分，
+search Worker 用它做 minimax 叶子打分；三条路径只有 import 同一个 ES module 才可能共享一套口径。
+要塞进单文件，就得把评估函数源码字符串化再拼 Blob URL 造 Worker，那才是真的坑。
 
 ### 一次落子发生了什么
 
 ```
 玩家点棋盘 → tryMove(from, to)
    ├─ chess.js 判合法（非法就直接 return false，这就是「被拒」）
-   ├─ requestAi()        → 派给 searchWorker（先派，让它和主线程并行）
-   ├─ rebuildCloud()     → 主线程同步铺前 3 层（约 150–250ms）
-   │                       然后把第 3 层的 8,902 个局面整批发给 cloudWorker
-   │                       cloudWorker 按 400 个父节点一批，把第 4 层流回来
-   └─ renderFork()       → 重算 5 列分叉，重画 SVG
-AI 应手回来 → onAiMove() → 走棋 → 再来一遍 rebuildCloud + renderFork
+   ├─ renderBoard()      → 先把玩家走法画出来
+   ├─ requestAi()        → 派给独立 searchWorker
+   ├─ prepareCloud()     → 终止旧云，只留根点；thinking 时不算中间云
+   └─ markForkStale()    → 旧分叉淡化 + inert + 禁用确认，当前任务立即返回
+AI 应手回来 → onAiMove()
+   ├─ chess.js 落子 + renderBoard() + 状态文字
+   ├─ 一帧真正绘制后才设置 lastAi.painted / totalMs
+   └─ 再延迟一个后续任务 renderFork(true)，随后让 cloudWorker 从第 1 层长最终星云
 ```
+
+搜索 Worker 有两道时限：引擎内部每 32 节点/根候选看 deadline；主线程另有 2.2 秒 watchdog。
+Worker 超时、报错或通信失败时，页面会终止它并走请求发出时预存的第一步合法棋。reset 也会直接
+terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排在旧同步搜索后面。
+验收的 3 秒终点是棋盘完成绘制后的 `painted=true`，不是 Worker 回包或页面提前记下的数字。
+
+### 棋盘棋子怎么画
+
+- 不使用 `♚` 之类 Unicode 字符，也不依赖系统字体。旧实现对黑白双方都用了黑棋字形，只靠 fill 染白，
+  Safari/彩色字体回退会忽略 fill，正是“白棋也变黑”的根因。
+- `<defs id="boardPieceDefs">` 有兵/车/马/象/后/王六套分层 SVG 几何。每颗实际棋是
+  `g.piece3d[data-sq][data-color][data-type][data-render="vector-3d"]`；黑白共用几何，只换渐变材质。
+- `boardSquares / boardPieces / boardOverlay` 三层分开清理。棋子 `pointer-events:none`，触控仍落到格子；
+  合法落点和分叉预览单独在 overlay 上画。
+- 这是六种确定性的**分层 SVG 3D 视觉造型**，不是另一个可旋转的 WebGL mesh 棋盘；不要在文案里
+  把它说成真实网格模型或自由相机棋局。
 
 ### 分叉图（主舞台）怎么算的
 
@@ -122,10 +143,13 @@ AI 应手回来 → onAiMove() → 走棋 → 再来一遍 rebuildCloud + render
 
 ### 星云怎么算的
 
-- 第 0 层 = 根局面自己（1 颗）。第 1–3 层主线程同步。第 4 层 Worker 分批。
+- 第 0 层 = 根局面自己（1 颗）。第 1–4 层棋局展开**全部在 cloud Worker**：第 1–3 层逐层整批回传，
+  第 4 层按父节点边界分批回传；主线程只把真实数组转换成 Three.js geometry。
 - 展开走的是 chess.js 的 verbose 走法：**走法对象自带 `after`（子局面 FEN）和 `san`**，
-  一次走法生成就同时拿到子局面和分数，不用 make/undo。实测三层 159ms vs 349ms。
+  一次走法生成就同时拿到子局面和分数，不用 make/undo。
 - 每一批星单独开一个「刚好这么大」的 `BufferGeometry`。**不预分配、不用 drawRange。**
+- 移动端星图离屏时只保留真实第 0–3 层并释放第 4 层 geometry；回到视口时用保存的第 3 层 FEN
+  重新完整计算第 4 层。`deepPending` 明确表示“还有完整第 4 层待长”，不能把三层伪装成四层。
 
 ---
 
@@ -154,11 +178,12 @@ AI 应手回来 → onAiMove() → 走棋 → 再来一遍 rebuildCloud + render
 4. **评估函数只准有一份**，就是 `engine.js` 里的 `evaluate(fen)`。
    星色、分叉排序、AI 搜索，全部读它。想加第二套打分标准 → 先在 BLOCKED.md 写清楚为什么。
 
-5. **第 4 层必须真在 Worker 里算。** 不许主线程算完再假装分批送进来。
-   （主线程同步算 197,281 个节点要 8 秒，页面会卡死。）
+5. **第 1–4 层棋局展开必须全在 Worker 里算。** 不许把前 1–3 层挪回主线程，也不许主线程
+   算完第 4 层再假装分批送进来。主线程只接收数组、创建真实 geometry 和更新交互。
 
-6. **AI 应手有硬上限 ≤3 秒。** 现在靠 `search()` 的迭代加深 + `AI_BUDGET_MS = 1500` 预算保证，
-   时间到就交上一层搜完的最好走法。桌面预算 1.5 秒，手机/矮视口预算 0.9 秒；
+6. **AI 应手有硬上限 ≤3 秒。** 搜索预算是桌面 1.5 秒、手机/矮视口 0.9 秒，但预算本身不算硬保证；
+   必须保留 2.2 秒主线程 watchdog、合法 fallback、reset 时 terminate/recreate Worker，
+   且 thinking 时不得启动任何会被 AI 应手替换的云展开。四道一起才守得住冷启动和连续重开的 3 秒；
    加任何耗时功能前，先想清楚会不会挤掉这 3 秒。
 
 7. **不新增构建工具 / 框架 / 后端。** 想加就先写进 BLOCKED.md 等人拍板。
@@ -170,15 +195,22 @@ AI 应手回来 → onAiMove() → 走棋 → 再来一遍 rebuildCloud + render
 
 ## 4. 验收脚本怎么用、怎么扩
 
-`live-check.mjs` 现在验这些（43 项）：
+`live-check.mjs` 现在固定验这些（64 项，`EXPECTED_RESULTS = 64`，少跑一项也会失败）：
 
 | 组 | 验什么 |
 |---|---|
 | ① | `__cloudStats().nodes` 与 `count(同 fen, 同 depth)` 逐层相等。起始局面 1/20/400/8902/197281，**AI 应手后的局中局面 1/30/654/20144/475842 也对**（这个数字哪里都没写死，只能是真算的） |
 | ② | 截图里星云确实成形 + 暖冷两色可见；根点的 geometry 只有 1 点且在原点；第一层真实点/线等于合法走法数，并以方向一致性证明它向未来展开而非球壳 |
 | ③ | 分叉图每列总数和卡片数对账；排序方向对；每列恰有一张选中卡、一条选中边和一段连续主干；真实点击改路；真实展开→收起；推荐区外的选中卡在收起后仍可见；走满两回合后仍对 |
-| ④ | 390×844、667/844 横屏与 1024 平板；真实页面/分叉滑动；≥44px；背景首尾；真全屏四角；真实 SAN 标签和多步主路径；触摸标签只选路不落子；拖动后标签显隐；按钮收起；真实 touch e4 后 AI ≤3 秒 |
-| 其他 | 非法走子被拒；重开作废途中 AI 回包；e4 后 AI ≤3 秒；AI 走法独立重放合法；页面零 JS 报错 |
+| ④ | 390×844、667/844 横屏与 1024 平板；真实页面/分叉滑动；≥44px；背景首尾；真全屏四角；真实 SAN 标签和多步主路径；触摸标签只选路不落子；拖动后标签显隐；按钮收起；移动星云 L3→L4→离屏释放回 L3→回屏完整重建 L4；真实 touch e4 后 AI ≤3 秒 |
+| ⑤ | 实际棋子与 FEN 逐格对撞；32/16/16 和六类数量；六种分层造型；零 Unicode；黑白同几何不同材质；桌面/手机截图差分后的真实亮度、覆盖与明暗跨度 |
+| 其他 | 非法走子；吃子/升变/王车易位后的棋子/FEN；引擎 deadline；首屏冷启动；重开终止旧搜索；强杀 Worker 的合法保底；AI 真实绘制后再延迟可视化；旧分叉淡化、`inert` 且不可触发重排；旧 AI/UI/横滚清理；云坐标 finite；AI 合法重放；页面零 JS 报错 |
+
+最近一次反向验证是在脚本尚为 63 项时，同时故意破坏白方单类材质、引擎 deadline、Worker/星云
+生命周期和旧分叉隔离等关键路径，验收准确出现 **10/63 项失败**。恢复实现后才新增固定项并把
+`EXPECTED_RESULTS` 锁到 64；不要把“10/63”改写成“10/64”，那不是当时真实运行的输出。
+随后又针对新补的黑棋可见轮廓与手机精确层集合做聚焦反向验证：让黑象只剩公共底座，并只在手机端
+删除第 2 层，固定套件准确出现 **6/64 项失败**；恢复正式实现后完整复跑为 64/64。
 
 ### 加一条新验收
 
@@ -212,8 +244,19 @@ AI 应手回来 → onAiMove() → 走棋 → 再来一遍 rebuildCloud + render
   其他列的卡片被推到屏幕外面去了。
 - **第一层不能 360° 铺球。** 根点虽然真的是 1 个，20 个首层走法若用 Fibonacci sphere 围住它，
   第一眼仍然只会看到一颗球。现在根方向固定向未来，首层只在前向锥内张开。
-- **重开必须作废旧 AI 请求。** Worker 回包是异步的；只把 `thinking=false` 不够，旧回包会落进新棋局。
-  现在用独立 `aiRequestId` 校验，reset 自增使旧结果失效。
+- **棋子不能再退回 Unicode 字形。** 黑白双方共用黑棋码点再靠 `fill` 染色，在本机 Chrome 看似正常，
+  到 Safari/彩色字体回退就可能全部发黑。必须保留本地几何和真实截图差分验收。
+- **重开不能只作废旧 AI 回包。** `search()` 在 Worker 里是同步的；只校验 id 会让新请求排在旧搜索后。
+  reset 必须 terminate + recreate。实测旧实现 `e4 → reset → d4` 外部 3,559ms，已越过硬线。
+- **引擎预算不等于真实硬上限。** 旧版每 1024 节点才看钟，首屏并发时第一次检查前就跑了约 4 秒。
+  现在每 32 节点/根候选检查，外加主线程 watchdog 和合法 fallback；三道保护都不能删。
+- **AI 思考时不要长任何中间云。** 那朵黑方待走云会被 AI 新局面替换，只会抢 CPU。
+- **旧分叉只降透明度不够。** SVG 仍能吃鼠标、触摸、键盘和 hover，甚至会在 AI 思考期间触发
+  `rankMoves()`。必须保留 `forkStale`、`forkWrap.inert`、确认按钮禁用和事件入口的双重守卫，
+  直到延迟的 `renderFork(true)` 真正换成新局面。
+- **移动端第 4 层不能只“暂停绘制”却继续占着 geometry。** 离屏要删除 L4、恢复 L3 的真实计时和
+  `deepPending`；回屏再从保存的 L3 FEN 完整续长，验收会跑 L3→L4→L3→L4 全生命周期。
+- **云 Worker 的代际校验要同时比当前实例和 `cloudState.gen`。** 只比旧闭包自己的 gen 永远会通过。
 - **不要只把带 `backdrop-filter` 面板里的子元素设成 fixed 来做全屏。**
   这个父层会建立 fixed containing block 和 stacking context，子元素会偏移、露暗边、还可能被后面的面板盖住。
   现在是 `body.cloud-full #cloudPanel` 自己接管 viewport，`#skyBox` 只在里面绝对铺满。
@@ -222,24 +265,32 @@ AI 应手回来 → onAiMove() → 走棋 → 再来一遍 rebuildCloud + render
 
 ---
 
-## 6. 现在的实测数字（改动后拿这些当基线比对）
+## 6. 已确认的基线
 
-| 指标 | 实测值 |
+下面是恢复正式实现后在本机跑出的真实基线，不沿用旧架构数字。耗时会受机器负载影响，
+但数量、线程归属、renderer 和固定验收项数不能漂移。
+
+| 指标 | 基线 |
 |---|---|
 | 起始局面 perft 1/2/3/4 | 20 / 400 / 8,902 / 197,281 |
 | 1.e4 Nc6 后 perft 1/2/3/4 | 30 / 654 / 20,144 / 475,842 |
-| 星云前 3 层同步铺开 | 约 150–250 ms |
-| 星云第 4 层（起始局面，Worker） | 约 3.5 s；局中复杂局面可到 8–15 s |
-| e4 后 AI 应手（外部秒表） | 桌面约 2.0–2.4 s；手机约 2.0–2.7 s，常见搜到 3–4 层 |
-| `node verify.mjs` | 约 7 s，8/8 绿 |
-| `node live-check.mjs` | 约 90–130 s，43/43 绿 |
+| 星云展开线程 | 第 1–4 层全部在 cloud Worker；主线程只建 geometry |
+| 移动星云生命周期 | 屏外 L3 / 入屏 L4 / 离屏释放回 L3 / 回屏完整重建 L4 |
+| 棋子 renderer | 六种分层 SVG 3D 视觉造型；零 Unicode；不是 WebGL mesh |
+| `live-check.mjs` 项数 | 固定 64 项；反向验证真实输出为 10/63、聚焦复验 6/64 失败 |
+| `verify.mjs` 项数 | 固定 8 项 |
+| 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 64/64 |
+| AI 首屏云并发 / 正常桌面 / 真实手机 | 1,554ms / 1,538ms / 967ms |
+| 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 948ms / 1,629ms / 2,250ms |
+| 正预算 deadline 探针 | 正常 140.4ms；临时关周期查钟 210.7ms 并按预期报红 |
+| 桌面白/黑棋截图中位亮度 | 195.7 / 57.4；逐类型最小差 122.9 |
 | 环境 | node v22.23.1、chess.js 1.4.0、three 0.160.0 |
 
 ---
 
 ## 7. 接下来可以做什么
 
-**BLOCKED.md 里 18 条是完整的待裁决清单，先读那个。** 下面是我认为最值得做的几件，按优先级：
+**BLOCKED.md 里 19 条是完整的待裁决清单，先读那个。** 下面是我认为最值得做的几件，按优先级：
 
 1. **把分叉排序做准一点**（BLOCKED #17）。现在 `rankMoves(depth:2)` 只往前看两步，
    能认出送子，认不出更深的战术，开局会把 Nc3/Nf3 排在 e4/d4 前面，懂棋的人看着别扭。
@@ -279,7 +330,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 
 ## 9. 交接时的状态
 
-- `main` 分支干净：零未提交改动、零未推送 commit。
-- 当前功能基线：主视图是带连续主干的平面分叉路径；星图从「现在」向未来展开，可全屏、带真实走法标签并联动首列选路；手机竖屏/短横屏均已适配。
-- 本地 43/43 绿，线上 43/43 绿，`node verify.mjs` 8/8 绿。
-- 线上三个静态文件（index.html / engine.js / worker.js）与本地逐字节一致。
+- 当前功能基线：六种分层 SVG 3D 棋子（非 WebGL mesh）；主视图是连续分叉路径；星图从「现在」
+  向未来展开并带真实标签；手机竖屏/短横屏均已适配。
+- 本轮最终本地输出：`node verify.mjs` **8/8**；`node live-check.mjs` **64/64**。
+- `main` 同步状态、线上复验和三个静态文件哈希由主代理发布后填写；本节不提前宣称已经完成。
