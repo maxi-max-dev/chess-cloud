@@ -328,7 +328,7 @@ async function runMobileChecks() {
     && portrait.board.docX >= -1
     && portrait.board.docRight <= portrait.viewport.w + 1;
   const targets = [...portrait.controls.buttons, portrait.controls.firstCard].filter(Boolean);
-  const targetsOk = targets.length > 0 && targets.every((r) => r.h >= 43);
+  const targetsOk = targets.length > 0 && targets.every((r) => r.h >= 43.9);
   const minTarget = targets.length ? Math.min(...targets.map((r) => r.h)) : 0;
   record(boardOk && targetsOk,
     '④ 手机棋盘保持正方形，触控目标不小于 44px',
@@ -521,7 +521,7 @@ async function runMobileChecks() {
       : `viewport ${landscape.viewport.w}×${landscape.viewport.h}｜真实滑动到 y=${Math.round(landscapeScrollY)}｜背景亮边 ${landscapeTopEdge.lightRatio}/${landscapeBottomEdge.lightRatio}`);
 
   const landscapeTargets = [...landscape.controls.buttons, landscape.controls.firstCard].filter(Boolean);
-  const landscapeTargetsOk = landscapeTargets.length > 0 && landscapeTargets.every((r) => r.h >= 43);
+  const landscapeTargetsOk = landscapeTargets.length > 0 && landscapeTargets.every((r) => r.h >= 43.9);
 
   await setViewport(667, 375, 'landscapePrimary');
   await evalJs('window.scrollTo(0, 0)');
@@ -529,6 +529,10 @@ async function runMobileChecks() {
   const smallLandscape = await evalJs('window.__test.layout()');
   const smallProblems = layoutProblems(smallLandscape);
   const smallTargets = [...smallLandscape.controls.buttons, smallLandscape.controls.firstCard].filter(Boolean);
+  const smallTwoColumn =
+    Math.abs(smallLandscape.panels.boardPanel.docY - smallLandscape.panels.stage.docY) <= 1
+    && smallLandscape.panels.boardPanel.docRight <= smallLandscape.panels.stage.docX + 1
+    && smallLandscape.panels.cloudPanel.docY > smallLandscape.panels.boardPanel.docY;
 
   await setViewport(1024, 768, 'landscapePrimary');
   await evalJs('window.scrollTo(0, 0)');
@@ -536,17 +540,23 @@ async function runMobileChecks() {
   const tablet = await evalJs('window.__test.layout()');
   const tabletProblems = layoutProblems(tablet);
   const tabletTargets = [...tablet.controls.buttons, tablet.controls.firstCard].filter(Boolean);
+  const tabletTwoColumn =
+    Math.abs(tablet.panels.cloudPanel.docY - tablet.panels.stage.docY) <= 1
+    && tablet.panels.cloudPanel.docRight <= tablet.panels.stage.docX + 1
+    && tablet.panels.boardPanel.docRight <= tablet.panels.stage.docX + 1;
   record(
     Math.abs(landscape.board.w - landscape.board.h) <= 1
       && landscape.board.docX >= -1
       && landscape.board.docRight <= landscape.viewport.w + 1
       && landscapeTargetsOk
       && smallProblems.length === 0
-      && smallTargets.length > 0 && smallTargets.every((r) => r.h >= 43)
+      && smallTwoColumn
+      && smallTargets.length > 0 && smallTargets.every((r) => r.h >= 43.9)
       && tabletProblems.length === 0
-      && tabletTargets.length > 0 && tabletTargets.every((r) => r.h >= 43),
+      && tabletTwoColumn
+      && tabletTargets.length > 0 && tabletTargets.every((r) => r.h >= 43.9),
     '④ 常见手机横屏与平板均完整，触控目标不小于 44px',
-    `844 棋盘 ${Math.round(landscape.board.w)}px｜667 面板 ${smallProblems.length ? smallProblems.join('; ') : '无重叠'}｜1024 面板 ${tabletProblems.length ? tabletProblems.join('; ') : '无重叠'}`);
+    `844 棋盘 ${Math.round(landscape.board.w)}px｜667 双栏 ${smallTwoColumn ? '是' : '否'} / ${smallProblems.length ? smallProblems.join('; ') : '无重叠'}｜1024 双栏 ${tabletTwoColumn ? '是' : '否'} / ${tabletProblems.length ? tabletProblems.join('; ') : '无重叠'}`);
 
   } finally {
     try {

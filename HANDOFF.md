@@ -72,7 +72,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 | `engine.js` | 295 | **唯一的评估函数** + 搜索 + 逐层展开 + 走法排序 |
 | `worker.js` | 58 | Web Worker：AI 应手 / 第 4 层星云。页面开两个实例，互不排队 |
 | `verify.mjs` | 94 | Node 端棋核验收，导出 `count(fen, depth)` 给别人对数用 |
-| `live-check.mjs` | 729 | 无头 Chrome 真机验收（含零依赖 PNG 解码、桌面/手机像素与触控检查） |
+| `live-check.mjs` | 739 | 无头 Chrome 真机验收（含零依赖 PNG 解码、桌面/手机像素与触控检查） |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | | 对外说明 / 待裁决清单 / 三次迭代的过程记录 |
 
 没有构建工具、没有框架、没有后端。chess.js 和 three.js 直接从 CDN 引，版本钉死：
