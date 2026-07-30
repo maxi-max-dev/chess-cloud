@@ -148,18 +148,15 @@ function decodePng(buf) {
   return { w, h, ch, px: out };
 }
 
-function shotStats(file) {
+function shotStats(file, rect) {
   const { w, h, ch, px } = decodePng(fs.readFileSync(file));
-  // 暖冷是成片分布的，只取一小块会被那块的颜色带偏。所以量整朵云，
-  // 只把挡在前面的三块面板挖掉：左上抬头、左下棋盘、右边整条树面板（连同收树按钮）。
-  const inPanel = (x, y) =>
-    (x < w * 0.21 && y < h * 0.30) ||     // 抬头
-    (x < w * 0.33 && y > h * 0.38) ||     // 棋盘面板
-    (x > w * 0.55);                       // 树面板 + 收树按钮
+  // 取样区不再靠猜布局：直接问页面要星云 canvas 的真实矩形（getBoundingClientRect），
+  // 往里缩 4px 避开圆角描边。这样以后怎么改版式，量法都跟着走。
+  const x0 = Math.max(0, Math.round(rect.x) + 4), x1 = Math.min(w, Math.round(rect.x + rect.w) - 4);
+  const y0 = Math.max(0, Math.round(rect.y) + 4), y1 = Math.min(h, Math.round(rect.y + rect.h) - 4);
   let total = 0, lit = 0, warm = 0, cold = 0, bright = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (inPanel(x, y)) continue;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
       const o = (y * w + x) * ch;
       const r = px[o], g = px[o + 1], b = px[o + 2];
       total++;
@@ -172,7 +169,7 @@ function shotStats(file) {
     }
   }
   return {
-    w, h, total, lit, warm, cold, bright,
+    w, h, rect, total, lit, warm, cold, bright,
     litRatio: +(lit / total).toFixed(4),
     brightRatio: +(bright / total).toFixed(4),
     warmOfLit: +(warm / Math.max(1, lit)).toFixed(4),
@@ -241,10 +238,11 @@ async function main() {
   const shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(SHOT, Buffer.from(shot.data, 'base64'));
   const bytes = fs.statSync(SHOT).size;
-  const ss = shotStats(SHOT);
+  const skyRect = await evalJs('window.__test.skyRect()');
+  const ss = shotStats(SHOT, skyRect);
   // 阈值用「占比」不用「绝对个数」，换布局/换分辨率都不会被量法误伤
   record(ss.litRatio > 0.05 && ss.brightRatio > 0.002,
-    '② 截图里星云确实成形', `${SHOT} ${bytes}B｜取样区亮像素 ${ss.lit}/${ss.total} (${ss.litRatio})，很亮的占比 ${ss.brightRatio}`);
+    '② 截图里星云确实成形', `${SHOT} ${bytes}B｜星云窗 ${Math.round(skyRect.w)}×${Math.round(skyRect.h)}｜亮像素 ${ss.lit}/${ss.total} (${ss.litRatio})，很亮的占比 ${ss.brightRatio}`);
   record(ss.warmOfLit > 0.02 && ss.coldOfLit > 0.02,
     '② 暖/冷两色都真的看得出来', `暖 ${ss.warm} (${ss.warmOfLit})｜冷 ${ss.cold} (${ss.coldOfLit})`);
 
@@ -290,54 +288,65 @@ async function main() {
   record(s2.fen !== s1.fen, '第二朵云的根局面确实换了', s2.fen);
   await checkNodesMatchCount(s2, '(局中)');
 
-  // 6) 树：每层的岔路数是从 SVG 里真数出来的 <circle>，拿 count(该层局面, 1) 对撞
-  const tree = await evalJs('window.__treeStats()');
-  console.log('树的层: ' + JSON.stringify(tree.map((t) => `${t.kind}#${t.ply}:${t.siblings}→${t.chosenSan}`)));
-  let treeOk = tree.length >= 6;
-  const detail = [];
-  for (const lv of tree) {
-    const e = count(lv.fen, 1);
-    if (lv.siblings !== e) { treeOk = false; detail.push(`第${lv.level}层 ${lv.siblings}≠${e}`); }
+  // 6) 分叉图：每列声明的「一共多少种走法」拿 count(该列局面, 1) 对撞，
+  //    卡片数是从 SVG 里真数出来的 <g class="card">，不是页面自己报的账
+  const cols = await evalJs('window.__forkStats()');
+  console.log('分叉列: ' + JSON.stringify(cols.map((c) => `#${c.ply} 共${c.total}种/摆${c.cards}张→${c.chosenSan}`)));
+  let colOk = cols.length === 5;
+  const bad2 = [];
+  for (const c of cols) {
+    const e = count(c.fen, 1);
+    if (c.total !== e) bad2.push(`第${c.col}列 声明${c.total}≠实际${e}`);
+    if (c.cards !== c.shown) bad2.push(`第${c.col}列 SVG里${c.cards}张≠说要摆${c.shown}张`);
+    if (c.shown > c.total) bad2.push(`第${c.col}列 摆得比总数还多`);
   }
-  record(treeOk, '③ 树上每层岔路数 == count(该层局面, 1)',
-    detail.length ? detail.join('; ') : `${tree.length} 层全对，含走过的 ${tree.filter((t) => t.kind === 'past').length} 层 + 未来 ${tree.filter((t) => t.kind === 'future').length} 层`);
+  if (bad2.length) colOk = false;
+  record(colOk, '③ 每列「共 N 种走法」== count(该列局面, 1)，卡片数也对得上',
+    bad2.length ? bad2.join('; ') : `5 列全对：${cols.map((c) => c.total).join('/')} 种，各摆 ${cols.map((c) => c.cards).join('/')} 张`);
 
-  // 走过的那几层，高亮的那条必须就是实际走的棋
-  const st2 = await evalJs('window.__test.state()');
-  const pastSans = tree.filter((t) => t.kind === 'past').map((t) => t.chosenSan);
-  record(JSON.stringify(pastSans) === JSON.stringify(st2.history.slice(-pastSans.length)),
-    '③ 树上走过的那条线 == 真实棋谱', `树 ${JSON.stringify(pastSans)} vs 棋谱 ${JSON.stringify(st2.history)}`);
+  // 排序必须是真排序：第一名的分对行棋方不能比第二名差
+  const sortOk = cols.every((c) => {
+    const [a, b] = c.topScores;
+    if (b === undefined) return true;
+    return c.ply % 2 === 0 ? a >= b : a <= b;
+  });
+  record(sortOk, '③ 每列确实按「对行棋方好坏」排了序',
+    cols.map((c) => `${c.topSans[0]}(${(c.topScores[0] / 100).toFixed(2)})>${c.topSans[1]}(${(c.topScores[1] / 100).toFixed(2)})`).join('　'));
 
-  // 点树上另一条岔路，主干必须真的改道
-  const before = tree.find((t) => t.kind === 'future');
-  const switched = await evalJs(`(() => {
-    const t = window.__treeStats();
-    const i = t.findIndex((x) => x.kind === 'future');
-    const before = t[i].chosenSan;
-    // 挑一个和当前不同的岔路
-    window.__test.pickTreeNode(i, t[i].siblings - 1);
-    const after = window.__treeStats()[i].chosenSan;
-    return { i, before, after, n: t[i].siblings };
+  // 点另一条分叉，右边的列必须跟着换
+  const sw = await evalJs(`(() => {
+    const before = window.__forkStats().map(c => c.chosenSan).join(' ');
+    window.__test.pickBranch(0, 2);
+    const after = window.__forkStats().map(c => c.chosenSan).join(' ');
+    return { before, after };
   })()`);
-  record(switched.before !== switched.after,
-    '③ 点另一条岔路，树真的改道', `第 ${switched.i} 层（共 ${switched.n} 条）：${switched.before} → ${switched.after}`);
+  record(sw.before !== sw.after, '③ 点第一列另一条，后面几列真的跟着改',
+    `${sw.before}  →  ${sw.after}`);
 
-  // 7) 再走一个回合，让树上攒出更多「走过的路」，把那几层也验一遍
+  // 点「还有 N 条」要把整列摊开，卡片数得等于总数
+  const ex = await evalJs(`(() => {
+    window.__test.expandCol(0);
+    const c = window.__forkStats()[0];
+    return { cards: c.cards, total: c.total };
+  })()`);
+  record(ex.cards === ex.total, '③ 点开「还有 N 条」后整列摊开',
+    `SVG 里 ${ex.cards} 张 vs 总共 ${ex.total} 种`);
+
+  // 7) 再走一个回合，让分叉图换一批局面重算，再对一次
   await evalJs(`window.__test.tryMove('d2','d4')`);
   for (let i = 0; i < 200 && !(await evalJs('window.__test.state().history.length >= 4')); i++) await sleep(50);
   await waitCloud();
-  const tree2 = await evalJs('window.__treeStats()');
+  const cols2 = await evalJs('window.__forkStats()');
   const st3 = await evalJs('window.__test.state()');
-  let tree2Ok = tree2.filter((t) => t.kind === 'past').length === 4;
-  const d2 = [];
-  for (const lv of tree2) {
-    const e = count(lv.fen, 1);
-    if (lv.siblings !== e) { tree2Ok = false; d2.push(`第${lv.level}层 ${lv.siblings}≠${e}`); }
+  const bad3 = [];
+  for (const c of cols2) {
+    const e = count(c.fen, 1);
+    if (c.total !== e) bad3.push(`第${c.col}列 ${c.total}≠${e}`);
+    if (c.cards !== c.shown) bad3.push(`第${c.col}列 卡片数不符`);
   }
-  const past2 = tree2.filter((t) => t.kind === 'past').map((t) => t.chosenSan);
-  if (JSON.stringify(past2) !== JSON.stringify(st3.history)) { tree2Ok = false; d2.push('走过的线和棋谱对不上'); }
-  record(tree2Ok, '③ 走满两回合后，树的每层仍然对得上',
-    d2.length ? d2.join('; ') : `棋谱 ${JSON.stringify(st3.history)}｜各层岔路 ${tree2.map((t) => t.siblings).join('/')}`);
+  record(bad3.length === 0 && cols2[0].fen === st3.fen,
+    '③ 走满两回合后，分叉图重算的每列仍然对得上',
+    bad3.length ? bad3.join('; ') : `棋谱 ${JSON.stringify(st3.history)}｜各列 ${cols2.map((c) => c.total).join('/')} 种`);
 
   const shot2 = await send('Page.captureScreenshot', { format: 'png' });
   const SHOT2 = SHOT.replace(/\.png$/, '-line.png');

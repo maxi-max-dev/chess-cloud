@@ -3,16 +3,17 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>可能性星云 · chess-cloud</title>
+<title>可能性分叉 · chess-cloud</title>
 <style>
   :root {
     --ink: #e8ecf6;
     --dim: #8c93a8;
+    --faint: #5f6679;
     --warm: #ff7a1f;
     --cold: #2f86ff;
-    --glass: rgba(14, 17, 27, 0.72);
+    --pick: #8fd8ff;
+    --glass: rgba(14, 17, 27, 0.74);
     --edge: rgba(150, 170, 220, 0.16);
-    --treeW: min(600px, 42vw);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #05060b; }
@@ -21,13 +22,6 @@
     color: var(--ink);
     -webkit-font-smoothing: antialiased;
   }
-  /* 星云只占左边，右边整块让给树 */
-  #sky { position: fixed; left: 0; top: 0; width: calc(100vw - var(--treeW)); height: 100%; display: block; }
-  #vignette {
-    position: fixed; left: 0; top: 0; width: calc(100vw - var(--treeW)); height: 100%; pointer-events: none;
-    background: radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,0) 38%, rgba(0,0,0,.55) 100%);
-  }
-
   .panel {
     position: fixed;
     background: var(--glass);
@@ -37,14 +31,6 @@
     -webkit-backdrop-filter: blur(18px) saturate(1.2);
     box-shadow: 0 18px 50px rgba(0,0,0,.45);
   }
-
-  /* 棋盘（放大到 400） */
-  #boardPanel { left: 22px; bottom: 22px; padding: 16px 16px 13px; width: 434px; }
-  #board { display: block; width: 400px; height: 400px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
-  #board text.glyph { pointer-events: none; user-select: none; }
-  #status { margin-top: 11px; min-height: 36px; font-size: 13px; color: var(--dim); }
-  #status b { color: var(--ink); font-weight: 600; }
-  .row { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
   button {
     font: inherit; font-size: 12px; color: var(--ink);
     background: rgba(120,150,220,.14); border: 1px solid var(--edge);
@@ -53,119 +39,97 @@
   button:hover { background: rgba(120,150,220,.26); }
   button:disabled { opacity: .38; cursor: default; }
 
-  /* 抬头挪到左上，右边整块留给树 */
-  #hud { left: 22px; top: 22px; padding: 13px 15px; width: 262px; }
-  #hud h1 { margin: 0 0 2px; font-size: 15px; font-weight: 650; letter-spacing: .02em; }
-  #hud .sub { color: var(--dim); font-size: 11.5px; margin-bottom: 10px; }
-  table.kv { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
-  table.kv td { padding: 2px 0; }
-  table.kv td:first-child { color: var(--dim); }
-  table.kv td:last-child { text-align: right; }
+  /* ── 左上：星云小窗（想看震撼点开全屏，平时不抢戏） */
+  #cloudPanel { left: 22px; top: 22px; width: 434px; padding: 12px 16px 14px; }
+  #cloudPanel h1 { margin: 0 0 7px; font-size: 13px; font-weight: 650; letter-spacing: .02em; }
+  #cloudPanel h1 span { color: var(--faint); font-weight: 400; font-size: 11.5px; margin-left: 6px; }
+  #skyBox { position: relative; width: 402px; height: 158px; border-radius: 9px; overflow: hidden; background: #05060b; cursor: zoom-in; }
+  #sky { display: block; width: 100%; height: 100%; }
+  #skyHint { position: absolute; right: 8px; bottom: 6px; font-size: 10.5px; color: #7b8296; }
+  body.cloud-full #skyBox {
+    position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 40;
+    border-radius: 0; cursor: zoom-out;
+  }
+  #cloudStats { margin-top: 8px; font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
+  #cloudStats b { color: var(--ink); font-weight: 600; }
   .grow { color: #7ee0a8; }
-  .legend { margin-top: 11px; }
-  .bar { height: 7px; border-radius: 4px; background: linear-gradient(90deg, var(--cold), #767a96, var(--warm)); }
-  .ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); margin-top: 3px; }
 
-  /* 树面板 */
-  #treePanel {
-    position: fixed; right: 0; top: 0; bottom: 0; width: var(--treeW);
-    background: rgba(9, 11, 18, 0.86);
-    border-left: 1px solid var(--edge);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    display: flex; flex-direction: column;
-  }
-  body.tree-off { --treeW: 0px; }
-  body.tree-off #treePanel { display: none; }
-  #treeHead { padding: 14px 18px 10px; border-bottom: 1px solid var(--edge); }
-  #treeHead h2 { margin: 0 0 3px; font-size: 14px; font-weight: 650; }
-  #treeHead .sub { font-size: 11.5px; color: var(--dim); }
-  #lineText {
-    margin-top: 9px; font-size: 12.5px; line-height: 1.9; font-variant-numeric: tabular-nums;
-    max-height: 76px; overflow-y: auto;
-  }
-  #lineText .past { color: #6f768c; }
-  #lineText .fut { color: var(--ink); }
-  #lineText .now { color: #7ee0a8; margin: 0 6px; }
-  #lineText .num { color: #575e73; margin-right: 2px; }
-  #treeWrap { flex: 1; overflow-y: auto; overflow-x: hidden; }
-  #tree { display: block; }
-  #tree circle.node { cursor: pointer; }
-  #tree circle.node:hover { stroke: #fff; stroke-width: 2; }
-  #tree circle.past { cursor: default; }
-  #treeFoot { padding: 10px 18px 14px; border-top: 1px solid var(--edge); font-size: 12px; color: var(--dim); min-height: 62px; }
-  #treeFoot b { color: var(--ink); }
+  /* ── 左下：棋盘 */
+  #boardPanel { left: 22px; bottom: 22px; width: 434px; padding: 15px 16px 12px; }
+  #board { display: block; width: 380px; height: 380px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+  #board text.glyph { pointer-events: none; user-select: none; }
+  #status { margin-top: 10px; min-height: 34px; font-size: 13px; color: var(--dim); }
+  #status b { color: var(--ink); font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
 
-  #toggleTree { position: fixed; right: calc(var(--treeW) + 14px); top: 22px; z-index: 5; }
+  /* ── 右侧主舞台：平面分叉图 */
+  #stage { left: 478px; right: 22px; top: 22px; bottom: 22px; display: flex; flex-direction: column; padding: 0; }
+  #stageHead { padding: 14px 20px 11px; border-bottom: 1px solid var(--edge); }
+  #stageHead h2 { margin: 0 0 3px; font-size: 15px; font-weight: 650; }
+  #stageHead .sub { font-size: 11.5px; color: var(--dim); }
+  #moveLine { margin-top: 9px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--faint); }
+  #moveLine b { color: #dfd2a2; font-weight: 600; }
+  #moveLine .num { color: #4b5165; margin-right: 2px; }
+  #forkWrap { flex: 1; overflow: auto; }
+  #fork { display: block; }
+  #fork g.card { cursor: pointer; }
+  #fork g.more { cursor: pointer; }
+  #forkFoot { padding: 10px 20px 13px; border-top: 1px solid var(--edge); font-size: 12px; color: var(--dim); min-height: 58px; }
+  #forkFoot b { color: var(--ink); }
 </style>
 </head>
 <body>
-<canvas id="sky"></canvas>
-<div id="vignette"></div>
 
-<button id="toggleTree">收起树</button>
-
-<div class="panel" id="hud">
-  <h1>可能性星云</h1>
-  <div class="sub">你落一步，之后所有未来炸开成星</div>
-  <table class="kv">
-    <tr><td>已铺层数</td><td id="kDepth">—</td></tr>
-    <tr><td>星数（本层）</td><td id="kNodes">—</td></tr>
-    <tr><td>星数（全云）</td><td id="kTotal">—</td></tr>
-    <tr><td>成云耗时</td><td id="kMs">—</td></tr>
-    <tr><td>AI 应手</td><td id="kAi">—</td></tr>
-  </table>
-  <div class="legend">
-    <div class="bar"></div>
-    <div class="ends"><span>黑优</span><span>均势</span><span>白优</span></div>
-  </div>
+<div class="panel" id="cloudPanel">
+  <h1>全景星云<span id="cloudCount">正在铺开…</span></h1>
+  <div id="skyBox"><canvas id="sky"></canvas><div id="skyHint">点开全屏</div></div>
+  <div id="cloudStats">—</div>
 </div>
 
 <div class="panel" id="boardPanel">
   <svg id="board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
-  <div id="status">正在生成星云…</div>
+  <div id="status">正在算分叉…</div>
   <div class="row">
     <button id="btnReset">重开</button>
-    <button id="btnCenter">回正视角</button>
-    <button id="btnPlayLine">走树上这一步</button>
+    <button id="btnPlayLine">走第一列选中那步</button>
   </div>
 </div>
 
-<div id="treePanel">
-  <div id="treeHead">
-    <h2>脉络</h2>
-    <div class="sub">从下往上：走过的路 → 现在 → 你能选的岔路。金色是已经走过的，蓝色那条是默认线（每步只按「眼前这一步谁占便宜」挑，不是最优解）。点上面任意一个点，树就顺那条重新往上长。</div>
-    <div id="lineText"></div>
+<div class="panel" id="stage">
+  <div id="stageHead">
+    <h2>可能性分叉</h2>
+    <div class="sub">一列 = 一步棋。每列先列出<b>最靠谱的几条</b>（往前看两步排的），旁边写着这一步一共有多少种。点任意一条，右边就顺它接着分叉。</div>
+    <div id="moveLine"></div>
   </div>
-  <div id="treeWrap"><svg id="tree" xmlns="http://www.w3.org/2000/svg"></svg></div>
-  <div id="treeFoot">把鼠标放到任意一个点上，棋盘会标出那一步。</div>
+  <div id="forkWrap"><svg id="fork" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  <div id="forkFoot">鼠标停在任意一条上，左边棋盘会把那一步画出来。</div>
 </div>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { Chess, expand, scoreChild, MATE } from './engine.js';
+import { Chess, expand, rankMoves, MATE } from './engine.js';
 
 // ─────────────────────────────────────────────── 常量
-const SYNC_DEPTH = 3;      // 前几层主线程同步铺开
+const SYNC_DEPTH = 3;      // 星云前几层主线程同步铺开
 const DEEP_DEPTH = 4;      // 这一层交给 Worker 渐进生长
-const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，所以应手有硬上限）
+const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，应手有硬上限）
 const BATCH_PARENTS = 400; // Worker 每批处理多少个父节点
 
-const PAST_LEVELS = 6;     // 树上往回看几步
-const FUTURE_LEVELS = 5;   // 树上往前长几层
+const COLS = 5;                    // 分叉图往前排几步
+const SHOW = [7, 6, 5, 4, 4];      // 每列先列出几条（其余折起来）
+const RANK_DEPTH = 2;              // 排序往前看几步
 
-// 每层往外推多远 / 散开的锥半角 / 星点大小 / 不透明度，下标 = 层号
-// 锥角收窄 + 步长快速衰减，20 条主枝才分得开，看着才像放射决策树而不是一个毛球
+// 星云每层往外推多远 / 散开的锥半角 / 星点大小 / 不透明度，下标 = 层号
 const STEP    = [0, 9.2, 5.0, 2.9, 1.6];
 const SPREAD  = [0, 0, 0.50, 0.34, 0.26];
 const PT_SIZE = [3.4, 2.0, 1.20, 0.62, 0.36];
-// 加性混合下 20 万个点会叠爆成白，所以越深的层越淡，颜色才留得住
 const PT_OPAC = [1.0, 0.95, 0.72, 0.46, 0.21];
 
 const GOLDEN = 2.39996322972865332;
 
 // ─────────────────────────────────────────────── three.js 场景
 const canvas = document.getElementById('sky');
+const skyBox = document.getElementById('skyBox');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
 renderer.setClearColor(0x05060b, 1);
@@ -207,19 +171,17 @@ const lineMaterial = new THREE.LineBasicMaterial({
   depthWrite: false, blending: THREE.AdditiveBlending,
 });
 
-// ─────────────────────────────────────────────── 星色：分数 → 颜色
-// 分数正 = 白优（暖），负 = 黑优（冷）。分数来自 engine.js 里那一份 evaluate()。
-// 星云和树共用这一个映射，两边的颜色才是一回事。
+// ─────────────────────────────────────────────── 颜色：分数 → 暖冷
+// 分数正 = 白优（暖），负 = 黑优（冷）。星云和分叉图共用这一个映射。
 const WARM = [1.00, 0.44, 0.08];
 const COLD = [0.10, 0.46, 1.00];
-// 均势必须是真中性灰：之前调成偏蓝的，结果「黑优」和「均势」在画面上根本分不开
-const EVEN = [0.55, 0.53, 0.55];
-const COLOR_FULL = 120;            // 多少百分兵算「一边倒」（≈一个兵），到顶就是纯暖/纯冷
+const EVEN = [0.55, 0.53, 0.55];   // 均势得是真中性灰，不然「黑优」和「均势」分不开
+const COLOR_FULL = 120;            // 多少百分兵算「一边倒」（≈一个兵）
 
 function mixColor(score) {
   let t = score / COLOR_FULL;
   if (t > 1) t = 1; else if (t < -1) t = -1;
-  const k = Math.sign(t) * Math.pow(Math.abs(t), 0.55);   // 提一下小分差的辨识度
+  const k = Math.sign(t) * Math.pow(Math.abs(t), 0.55);
   const target = k >= 0 ? WARM : COLD;
   const a = Math.abs(k);
   return [
@@ -239,8 +201,7 @@ function cssColor(score, boost = 1) {
 }
 
 // ─────────────────────────────────────────────── 星云的层账本
-// layers: depth -> { objects: [THREE.Points], pos: Float32Array, dir: Float32Array }
-// 铁律：星数一律从 objects 里的几何体 position.count 现读，绝不自己记数。
+// 铁律：星数一律从几何体 position.count 现读，绝不自己记数。
 const layers = new Map();
 let cloudState = { fen: '', depth: 0, ms: 0, t0: 0, growing: false, gen: 0 };
 
@@ -251,16 +212,11 @@ function nodesAt(depth) {
   for (const obj of rec.objects) n += obj.geometry.attributes.position.count;
   return n;
 }
-function builtDepths() {
-  return [...layers.keys()].sort((a, b) => a - b);
-}
+function builtDepths() { return [...layers.keys()].sort((a, b) => a - b); }
 
 function clearCloud() {
   for (const rec of layers.values()) {
-    for (const obj of rec.objects) {
-      cloudGroup.remove(obj);
-      obj.geometry.dispose();
-    }
+    for (const obj of rec.objects) { cloudGroup.remove(obj); obj.geometry.dispose(); }
     if (rec.lines) { cloudGroup.remove(rec.lines); rec.lines.geometry.dispose(); }
   }
   layers.clear();
@@ -271,7 +227,6 @@ function hash01(n) {
   return s - Math.floor(s);
 }
 
-/** 第 0 层：根局面本身，摆在正中央 */
 function addRoot(score) {
   const pos = new Float32Array([0, 0, 0]);
   const col = new Float32Array(3);
@@ -286,9 +241,7 @@ function addRoot(score) {
 }
 
 /**
- * 往第 depth 层追加一批星。
- * parents[i] = 这颗星的父节点在上一层里的下标；scores[i] = 它的评估分。
- * 每一批都单独开一个「刚好这么大」的 BufferGeometry：
+ * 往第 depth 层追加一批星。每批都单独开一个「刚好这么大」的 BufferGeometry：
  * 不预分配、不用 drawRange，这样 position.count 天然就是真实星数。
  */
 function appendLayer(depth, parents, scores) {
@@ -312,20 +265,18 @@ function appendLayer(depth, parents, scores) {
     while (i + k < n && parents[i + k] === p) k++;   // 同一个父亲的孩子是连续一段
 
     const px = ppos[p * 3], py = ppos[p * 3 + 1], pz = ppos[p * 3 + 2];
-    let ax = pdir[p * 3], ay = pdir[p * 3 + 1], az = pdir[p * 3 + 2];
+    const ax = pdir[p * 3], ay = pdir[p * 3 + 1], az = pdir[p * 3 + 2];
 
-    // 父方向的正交基，孩子在以父方向为轴的锥面上铺开
-    let hx = 0, hy = 0, hz = 0;
+    let hx = 0, hy = 0;
     if (Math.abs(ax) < 0.9) hx = 1; else hy = 1;
-    let ux = ay * hz - az * hy, uy = az * hx - ax * hz, uz = ax * hy - ay * hx;
-    let ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+    let ux = ay * 0 - az * hy, uy = az * hx - ax * 0, uz = ax * hy - ay * hx;
+    const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
     const vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux;
     const phi0 = hash01(p + depth * 131.7) * 6.28318530718;
 
     for (let j = 0; j < k; j++) {
       let cx, cy, cz;
       if (depth === 1) {
-        // 第一层直接铺满整个球面（斐波那契球），星云才有「四面炸开」的样子
         const z = 1 - 2 * (j + 0.5) / k;
         const r = Math.sqrt(Math.max(0, 1 - z * z));
         const th = j * GOLDEN;
@@ -340,7 +291,7 @@ function appendLayer(depth, parents, scores) {
         cx = ax * ca + wx * sa; cy = ay * ca + wy * sa; cz = az * ca + wz * sa;
         const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
       }
-      // 径向抖动：孩子不要全落在同一个半径上，不然每层都是一层壳，整朵云糊成毛球
+      // 径向抖动：孩子不落在同一个半径上，不然每层都是一层壳
       const jr = depth >= 2 ? 0.45 + 1.15 * hash01(p * 3.7 + j * 11.31 + depth * 57.3) : 1;
       const o = (i + j) * 3;
       dir[o] = cx; dir[o + 1] = cy; dir[o + 2] = cz;
@@ -360,10 +311,8 @@ function appendLayer(depth, parents, scores) {
   let rec = layers.get(depth);
   if (!rec) { rec = { objects: [], pos: null, dir: null }; layers.set(depth, rec); }
   rec.objects.push(obj);
-  // 只有还要长孩子的层才需要留住坐标（第 4 层是末层，不留）
   if (depth < DEEP_DEPTH) { rec.pos = pos; rec.dir = dir; }
 
-  // 前两层画出连线，放射决策树的骨架才看得出来
   if (depth <= 2) {
     const lp = new Float32Array(n * 6), lc = new Float32Array(n * 6);
     for (let t = 0; t < n; t++) {
@@ -390,7 +339,7 @@ let lastAi = null;
 let aiClock = 0;
 
 const searchWorker = new Worker('./worker.js', { type: 'module' });
-searchWorker.postMessage({ type: 'ping' });   // 预热：先把 CDN 模块拉进 Worker
+searchWorker.postMessage({ type: 'ping' });
 searchWorker.onmessage = (ev) => {
   const m = ev.data;
   if (m.type === 'searchDone') onAiMove(m.result);
@@ -401,7 +350,7 @@ let cloudWorker = null;
 
 function rebuildCloud() {
   const gen = ++cloudState.gen;
-  if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }  // 真的掐掉上一朵云
+  if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }
   clearCloud();
 
   const fen = game.fen();
@@ -420,28 +369,19 @@ function rebuildCloud() {
 
   if (parentFens.length === 0) { cloudState.growing = false; updateHud(); return; }
 
-  // 第 4 层：交给 Worker，一批一批长
   cloudWorker = new Worker('./worker.js', { type: 'module' });
   cloudWorker.onmessage = (ev) => {
     const m = ev.data;
-    if (m.id !== gen) return;                       // 过期的云，丢掉
-    if (m.type === 'cloudBatch') {
-      appendLayer(m.depth, m.parents, m.scores);
-      updateHud();
-    } else if (m.type === 'cloudDone') {
+    if (m.id !== gen) return;
+    if (m.type === 'cloudBatch') { appendLayer(m.depth, m.parents, m.scores); updateHud(); }
+    else if (m.type === 'cloudDone') {
       cloudState.depth = DEEP_DEPTH;
       cloudState.ms = performance.now() - cloudState.t0;
       cloudState.growing = false;
       updateHud();
-    } else if (m.type === 'cloudError') {
-      cloudState.growing = false;
-      setStatus(`星云出错：${m.message}`);
-    }
+    } else if (m.type === 'cloudError') { cloudState.growing = false; setStatus(`星云出错：${m.message}`); }
   };
-  cloudWorker.postMessage({
-    type: 'cloud', id: gen, depth: DEEP_DEPTH,
-    parentFens, batchParents: BATCH_PARENTS,
-  });
+  cloudWorker.postMessage({ type: 'cloud', id: gen, depth: DEEP_DEPTH, parentFens, batchParents: BATCH_PARENTS });
 }
 
 function requestAi() {
@@ -453,41 +393,36 @@ function requestAi() {
 
 function onAiMove(result) {
   thinking = false;
-  if (!result) { renderBoard(); setStatus(describeEnd()); return; }
+  if (!result) { renderBoard(); renderFork(); setStatus(describeEnd()); return; }
   const mv = game.move(result.move);
   lastAi = {
     san: mv ? mv.san : result.san,
-    depth: result.depth,
-    nodes: result.nodes,
+    depth: result.depth, nodes: result.nodes,
     searchMs: Math.round(result.ms),
     totalMs: Math.round(performance.now() - aiClock),
   };
   selected = null;
-  futureChosen = [];
+  branchPath = [];
   renderBoard();
   rebuildCloud();
-  renderTree();
+  renderFork();
   setStatus(game.isGameOver()
     ? describeEnd()
     : `黑走 <b>${lastAi.san}</b>（想了 ${lastAi.totalMs}ms，搜到 ${lastAi.depth} 层）。轮到你。`);
 }
 
-/** 落子入口。棋盘点击和测试钩子走的是同一条路，合法性一律由 chess.js 判。 */
+/** 落子入口。棋盘点击、分叉图、测试钩子走的都是这一条路，合法性一律由 chess.js 判。 */
 function tryMove(from, to, promotion) {
   if (thinking || game.isGameOver() || game.turn() !== 'w') return false;
   let mv = null;
-  try {
-    mv = game.move({ from, to, promotion: promotion || 'q' });
-  } catch (e) {
-    mv = null;      // chess.js 对非法走子直接抛错，这里就是「被拒」
-  }
+  try { mv = game.move({ from, to, promotion: promotion || 'q' }); } catch (e) { mv = null; }
   if (!mv) return false;
   selected = null;
-  futureChosen = [];
+  branchPath = [];
   renderBoard();
-  requestAi();       // 先派活给 AI 的 Worker，让它和主线程铺云并行跑
+  requestAi();       // 先派活给 AI 的 Worker，让它和主线程并行
   rebuildCloud();
-  renderTree();
+  renderFork();
   setStatus(game.isGameOver() ? describeEnd() : `你走 <b>${mv.san}</b>，黑方在想…`);
   return true;
 }
@@ -501,15 +436,14 @@ function describeEnd() {
   return '';
 }
 
-// ─────────────────────────────────────────────── 棋盘（自绘 SVG，不引棋盘库）
+// ─────────────────────────────────────────────── 棋盘（自绘 SVG）
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const boardEl = document.getElementById('board');
 const CELL = 50;
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
-let preview = null;      // 鼠标停在树上某个走法时，棋盘要标出来的那一步
+let preview = null;      // 鼠标停在分叉图某条上时，棋盘要画出来的那一步
 
-function squareAt(file, rank) { return FILES[file] + (8 - rank); }
 function squareXY(sq) {
   const f = FILES.indexOf(sq[0]), r = 8 - Number(sq[1]);
   return [f * CELL + CELL / 2, r * CELL + CELL / 2];
@@ -517,15 +451,13 @@ function squareXY(sq) {
 
 function renderBoard() {
   while (boardEl.firstChild) boardEl.removeChild(boardEl.firstChild);
-  const legal = selected
-    ? game.moves({ square: selected, verbose: true }).map((m) => m.to)
-    : [];
+  const legal = selected ? game.moves({ square: selected, verbose: true }).map((m) => m.to) : [];
   const board = game.board();
   const last = game.history({ verbose: true }).slice(-1)[0];
 
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
-      const sq = squareAt(f, r);
+      const sq = FILES[f] + (8 - r);
       const dark = (r + f) % 2 === 1;
       const rect = document.createElementNS(SVG_NS, 'rect');
       rect.setAttribute('x', f * CELL); rect.setAttribute('y', r * CELL);
@@ -568,7 +500,6 @@ function renderBoard() {
     }
   }
 
-  // 鼠标停在树上某个岔路时，棋盘把那一步画出来：起点虚线圈，终点实心点
   if (preview) {
     const [x1, y1] = squareXY(preview.from), [x2, y2] = squareXY(preview.to);
     const ring = document.createElementNS(SVG_NS, 'circle');
@@ -604,74 +535,41 @@ boardEl.addEventListener('click', (ev) => {
 function setStatus(html) { document.getElementById('status').innerHTML = html; }
 
 function updateHud() {
-  const n = nodesAt(cloudState.depth);
   let total = 0;
   for (const d of builtDepths()) total += nodesAt(d);
-  document.getElementById('kDepth').textContent =
-    cloudState.growing ? `${cloudState.depth} 层（第 ${DEEP_DEPTH} 层生长中）` : `${cloudState.depth} 层`;
-  document.getElementById('kNodes').textContent = n.toLocaleString('en-US');
-  document.getElementById('kTotal').innerHTML = cloudState.growing
-    ? `<span class="grow">${total.toLocaleString('en-US')}</span>`
-    : total.toLocaleString('en-US');
-  document.getElementById('kMs').textContent = `${Math.round(cloudState.ms)} ms`;
-  document.getElementById('kAi').textContent = lastAi
-    ? `${lastAi.san} · ${lastAi.totalMs}ms · ${lastAi.depth}层`
-    : '—';
+  const layerTxt = cloudState.growing ? `${cloudState.depth}+ 层` : `${cloudState.depth} 层`;
+  document.getElementById('cloudStats').innerHTML =
+    `铺了 <b>${layerTxt}</b>　·　${Math.round(cloudState.ms)} ms 成云`
+    + (lastAi ? `　·　AI 应手 <b>${lastAi.totalMs} ms</b>（搜到 ${lastAi.depth} 层）` : '');
+  document.getElementById('cloudCount').innerHTML = cloudState.growing
+    ? `这一步之后 <span class="grow">${total.toLocaleString('en-US')}</span> 种未来，还在长`
+    : `这一步之后 ${total.toLocaleString('en-US')} 种未来`;
 }
 
-// ─────────────────────────────────────────────── 树：一条能读的脉络
-// 最下面是走过的路（每层摊开当时所有的岔路，实际走的那条高亮），
-// 中间一条线是「现在」，往上是还没发生的岔路：点哪个，树就顺哪条往上长。
-const treeEl = document.getElementById('tree');
-const treeWrap = document.getElementById('treeWrap');
-const ROW = 62, PAD = 28;
-let futureChosen = [];      // 未来每一层选了第几条岔路（没选就走贪心）
-let treeLevels = [];
+// ─────────────────────────────────────────────── 主舞台：平面分叉图
+// 一列 = 一步棋。每列把走法按「对行棋方好坏」排好，先摆最靠谱的几条，
+// 其余折成一行「还有 N 条」。点哪条，右边就顺它接着分叉。
+const forkEl = document.getElementById('fork');
+const forkWrap = document.getElementById('forkWrap');
+const CARD_H = 38, CARD_GAP = 8, HEAD_H = 62;
+let branchPath = [];     // 每列选中的是排序后的第几条
+let expanded = [];       // 哪些列被点开了「还有 N 条」
+let columns = [];
 
-function packMoves(moves) {
-  return moves.map((m) => ({
-    san: m.san, from: m.from, to: m.to, promotion: m.promotion,
-    after: m.after, score: scoreChild(m),
-  }));
-}
-
-/** 静态分对当前行棋方最好的那一步。没人点的时候，树默认顺着这条长。 */
-function greedyBest(packed, whiteToMove) {
-  let best = 0;
-  for (let i = 1; i < packed.length; i++) {
-    if (whiteToMove ? packed[i].score > packed[best].score : packed[i].score < packed[best].score) best = i;
-  }
-  return best;
-}
-
-function buildLevels() {
-  const levels = [];
-  const hist = game.history({ verbose: true });
-  const startAt = Math.max(0, hist.length - PAST_LEVELS);
-
-  // 走过的路：重放到起点，然后一层层记下「当时有哪些岔路、实际走了哪条」
-  const g = new Chess();
-  for (let i = 0; i < startAt; i++) g.move({ from: hist[i].from, to: hist[i].to, promotion: hist[i].promotion });
-  for (let i = startAt; i < hist.length; i++) {
-    const fen = g.fen();
-    const packed = packMoves(g.moves({ verbose: true }));
-    const idx = packed.findIndex((m) => m.san === hist[i].san);
-    levels.push({ kind: 'past', fen, moves: packed, chosen: idx, ply: i });
-    g.move({ from: hist[i].from, to: hist[i].to, promotion: hist[i].promotion });
-  }
-
-  // 还没发生的：从当前局面往上长
+function buildColumns() {
+  const cols = [];
   let fen = game.fen();
-  for (let d = 0; d < FUTURE_LEVELS; d++) {
-    const packed = packMoves(new Chess(fen).moves({ verbose: true }));
-    if (packed.length === 0) break;
-    const white = fen.split(' ')[1] === 'w';
-    let idx = futureChosen[d];
-    if (idx === undefined || idx === null || idx < 0 || idx >= packed.length) idx = greedyBest(packed, white);
-    levels.push({ kind: 'future', fen, moves: packed, chosen: idx, ply: hist.length + d, futureIndex: d });
-    fen = packed[idx].after;
+  const base = game.history().length;
+  for (let i = 0; i < COLS; i++) {
+    const ranked = rankMoves(fen, { depth: RANK_DEPTH });
+    if (ranked.length === 0) break;
+    let idx = branchPath[i];
+    if (idx === undefined || idx === null || idx < 0 || idx >= ranked.length) idx = 0;   // 默认最靠谱那条
+    const shown = expanded[i] ? ranked.length : Math.min(SHOW[i] || 4, ranked.length);
+    cols.push({ fen, ranked, chosen: idx, shown, ply: base + i, white: fen.split(' ')[1] === 'w' });
+    fen = ranked[idx].after;
   }
-  return levels;
+  return cols;
 }
 
 function scoreText(s) {
@@ -679,185 +577,179 @@ function scoreText(s) {
   if (s <= -MATE) return '被将死';
   return (s >= 0 ? '+' : '') + (s / 100).toFixed(2);
 }
-function plyLabel(ply) {
-  return `第 ${Math.floor(ply / 2) + 1} 回合 · ${ply % 2 === 0 ? '白' : '黑'}`;
-}
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
 
-/**
- * 兄弟节点怎么排：选中的那条永远坐正中间，其余按「离它多远」左右交替往外铺。
- * 这样主干从下到上是一条直线，岔路向两边对称扇开，一眼就看得出哪条是主线。
- */
-function seatsOf(lv) {
-  const n = lv.moves.length;
-  const c = lv.chosen < 0 ? 0 : lv.chosen;
-  const seat = new Array(n);
-  seat[c] = 0;
-  const others = [];
-  for (let j = 0; j < n; j++) if (j !== c) others.push(j);
-  others.sort((a, b) => Math.abs(a - c) - Math.abs(b - c) || a - b);
-  let left = -1, right = 1;
-  for (let k = 0; k < others.length; k++) {
-    seat[others[k]] = (k % 2 === 0) ? right++ : left--;
-  }
-  return seat;
-}
+function renderFork() {
+  columns = buildColumns();
+  const W = Math.max(560, forkWrap.clientWidth || 900);
+  const colW = W / Math.max(1, columns.length || 1);
+  const cardW = Math.max(96, colW - 34);
 
-function renderTree() {
-  treeLevels = buildLevels();
-  const W = Math.max(320, treeWrap.clientWidth || 560);
-  const contentH = (treeLevels.length + 1) * ROW + PAD * 2;
-  const H = Math.max(contentH, treeWrap.clientHeight || 400);   // 撑满容器，树才是「从最底下长上来」
-  const CX = W / 2;
-  const SIDE = Math.max(60, W / 2 - 132);   // 左右各留 132px 给分数和走法说明，别压在节点上
+  const rowsOf = (c) => c.shown + (c.shown < c.ranked.length ? 1 : 0);
+  let maxRows = 1;
+  for (const c of columns) maxRows = Math.max(maxRows, rowsOf(c));
+  const bodyH = maxRows * (CARD_H + CARD_GAP) - CARD_GAP;
+  const H = Math.max(forkWrap.clientHeight || 420, HEAD_H + bodyH + 24);
+  const top = HEAD_H;
+  // 顶对齐：把某一列点开成几十条时，其余列还待在原地看得见
+  const colX = (i) => 18 + i * colW;
+  const yOf = (c, j) => top + j * (CARD_H + CARD_GAP);
+  const anchorY = top + (Math.min(rowsOf(columns[0] || { shown: 1, ranked: [] }), 7) * (CARD_H + CARD_GAP) - CARD_GAP) / 2;
 
-  const seats = treeLevels.map(seatsOf);
-  let maxSeat = 1;
-  for (const s of seats) for (const v of s) maxSeat = Math.max(maxSeat, Math.abs(v));
-  const gap = Math.max(4.5, Math.min(24, SIDE / maxSeat));
-
-  const yOf = (i) => H - PAD - (i + 1) * ROW;   // i = -1 就是最底下的起点
-  const pastCount = treeLevels.filter((l) => l.kind === 'past').length;
   let svg = '';
 
-  // 连线：下面那层选中的点，往上扇开连到这一层的每一条岔路
-  for (let i = 0; i < treeLevels.length; i++) {
-    const lv = treeLevels[i];
-    const y = yOf(i), py = yOf(i - 1);
-    for (let j = 0; j < lv.moves.length; j++) {
-      const x = CX + seats[i][j] * gap;
-      const isPick = j === lv.chosen;
-      const col = isPick ? (lv.kind === 'past' ? '#d3b862' : '#8fd8ff') : 'rgba(150,162,196,.16)';
-      svg += `<path d="M${CX},${py} C${CX},${(py - ROW * 0.45).toFixed(1)} ${x.toFixed(1)},${(y + ROW * 0.45).toFixed(1)} ${x.toFixed(1)},${y}" fill="none" stroke="${col}" stroke-width="${isPick ? 2.6 : 1}"/>`;
+  // 连线：上一列选中那条的右边缘，扇开连到这一列每一条的左边缘
+  for (let i = 0; i < columns.length; i++) {
+    const c = columns[i];
+    const x = colX(i);
+    let fx, fy;
+    if (i === 0) { fx = 12; fy = anchorY; }
+    else {
+      const pc = columns[i - 1];
+      fx = colX(i - 1) + cardW; fy = yOf(pc, pc.chosen) + CARD_H / 2;
+    }
+    for (let j = 0; j < c.shown; j++) {
+      const y = yOf(c, j) + CARD_H / 2;
+      const isPick = j === c.chosen;
+      const col = isPick ? 'rgba(143,216,255,.85)' : 'rgba(150,162,196,.20)';
+      const mx = (fx + x) / 2;
+      svg += `<path d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${isPick ? 2.4 : 1}"/>`;
     }
   }
 
-  // 最底下的起点
-  svg += `<circle cx="${CX}" cy="${yOf(-1)}" r="5.5" fill="#fff" opacity=".9"/>`;
-  svg += `<text x="${CX}" y="${yOf(-1) + 22}" font-size="11" fill="#6f768c" text-anchor="middle">${pastCount ? '这局从这里开始' : '当前局面'}</text>`;
+  // 最左边那个「现在」的点
+  svg += `<circle cx="12" cy="${anchorY.toFixed(1)}" r="5" fill="#7ee0a8"/>`;
+  svg += `<text x="4" y="${(anchorY - 13).toFixed(1)}" font-size="10.5" fill="#7ee0a8">现在</text>`;
 
-  // 「现在」那条分隔线
-  if (pastCount > 0 && pastCount < treeLevels.length) {
-    const y = (yOf(pastCount - 1) + yOf(pastCount)) / 2;
-    svg += `<line x1="14" y1="${y}" x2="${W - 14}" y2="${y}" stroke="#7ee0a8" stroke-width="1" stroke-dasharray="4 5" opacity=".5"/>`;
-    svg += `<text x="${W - 16}" y="${y - 6}" font-size="10.5" fill="#7ee0a8" text-anchor="end">现在 · 往上都还没发生</text>`;
+  // 每一列
+  for (let i = 0; i < columns.length; i++) {
+    const c = columns[i];
+    const x = colX(i);
+    const who = c.white ? '白' : '黑';
+    const mine = c.white ? '你' : '他';
+    svg += `<text x="${x}" y="20" font-size="11" fill="#5f6679">第 ${Math.floor(c.ply / 2) + 1} 回合 · ${who}走</text>`;
+    svg += `<text x="${x}" y="39" font-size="14" font-weight="650" fill="#e4ecff">${mine}有 ${c.ranked.length} 种走法</text>`;
+    svg += `<text x="${x}" y="55" font-size="10.5" fill="#5f6679">${c.shown < c.ranked.length ? `先看最靠谱的 ${c.shown} 条` : '全部列出'}</text>`;
+
+    for (let j = 0; j < c.shown; j++) {
+      const m = c.ranked[j];
+      const y = yOf(c, j);
+      const isPick = j === c.chosen;
+      const col = cssColor(m.score, 1.25);
+      svg += `<g class="card" data-col="${i}" data-idx="${j}">`
+        + `<rect x="${x}" y="${y}" width="${cardW}" height="${CARD_H}" rx="9"`
+        + ` fill="${isPick ? 'rgba(60,96,140,.55)' : 'rgba(30,36,52,.62)'}"`
+        + ` stroke="${isPick ? '#8fd8ff' : 'rgba(150,170,220,.18)'}" stroke-width="${isPick ? 1.8 : 1}"/>`
+        + `<rect x="${x}" y="${y + 7}" width="4" height="${CARD_H - 14}" rx="2" fill="${col}"/>`
+        + `<text x="${x + 15}" y="${y + CARD_H / 2 + 1}" font-size="15" font-weight="600" dominant-baseline="middle" fill="#f0f4ff">${esc(m.san)}</text>`
+        + `<text x="${x + cardW - 11}" y="${y + CARD_H / 2 + 1}" font-size="12" text-anchor="end" dominant-baseline="middle" fill="${col}" font-variant-numeric="tabular-nums">${scoreText(m.score)}</text>`
+        + (j < 3 ? `<text x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="#6f768c">${j + 1}</text>` : '')
+        + `</g>`;
+    }
+    if (c.shown < c.ranked.length) {
+      const y = yOf(c, c.shown);
+      svg += `<g class="more" data-col="${i}">`
+        + `<rect x="${x}" y="${y}" width="${cardW}" height="${CARD_H}" rx="9" fill="rgba(24,29,42,.5)" stroke="rgba(150,170,220,.14)" stroke-width="1" stroke-dasharray="4 4"/>`
+        + `<text x="${x + cardW / 2}" y="${y + CARD_H / 2 + 1}" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#8c93a8">还有 ${c.ranked.length - c.shown} 条 · 点开</text>`
+        + `</g>`;
+    }
   }
 
-  // 节点 + 每层的说明（分数固定在左边一列，走法固定在右边一列，都不压节点）
-  for (let i = 0; i < treeLevels.length; i++) {
-    const lv = treeLevels[i];
-    const y = yOf(i);
-    for (let j = 0; j < lv.moves.length; j++) {
-      const m = lv.moves[j];
-      const x = CX + seats[i][j] * gap;
-      const isPick = j === lv.chosen;
-      const stroke = isPick ? (lv.kind === 'past' ? '#e8cf7a' : '#bfe9ff') : null;
-      svg += `<circle class="node ${lv.kind}" cx="${x.toFixed(1)}" cy="${y}" r="${isPick ? 7.5 : 3.4}"`
-        + ` fill="${cssColor(m.score, isPick ? 1.25 : 1)}"`
-        + (stroke ? ` stroke="${stroke}" stroke-width="2.2"` : '')
-        + ` data-lv="${i}" data-idx="${j}"><title>${m.san}　${scoreText(m.score)}</title></circle>`;
-    }
-    const pick = lv.chosen >= 0 ? lv.moves[lv.chosen] : null;
-    const tag = lv.kind === 'past' ? '走了' : (lv.futureIndex === 0 ? '轮到这一步' : '接着走');
-    svg += `<text x="${W - 16}" y="${y - 4}" font-size="14" font-weight="650" text-anchor="end" fill="${lv.kind === 'past' ? '#dfd2a2' : '#e4ecff'}">${pick ? pick.san : '—'}</text>`;
-    svg += `<text x="${W - 16}" y="${y + 13}" font-size="10.5" text-anchor="end" fill="#6f768c">${plyLabel(lv.ply)} · ${tag} · ${lv.moves.length} 条岔路</text>`;
-    if (pick) {
-      svg += `<text x="16" y="${y - 4}" font-size="13" fill="${cssColor(pick.score, 1.35)}" font-variant-numeric="tabular-nums">${scoreText(pick.score)}</text>`;
-      svg += `<text x="16" y="${y + 13}" font-size="10.5" fill="#6f768c">这条线的评估</text>`;
-    }
+  forkEl.setAttribute('width', W);
+  forkEl.setAttribute('height', H);
+  forkEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  forkEl.innerHTML = svg;
+
+  // 已经走过的棋谱
+  const hist = game.history();
+  let line = '';
+  for (let i = 0; i < hist.length; i++) {
+    if (i % 2 === 0) line += `<span class="num">${i / 2 + 1}.</span>`;
+    line += (i === hist.length - 1 ? `<b>${hist[i]}</b>` : hist[i]) + ' ';
   }
+  const picked = columns.map((c) => c.ranked[c.chosen].san).join(' ');
+  document.getElementById('moveLine').innerHTML =
+    (line ? `走过：${line}` : '还没落子。') + (picked ? `　▸　这条分叉：${picked}` : '');
 
-  treeEl.setAttribute('width', W);
-  treeEl.setAttribute('height', H);
-  treeEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  treeEl.innerHTML = svg;
-
-  // 顶上那行棋谱
-  const parts = treeLevels.map((lv) => {
-    const pick = lv.chosen >= 0 ? lv.moves[lv.chosen] : null;
-    if (!pick) return '';
-    const num = lv.ply % 2 === 0 ? `<span class="num">${Math.floor(lv.ply / 2) + 1}.</span>` : '';
-    return `${num}<span class="${lv.kind === 'past' ? 'past' : 'fut'}">${pick.san}</span>`;
-  });
-  document.getElementById('lineText').innerHTML =
-    parts.slice(0, pastCount).join(' ')
-    + (pastCount ? '<span class="now">▸现在▸</span>' : '')
-    + parts.slice(pastCount).join(' ');
-
-  const first = treeLevels.find((l) => l.kind === 'future');
   document.getElementById('btnPlayLine').disabled =
-    !(first && game.turn() === 'w' && !thinking && !game.isGameOver());
+    !(columns.length && game.turn() === 'w' && !thinking && !game.isGameOver());
 }
 
-treeEl.addEventListener('click', (ev) => {
-  const c = ev.target.closest ? ev.target.closest('circle.node') : null;
-  if (!c) return;
-  const lv = treeLevels[+c.dataset.lv];
-  if (!lv || lv.kind !== 'future') return;          // 走过的路改不了
-  futureChosen = futureChosen.slice(0, lv.futureIndex);
-  futureChosen[lv.futureIndex] = +c.dataset.idx;
-  renderTree();
+forkEl.addEventListener('click', (ev) => {
+  const more = ev.target.closest ? ev.target.closest('g.more') : null;
+  if (more) { expanded[+more.dataset.col] = true; renderFork(); return; }
+  const card = ev.target.closest ? ev.target.closest('g.card') : null;
+  if (!card) return;
+  const i = +card.dataset.col;
+  branchPath = branchPath.slice(0, i);
+  branchPath[i] = +card.dataset.idx;
+  expanded = expanded.slice(0, i + 1);
+  renderFork();
 });
 
-treeEl.addEventListener('mouseover', (ev) => {
-  const c = ev.target.closest ? ev.target.closest('circle.node') : null;
-  if (!c) return;
-  const lv = treeLevels[+c.dataset.lv];
-  const m = lv && lv.moves[+c.dataset.idx];
+forkEl.addEventListener('mouseover', (ev) => {
+  const card = ev.target.closest ? ev.target.closest('g.card') : null;
+  if (!card) return;
+  const c = columns[+card.dataset.col];
+  const m = c && c.ranked[+card.dataset.idx];
   if (!m) return;
   preview = { from: m.from, to: m.to, color: cssColor(m.score, 1.35) };
   renderBoard();
-  document.getElementById('treeFoot').innerHTML =
-    `<b>${m.san}</b>　${plyLabel(lv.ply)}　评估 <b>${scoreText(m.score)}</b>`
-    + `　·　这一步之后对方有 <b>${new Chess(m.after).moves().length}</b> 种回应`
-    + (lv.kind === 'past' ? '　·　这层已经走过了，改不了' : '　·　点它就顺这条往上长');
+  const replies = new Chess(m.after).moves().length;
+  document.getElementById('forkFoot').innerHTML =
+    `<b>${esc(m.san)}</b>　这一步在 ${c.ranked.length} 种里排第 <b>${+card.dataset.idx + 1}</b>`
+    + `　·　走完之后对方有 <b>${replies}</b> 种回应`
+    + `　·　往前看两步的评估 <b>${scoreText(m.score)}</b>（正=白优）`;
 });
-treeEl.addEventListener('mouseleave', () => {
+forkEl.addEventListener('mouseleave', () => {
   preview = null; renderBoard();
-  document.getElementById('treeFoot').textContent = '把鼠标放到任意一个点上，棋盘会标出那一步。';
+  document.getElementById('forkFoot').textContent = '鼠标停在任意一条上，左边棋盘会把那一步画出来。';
 });
 
 document.getElementById('btnPlayLine').onclick = () => {
-  const first = treeLevels.find((l) => l.kind === 'future');
-  if (!first || first.chosen < 0) return;
-  const m = first.moves[first.chosen];
+  if (!columns.length) return;
+  const m = columns[0].ranked[columns[0].chosen];
   tryMove(m.from, m.to, m.promotion);
 };
 
-// ─────────────────────────────────────────────── 视角（手搓 orbit，不引控件）
-const view = { yaw: 0.6, pitch: 0.28, dist: 54, auto: true };
+// ─────────────────────────────────────────────── 星云小窗的视角
+const view = { yaw: 0.6, pitch: 0.28, dist: 34, auto: true };
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
-  drag = { x: e.clientX, y: e.clientY };
-  view.auto = false;
+  drag = { x: e.clientX, y: e.clientY, moved: false };
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
+  if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) { drag.moved = true; view.auto = false; }
   view.yaw -= (e.clientX - drag.x) * 0.005;
   view.pitch = Math.max(-1.45, Math.min(1.45, view.pitch + (e.clientY - drag.y) * 0.005));
-  drag = { x: e.clientX, y: e.clientY };
+  drag = { x: e.clientX, y: e.clientY, moved: drag.moved };
 });
-canvas.addEventListener('pointerup', () => { drag = null; });
+canvas.addEventListener('pointerup', () => {
+  if (drag && !drag.moved) toggleCloudFull();      // 没拖动就是点击 → 开/收全屏
+  drag = null;
+});
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   view.dist = Math.max(6, Math.min(220, view.dist * (1 + Math.sign(e.deltaY) * 0.09)));
 }, { passive: false });
 
+function toggleCloudFull() {
+  document.body.classList.toggle('cloud-full');
+  const full = document.body.classList.contains('cloud-full');
+  document.getElementById('skyHint').textContent = full ? '点一下收回去' : '点开全屏';
+  requestAnimationFrame(resize);
+}
+
 function resize() {
-  const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
+  const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight);
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderTree();
+  renderFork();
 }
 addEventListener('resize', resize);
-
-document.getElementById('toggleTree').onclick = () => {
-  document.body.classList.toggle('tree-off');
-  const off = document.body.classList.contains('tree-off');
-  document.getElementById('toggleTree').textContent = off ? '展开树' : '收起树';
-  requestAnimationFrame(resize);
-};
 
 function frame() {
   if (view.auto) view.yaw += 0.0009;
@@ -884,26 +776,29 @@ window.__cloudStats = () => {
   for (const l of layerList) total += l.nodes;
   return {
     fen: cloudState.fen,
-    depth: cloudState.depth,                 // 已经长满的最深一层
-    nodes: nodesAt(cloudState.depth),        // 这一层的真实星数
+    depth: cloudState.depth,
+    nodes: nodesAt(cloudState.depth),
     ms: Math.round(cloudState.ms),
-    layers: layerList,                       // 每层各自的真实星数（第 0 层 = 根局面自己）
+    layers: layerList,
     totalNodes: total,
     growing: cloudState.growing,
   };
 };
 
 /**
- * 树现状。siblings 是从 SVG 里真数出来的 <circle> 个数，不是我记的账，
- * 所以「这一层有几条岔路」也能拿 chess.js 去对撞。
+ * 分叉图现状。cards 是从 SVG 里真数出来的卡片个数，total 是这一列声明的走法总数，
+ * 所以「这一步一共有多少种」也能拿 chess.js 去对撞。
  */
-window.__treeStats = () => treeLevels.map((lv, i) => ({
-  level: i,
-  kind: lv.kind,
-  ply: lv.ply,
-  fen: lv.fen,
-  siblings: treeEl.querySelectorAll(`circle.node[data-lv="${i}"]`).length,
-  chosenSan: lv.chosen >= 0 ? lv.moves[lv.chosen].san : null,
+window.__forkStats = () => columns.map((c, i) => ({
+  col: i,
+  ply: c.ply,
+  fen: c.fen,
+  total: c.ranked.length,
+  cards: forkEl.querySelectorAll(`g.card[data-col="${i}"]`).length,
+  shown: c.shown,
+  chosenSan: c.ranked[c.chosen].san,
+  topSans: c.ranked.slice(0, 3).map((m) => m.san),
+  topScores: c.ranked.slice(0, 3).map((m) => m.score),
 }));
 
 // 验收用的钩子：走的是和点棋盘完全同一条路
@@ -914,30 +809,34 @@ window.__test = {
     history: game.history(), over: game.isGameOver(), thinking,
   }),
   ai: () => lastAi,
-  pickTreeNode: (level, idx) => {
-    const lv = treeLevels[level];
-    if (!lv || lv.kind !== 'future') return false;
-    futureChosen = futureChosen.slice(0, lv.futureIndex);
-    futureChosen[lv.futureIndex] = idx;
-    renderTree();
+  pickBranch: (col, idx) => {
+    if (!columns[col] || idx >= columns[col].ranked.length) return false;
+    branchPath = branchPath.slice(0, col);
+    branchPath[col] = idx;
+    expanded = expanded.slice(0, col + 1);
+    renderFork();
     return true;
   },
+  expandCol: (col) => { expanded[col] = true; renderFork(); return true; },
+  skyRect: () => {
+    const r = canvas.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height };
+  },
+  toggleCloudFull,
   reset: () => {
-    game.reset(); selected = null; lastAi = null; thinking = false; futureChosen = [];
-    renderBoard(); rebuildCloud(); renderTree();
+    game.reset(); selected = null; lastAi = null; thinking = false;
+    branchPath = []; expanded = [];
+    renderBoard(); rebuildCloud(); renderFork();
   },
 };
 
 document.getElementById('btnReset').onclick = () => window.__test.reset();
-document.getElementById('btnCenter').onclick = () => {
-  view.yaw = 0.6; view.pitch = 0.28; view.dist = 54; view.auto = true;
-};
 
 resize();
 renderBoard();
 rebuildCloud();
-renderTree();
-setStatus('你执白，点子走棋。右边那棵树能一层层看清岔路。');
+renderFork();
+setStatus('你执白，点子走棋。右边每一列就是一步，先给你列最靠谱的几条。');
 </script>
 </body>
 </html>

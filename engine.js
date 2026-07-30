@@ -148,6 +148,42 @@ export function expand(parentFens, opts = {}) {
   };
 }
 
+/**
+ * 把一个局面的所有走法，按「对当前行棋方的好坏」从好到坏排出来。
+ *
+ * depth=1 就是走完之后的静态评估；
+ * depth=2 会再往前看一步：「我走这步，对手挑他最好的回应之后，局面值多少」。
+ * 这一步很关键——只看一步的话，送后和吃兵长得一样好，排出来的「最可能」是假的。
+ *
+ * 打分从头到尾只用 evaluate() 那一份，没有第二套标准。
+ */
+export function rankMoves(fen, opts = {}) {
+  const { depth = 2 } = opts;
+  const white = fen.split(' ')[1] === 'w';
+  const moves = new Chess(fen).moves({ verbose: true });
+  const out = moves.map((m) => {
+    let score = scoreChild(m);
+    if (depth >= 2 && Math.abs(score) < MATE) {
+      const replies = new Chess(m.after).moves({ verbose: true });
+      if (replies.length === 0) {
+        // 对手无路可走：将军着就是将死，否则困毙
+        score = new Chess(m.after).isCheck() ? (white ? MATE : -MATE) : 0;
+      } else {
+        // 对手当然挑对他最好的：我是白，他就往小了挑；我是黑，他就往大了挑
+        let best = scoreChild(replies[0]);
+        for (let i = 1; i < replies.length; i++) {
+          const s = scoreChild(replies[i]);
+          if (white ? s < best : s > best) best = s;
+        }
+        score = best;
+      }
+    }
+    return { san: m.san, from: m.from, to: m.to, promotion: m.promotion, after: m.after, score };
+  });
+  out.sort((a, b) => (white ? b.score - a.score : a.score - b.score));
+  return out;
+}
+
 // ---------------------------------------------------------------- 搜索（AI）
 
 const ORDER_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
