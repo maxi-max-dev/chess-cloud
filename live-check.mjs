@@ -268,14 +268,19 @@ function cloudPathPixelDiff(normalFile, hiddenFile, rect, minDelta = 18) {
   };
 }
 
-function edgeStats(file, cssW, cssH) {
+function edgeStats(file, cssW, cssH, excludeTop = false) {
   const { w, h, ch, px } = decodePng(fs.readFileSync(file));
   const scale = Math.min(w / cssW, h / cssH);
   const band = Math.max(2, Math.round(7 * scale));
   let total = 0, dark = 0, light = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (x >= band && x < w - band && y >= band && y < h - band) continue;
+      const onEdge =
+        x < band
+        || x >= w - band
+        || y >= h - band
+        || (!excludeTop && y < band);
+      if (!onEdge) continue;
       const o = (y * w + x) * ch;
       const sum = px[o] + px[o + 1] + px[o + 2];
       total++;
@@ -388,6 +393,63 @@ function auditBoardDom(snapshot) {
     actual,
     expected,
   };
+}
+
+function auditExplorerPreview(snapshot) {
+  const actual = (snapshot?.previewPieces || [])
+    .map(({ sq, color, type }) => ({ sq, color, type }))
+    .sort((a, b) => a.sq.localeCompare(b.sq));
+  const expected = expectedBoardPieces(snapshot.renderedFen);
+  const cell = snapshot.boardRect.w / 8;
+  const boundsOk = snapshot.previewPieces.every((piece) => {
+    const file = piece.sq.charCodeAt(0) - 97;
+    const row = 8 - Number(piece.sq[1]);
+    const left = snapshot.boardRect.x + file * cell;
+    const top = snapshot.boardRect.y + row * cell;
+    return piece.rect.w >= cell * .34
+      && piece.rect.h >= cell * .48
+      && piece.rect.x >= left - 1
+      && piece.rect.y >= top - 1
+      && piece.rect.right <= left + cell + 1
+      && piece.rect.bottom <= top + cell + 1;
+  });
+  const whiteMaterials = new Set(
+    snapshot.previewPieces.filter((piece) => piece.color === 'w').map((piece) => piece.material),
+  );
+  const blackMaterials = new Set(
+    snapshot.previewPieces.filter((piece) => piece.color === 'b').map((piece) => piece.material),
+  );
+  const geometryByType = new Map();
+  for (const piece of snapshot.previewPieces) {
+    if (!geometryByType.has(piece.type)) geometryByType.set(piece.type, new Set());
+    geometryByType.get(piece.type).add(piece.geometry);
+  }
+  return {
+    exactFen: JSON.stringify(actual) === JSON.stringify(expected),
+    actualCount: actual.length,
+    expectedCount: expected.length,
+    boundsOk,
+    vector3d:
+      snapshot.renderModes.length === 1
+      && snapshot.renderModes[0] === 'vector-3d',
+    materialOk:
+      whiteMaterials.size === 1
+      && blackMaterials.size === 1
+      && [...whiteMaterials][0]
+      && [...blackMaterials][0]
+      && [...whiteMaterials][0] !== [...blackMaterials][0],
+    sixModels:
+      geometryByType.size === 6
+      && [...geometryByType.values()].every((shapes) => shapes.size === 1),
+  };
+}
+
+function explorerPreviewOk(audit) {
+  return audit.exactFen
+    && audit.boundsOk
+    && audit.vector3d
+    && audit.materialOk
+    && audit.sixModels;
 }
 
 function quantile(values, q) {
@@ -543,7 +605,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 70;
+const EXPECTED_RESULTS = 77;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -560,6 +622,73 @@ async function waitCloud(timeoutMs = 90000) {
     await sleep(400);
   }
   throw new Error('等路径网长满超时，最后状态: ' + JSON.stringify(last));
+}
+
+async function waitCloudPreview(timeoutMs = 30000) {
+  const t0 = Date.now();
+  let last = null;
+  while (Date.now() - t0 < timeoutMs) {
+    last = await evalJs('typeof window.__cloudStats === "function" ? window.__cloudStats() : null');
+    if (last?.error) throw new Error(`路径网 Worker 报错: ${last.error}`);
+    if (
+      last
+      && last.growing === false
+      && last.depth === 3
+      && last.deepPending === true
+      && hasExactCloudDepths(last, 3)
+      && !last.layers.some((layer) => layer.depth === 4)
+    ) return last;
+    await sleep(80);
+  }
+  throw new Error('等路径网缩略态稳定超时，最后状态: ' + JSON.stringify(last));
+}
+
+async function openCloudAndWait(timeoutMs = 90000, useTouch = false) {
+  const alreadyFull = await evalJs('document.body.classList.contains("cloud-full")');
+  if (!alreadyFull) {
+    const opened = useTouch
+      ? await touchSelector('#cloudOpen')
+      : await clickSelector('#cloudOpen');
+    if (!opened) throw new Error('找不到「放大探索」按钮');
+  }
+  return waitCloud(timeoutMs);
+}
+
+async function closeCloudAndWaitPreview(useTouch = false) {
+  const full = await evalJs('document.body.classList.contains("cloud-full")');
+  if (full) {
+    const closed = useTouch
+      ? await touchSelector('#cloudClose')
+      : await clickSelector('#cloudClose');
+    if (!closed) throw new Error('找不到「收起」按钮');
+  }
+  return waitCloudPreview();
+}
+
+async function waitCloudRenderIdle(timeoutMs = 5000) {
+  const started = Date.now();
+  let last = null;
+  while (Date.now() - started < timeoutMs) {
+    const first = await evalJs('({ raf: window.__rafAudit.read(), render: window.__test.renderStats() })');
+    if (first.raf.pending === 0 && first.render.scheduled === false) {
+      await sleep(160);
+      const second = await evalJs('({ raf: window.__rafAudit.read(), render: window.__test.renderStats() })');
+      const cameraStable = first.render.cameraMatrix.every(
+        (value, index) => Math.abs(value - second.render.cameraMatrix[index]) <= 1e-7,
+      );
+      if (
+        second.raf.pending === 0
+        && second.render.scheduled === false
+        && second.render.rendererFrame === first.render.rendererFrame
+        && cameraStable
+      ) return second;
+      last = second;
+    } else {
+      last = first;
+      await sleep(80);
+    }
+  }
+  throw new Error(`路径网未进入静止态: ${JSON.stringify(last)}`);
 }
 
 function hasExactCloudDepths(stats, maxDepth) {
@@ -957,7 +1086,9 @@ async function runCoachChecks() {
     && path.d.includes('Q')
     && path.animationName !== 'none'
     && parseFloat(path.animationDuration) > 0
-    && path.animationIterationCount === 'infinite';
+    && path.animationIterationCount === '1';
+  await sleep(2400);
+  const settledCoach = await evalJs('({ coach: window.__test.coach(), render: window.__test.renderStats() })');
   record(
     animationCoach.paths.length === 2
       && animationLineIds.size === 1
@@ -972,10 +1103,13 @@ async function runCoachChecks() {
       && replyPath.to === activeCard.reply.to
       && animationState.fen === coach.fen
       && animationCoach.fen === coach.fen
-      && animationState.history.length === 0,
-    '⑥ DOM 上有同一 lineId 的「你 → 回应」两段真实动画，预演不落子',
+      && animationState.history.length === 0
+      && settledCoach.coach.paths.length === 2
+      && settledCoach.render.runningAnimations === 0,
+    '⑥「你 → 回应」只播放一次并停住，预演不落子也不留下持续动画',
     `lineId=${[...animationLineIds][0] || '无'}`
       + `｜steps=${animationCoach.paths.map((path) => `${path.step}:${path.animationName}/${path.animationDuration}`).join('　')}`
+      + `｜结束后 running=${settledCoach.render.runningAnimations}`
       + `｜FEN 未变=${animationState.fen === coach.fen}`);
 
   const oldLineId = [...animationLineIds][0] || '';
@@ -1396,10 +1530,10 @@ async function runMobileChecks() {
         offscreenCloud.sky.top >= portrait.viewport.h
         || offscreenCloud.sky.bottom <= 0
       ),
-    '④ 手机路径网离屏会释放已长满的第四层，屏外重建也只铺真实三层',
-    `已满云离屏 layers=${JSON.stringify(releasedFullCloud.layers.map((layer) => layer.depth))}`
+    '④ 手机缩略窗无论在视口内外都只铺真实 L3，静置不会继续计算',
+    `缩略态 layers=${JSON.stringify(releasedFullCloud.layers.map((layer) => layer.depth))}`
       + `｜闲置 250ms 的 active ms ${releasedFullCloud.ms}→${releasedIdleCloud.ms}`
-      + `｜重开后 sky y=${Math.round(offscreenCloud.sky.top)}..${Math.round(offscreenCloud.sky.bottom)}`
+      + `｜屏外 sky y=${Math.round(offscreenCloud.sky.top)}..${Math.round(offscreenCloud.sky.bottom)}`
       + `｜layers=${JSON.stringify(offscreenCloud.stats.layers.map((layer) => layer.depth))}`
       + `｜growing=${offscreenCloud.stats.growing}`
       + `｜deepPending=${offscreenCloud.stats.deepPending}｜error=${offscreenCloud.stats.error || '无'}`);
@@ -1420,22 +1554,19 @@ async function runMobileChecks() {
   const bottomShot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(bottomFile, Buffer.from(bottomShot.data, 'base64'));
   const topEdge = edgeStats(topFile, portrait.viewport.w, portrait.viewport.h);
-  const bottomEdge = edgeStats(bottomFile, portrait.viewport.w, portrait.viewport.h);
+  // 滚到底后的 viewport 顶沿可能正好切过正文；这里只量页面真正露底的左右与底边。
+  const bottomEdge = edgeStats(bottomFile, portrait.viewport.w, portrait.viewport.h, true);
   record(
     topEdge.darkRatio > 0.98
       && bottomEdge.darkRatio > 0.98
       && bottomPosition.y >= bottomPosition.max - 1,
-    '④ 手机背景从页面顶部铺到底部，无白边或透明断层',
-    `顶部深色 ${topEdge.darkRatio}｜底部深色 ${bottomEdge.darkRatio}｜滚动 ${Math.round(bottomPosition.y)}/${Math.round(bottomPosition.max)}`);
-  const mobileEnteredCloud = await waitCloud(30000);
+    '④ 手机背景从页面顶部铺到底部，外侧与底边无白边或透明断层',
+    `顶部四边深色 ${topEdge.darkRatio}｜滚底左右/底边深色 ${bottomEdge.darkRatio}｜滚动 ${Math.round(bottomPosition.y)}/${Math.round(bottomPosition.max)}`);
+  const mobilePreviewCloud = await waitCloudPreview();
+  const mobileOpenTouched = await touchSelector('#cloudOpen');
+  const mobileEnteredCloud = await waitCloud(60000);
 
   // 全屏要真占满 viewport，四角的命中层也必须属于路径网，而不是后面的面板。
-  const skyTap = await evalJs(`(() => {
-    const r = document.getElementById('sky').getBoundingClientRect();
-    return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
-  })()`);
-  await touchAt(skyTap.x, skyTap.y);
-  await settleLayout();
   const full = await evalJs(`(() => {
     const l = window.__test.layout();
     const w = l.viewport.visualW, h = l.viewport.visualH;
@@ -1444,18 +1575,110 @@ async function runMobileChecks() {
       const el = document.elementFromPoint(x,y);
       return !!(el && el.closest('#cloudPanel'));
     });
-    return { layout: l, cornersHit };
+    return {
+      layout: l,
+      cornersHit,
+      backgroundInert:
+        document.getElementById('boardPanel').inert
+        && document.getElementById('stage').inert,
+    };
   })()`);
   const fsb = full.layout.skyBox, fsc = full.layout.skyCanvas;
-  const pxRatio = Math.min(full.layout.viewport.dpr, 2);
+  const pxRatio = Math.min(full.layout.viewport.dpr, 1.25);
   const fullGeometryOk =
-    full.layout.cloudFull
+    mobileOpenTouched
+    && full.layout.cloudFull
     && Math.abs(fsb.x) <= 1 && Math.abs(fsb.y) <= 1
     && Math.abs(fsb.w - full.layout.viewport.visualW) <= 1
     && Math.abs(fsb.h - full.layout.viewport.visualH) <= 1
     && full.cornersHit
+    && full.backgroundInert
     && Math.abs(fsc.pixelW - fsc.w * pxRatio) <= 2
     && Math.abs(fsc.pixelH - fsc.h * pxRatio) <= 2;
+
+  const mobileExplorerUi = await evalJs(`(() => {
+    const box = (selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect();
+      return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+    };
+    const panel = box('#cloudExplorer');
+    const board = box('#exploreBoard');
+    const summary = box('#exploreSummary');
+    const choices = box('#exploreChoices');
+    const choiceButtons = [...document.querySelectorAll('#exploreChoices button')];
+    const buttons = choiceButtons.map((button) => {
+      const r = button.getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    });
+    const targetButtons = [
+      ...document.querySelectorAll('#cloudControls button'),
+      document.getElementById('exploreReset'),
+      document.querySelector('#explorePath button'),
+      choiceButtons[0],
+      document.querySelector('button.cloud-root-label'),
+    ].filter(Boolean);
+    const targets = targetButtons.map((button) => {
+      const r = button.getBoundingClientRect();
+      const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+      const hit = document.elementFromPoint(x, y);
+      return {
+        id: button.id || button.textContent.trim(),
+        w: r.width, h: r.height,
+        inside: x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight,
+        hit: !!hit && hit.closest('button') === button,
+      };
+    });
+    return {
+      panel, board, summary, choices, buttons, targets,
+      choicesClientH: document.getElementById('exploreChoices').clientHeight,
+      choicesScrollH: document.getElementById('exploreChoices').scrollHeight,
+      rootClientW: document.documentElement.clientWidth,
+      rootScrollW: document.documentElement.scrollWidth,
+      viewport: { w: innerWidth, h: innerHeight },
+      explorer: window.__test.explorer(),
+    };
+  })()`);
+  const mobileExplorerFile = `${shotBase}-mobile-explorer.png`;
+  const mobileExplorerShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(mobileExplorerFile, Buffer.from(mobileExplorerShot.data, 'base64'));
+  const mobileExplorerPreview = auditExplorerPreview(mobileExplorerUi.explorer);
+  const choicesSwipe = await evalJs(`(() => {
+    const choices = document.getElementById('exploreChoices');
+    choices.scrollTop = 0;
+    const r = choices.getBoundingClientRect();
+    return {
+      from: { x: r.left + r.width / 2, y: r.bottom - 12 },
+      to: { x: r.left + r.width / 2, y: r.top + 12 },
+    };
+  })()`);
+  await swipeTouch(choicesSwipe.from, choicesSwipe.to, 10);
+  const choicesScrollTop = await evalJs('document.getElementById("exploreChoices").scrollTop');
+  record(
+    mobileExplorerUi.panel.x >= -1
+      && mobileExplorerUi.panel.y >= -1
+      && mobileExplorerUi.panel.right <= mobileExplorerUi.viewport.w + 1
+      && mobileExplorerUi.panel.bottom <= mobileExplorerUi.viewport.h + 1
+      && mobileExplorerUi.board.w >= 136
+      && Math.abs(mobileExplorerUi.board.w - mobileExplorerUi.board.h) <= 1
+      && mobileExplorerUi.summary.bottom <= mobileExplorerUi.choices.y + 1
+      && mobileExplorerUi.buttons.length > 0
+      && mobileExplorerUi.buttons.every((button) => button.h >= 43.9)
+      && mobileExplorerUi.targets.length >= 8
+      && mobileExplorerUi.targets.every((target) =>
+        target.w >= 43.9 && target.h >= 43.9 && target.inside && target.hit)
+      && mobileExplorerUi.choicesScrollH > mobileExplorerUi.choicesClientH
+      && choicesScrollTop > 10
+      && mobileExplorerUi.rootScrollW <= mobileExplorerUi.rootClientW + 1
+      && explorerPreviewOk(mobileExplorerPreview),
+    '④ 手机放大探索同时看得到棋盘、说明和可滚动走法，触控项不小于 44px',
+    `面板 ${Math.round(mobileExplorerUi.panel.w)}×${Math.round(mobileExplorerUi.panel.h)}`
+      + `｜预演棋盘 ${Math.round(mobileExplorerUi.board.w)}px`
+      + `｜走法 ${mobileExplorerUi.buttons.length} 个`
+      + `｜真实滚动 ${Math.round(choicesScrollTop)}/${mobileExplorerUi.choicesScrollH - mobileExplorerUi.choicesClientH}`
+      + `｜触控命中 ${mobileExplorerUi.targets.length} 个`
+      + `｜说明/走法重叠=${mobileExplorerUi.summary.bottom > mobileExplorerUi.choices.y + 1}`
+      + `｜根宽 ${mobileExplorerUi.rootClientW}/${mobileExplorerUi.rootScrollW}`
+      + `｜截图 ${mobileExplorerFile}`);
 
   // 全屏标签直接读实际 DOM 盒子/computedStyle，合法性则由 Node 端 chess.js 独立判断。
   await sleep(260);
@@ -1463,39 +1686,31 @@ async function runMobileChecks() {
   const fullStateBeforeLabel = await evalJs('window.__test.state()');
   const legalFullSans = new Set(new Chess(fullStateBeforeLabel.fen).moves());
   const fullMap = await evalJs('window.__test.cloudMap()');
-  const forkAtFull = await evalJs('window.__forkStats()');
+  const fullExplorer = await evalJs('window.__test.explorer()');
   const visibleLabels = fullMap.labels.filter((label) => label.visible);
   const visibleRoots = visibleLabels.filter((label) => label.depth === 0 && label.text.includes('现在'));
   const firstLevelLabels = fullMap.labels.filter((label) => label.depth === 1 && label.san);
   const visibleMoves = visibleLabels.filter((label) => label.depth === 1 && label.san);
   const pathLabels = fullMap.labels.filter((label) => label.depth >= 2 && label.san);
   const visibleSans = visibleLabels.filter((label) => label.depth >= 1 && label.san);
-  const pathLabelsLegal = pathLabels.every((label) => {
-    const parent = forkAtFull[label.depth - 1];
-    return !!parent
-      && new Chess(parent.fen).moves().includes(label.san)
-      && parent.chosenSan === label.san;
-  });
   const labelsOk =
     visibleRoots.length === 1
-    && visibleSans.length >= 3
-    && visibleLabels.length <= 5
+    && visibleSans.length >= 1
+    && visibleLabels.length <= 6
     && firstLevelLabels.every((label) => legalFullSans.has(label.san))
     && new Set(firstLevelLabels.map((label) => label.san)).size === firstLevelLabels.length
-    && pathLabels.length === fullMap.routePoints - 2
-    && pathLabelsLegal
-    && fullMap.routePoints >= 3 && fullMap.routePoints <= 4;
+    && firstLevelLabels.length === Math.min(8, fullExplorer.choices.length)
+    && pathLabels.length === 0
+    && fullMap.routePoints === 0;
   record(
     labelsOk,
-    '④ 手机全屏有「现在」和少量真实走法标签，主路径逐步合法',
+    '④ 手机全屏有「现在」和可点的真实候选标签，未选择前不伪造主路径',
     `可见 ${visibleLabels.length} 个（现在 ${visibleRoots.length} + SAN ${visibleSans.length}）`
       + `｜根走法 ${visibleMoves.map((label) => label.san).join('/')}`
-      + `｜后续路径 ${pathLabels.map((label) => `${label.depth}:${label.san}`).join('/')}`
       + `｜selected-route position.count=${fullMap.routePoints}`);
 
-  // 真触摸一个当前可见、非默认的走法标签；它只换选路，不得偷偷落子。
-  const labelTarget = visibleMoves.find((label) => !label.selected) || null;
-  const forkBeforeLabel = (await evalJs('window.__forkStats()'))[0];
+  // 真触摸一个当前可见的走法标签；它更新右侧/底部预演棋盘，但不得偷偷落子。
+  const labelTarget = visibleMoves[0] || null;
   const historyBeforeLabel = fullStateBeforeLabel.history;
   if (labelTarget) {
     await touchAt(labelTarget.x, labelTarget.y);
@@ -1503,25 +1718,60 @@ async function runMobileChecks() {
     await settleLayout();
   }
   const stateAfterLabel = await evalJs('window.__test.state()');
-  const forkAfterLabel = (await evalJs('window.__forkStats()'))[0];
+  const explorerAfterLabel = await evalJs('window.__test.explorer()');
   const mapAfterLabel = await evalJs('window.__test.cloudMap()');
-  const selectedLabelAfter = mapAfterLabel.labels.find((label) =>
-    label.depth === 1 && label.san === labelTarget?.san && label.selected);
+  const previewAfterLabel = auditExplorerPreview(explorerAfterLabel);
+  let labelReplayFen = '';
+  try {
+    const replay = new Chess(fullExplorer.rootFen);
+    replay.move(labelTarget?.san);
+    labelReplayFen = replay.fen();
+  } catch {}
+  const secondLabelTarget = explorerAfterLabel.labels.find(
+    (label) => label.visible && label.depth === 2,
+  ) || null;
+  if (secondLabelTarget) {
+    await touchAt(secondLabelTarget.x, secondLabelTarget.y);
+    await sleep(280);
+    await settleLayout();
+  }
+  const stateAfterSecondLabel = await evalJs('window.__test.state()');
+  const explorerAfterSecondLabel = await evalJs('window.__test.explorer()');
+  const mapAfterSecondLabel = await evalJs('window.__test.cloudMap()');
+  const previewAfterSecondLabel = auditExplorerPreview(explorerAfterSecondLabel);
+  let secondLabelReplayFen = '';
+  try {
+    const replay = new Chess(fullExplorer.rootFen);
+    replay.move(labelTarget?.san);
+    replay.move(secondLabelTarget?.san);
+    secondLabelReplayFen = replay.fen();
+  } catch {}
   const labelPickOk =
     !!labelTarget
     && legalFullSans.has(labelTarget.san)
-    && forkAfterLabel.chosenSan === labelTarget.san
-    && forkAfterLabel.chosenSan !== forkBeforeLabel.chosenSan
+    && explorerAfterLabel.path.length === 1
+    && explorerAfterLabel.path[0].san === labelTarget.san
+    && explorerAfterLabel.renderedFen === labelReplayFen
+    && explorerPreviewOk(previewAfterLabel)
     && stateAfterLabel.fen === fullStateBeforeLabel.fen
     && JSON.stringify(stateAfterLabel.history) === JSON.stringify(historyBeforeLabel)
-    && !!selectedLabelAfter
-    && mapAfterLabel.routePoints >= 3 && mapAfterLabel.routePoints <= 4;
+    && mapAfterLabel.routePoints === 2
+    && !!secondLabelTarget
+    && explorerAfterSecondLabel.path.length === 2
+    && explorerAfterSecondLabel.path[1].san === secondLabelTarget.san
+    && explorerAfterSecondLabel.renderedFen === secondLabelReplayFen
+    && explorerPreviewOk(previewAfterSecondLabel)
+    && stateAfterSecondLabel.fen === fullStateBeforeLabel.fen
+    && JSON.stringify(stateAfterSecondLabel.history) === JSON.stringify(historyBeforeLabel)
+    && mapAfterSecondLabel.routePoints === 3;
   record(
     labelPickOk,
-    '④ 真实触摸路径网标签会同步第一列选路，但棋谱不动',
-    `点 ${labelTarget?.san || '无可点标签'}｜第一列 ${forkBeforeLabel.chosenSan}→${forkAfterLabel.chosenSan}`
+    '④ 连续触摸两层线旁标签会更新变体棋盘，逐格结果正确且实战棋谱不动',
+    `点 ${labelTarget?.san || '无'}→${secondLabelTarget?.san || '无'}`
+      + `｜预演 path=${explorerAfterSecondLabel.path.map((move) => move.san).join('→')}`
+      + `｜preview=${previewAfterSecondLabel.actualCount}/${previewAfterSecondLabel.expectedCount}`
       + `｜history ${JSON.stringify(historyBeforeLabel)}→${JSON.stringify(stateAfterLabel.history)}`
-      + `｜路线点 ${mapAfterLabel.routePoints}`);
+      + `｜路线点 ${mapAfterLabel.routePoints}→${mapAfterSecondLabel.routePoints}`);
 
   // 先让选中标签带来的镜头聚焦稳定下来，再从画布空白处发真实 touch drag。
   await sleep(520);
@@ -1580,6 +1830,14 @@ async function runMobileChecks() {
       + `｜camera Δ${matrixDelta.toFixed(3)}｜标签最大位移 ${maxLabelMove.toFixed(1)}px`
       + `｜显/隐 ${visibleAfterDrag}/${hiddenAfterDrag}｜显隐集合变化=${visibilityChanged}`);
 
+  const motionBefore = await evalJs('window.__test.renderStats()');
+  const motionTouched = await touchSelector('#cloudMotion');
+  await sleep(260);
+  const motionDuring = await evalJs('window.__test.renderStats()');
+  const motionMoved = motionBefore.cameraMatrix.some(
+    (value, index) => Math.abs(value - motionDuring.cameraMatrix[index]) > 1e-4,
+  );
+
   // 全屏只由明确的收起按钮退出；不再拿点画布中心冒充关闭。
   const closeTap = await evalJs(`(() => {
     const button = document.getElementById('cloudClose');
@@ -1601,17 +1859,29 @@ async function runMobileChecks() {
   const closed = await evalJs(`(() => ({
     layout: window.__test.layout(),
     closeDisplay: getComputedStyle(document.getElementById('cloudClose')).display,
+    backgroundInert:
+      document.getElementById('boardPanel').inert
+      || document.getElementById('stage').inert,
+    render: window.__test.renderStats(),
   }))()`);
   const fullOk =
     fullGeometryOk
     && closeTap.visible
     && closeTap.w >= 47.9 && closeTap.h >= 43.9
+    && motionTouched
+    && motionDuring.auto === true
+    && motionDuring.rendererFrame > motionBefore.rendererFrame
+    && motionMoved
     && !closed.layout.cloudFull
-    && closed.closeDisplay === 'none';
-  record(fullOk, '④ 手机路径网是真全屏，并可用明确按钮真实触摸收起',
+    && closed.closeDisplay === 'none'
+    && closed.backgroundInert === false
+    && closed.render.auto === false;
+  record(fullOk, '④ 手机路径网是真全屏；巡航只在主动开启时运行，收起会停止并恢复背景',
     `真实触摸开/按钮关｜盒子 ${Math.round(fsb.x)},${Math.round(fsb.y)} ${Math.round(fsb.w)}×${Math.round(fsb.h)}`
       + `｜画布 ${fsc.pixelW}×${fsc.pixelH}｜四角命中 ${full.cornersHit}`
-      + `｜收起按钮 ${Math.round(closeTap.w)}×${Math.round(closeTap.h)}｜关闭后 full=${closed.layout.cloudFull}`);
+      + `｜巡航 frame ${motionBefore.rendererFrame}→${motionDuring.rendererFrame}`
+      + `｜收起按钮 ${Math.round(closeTap.w)}×${Math.round(closeTap.h)}`
+      + `｜关闭后 full/auto/inert=${closed.layout.cloudFull}/${closed.render.auto}/${closed.backgroundInert}`);
 
   await evalJs('document.getElementById("board").scrollIntoView({ block: "center" })');
   await settleLayout();
@@ -1628,10 +1898,26 @@ async function runMobileChecks() {
   const mobileLeftMap = await evalJs('window.__test.cloudMap()');
   await evalJs('document.getElementById("skyBox").scrollIntoView({ block: "center" })');
   await settleLayout();
-  const mobileReenteredCloud = await waitCloud(30000);
+  const mobileReopenTouched = await touchSelector('#cloudOpen');
+  const mobileReenteredCloud = await waitCloud(60000);
+  await settleLayout();
+  const mobileReenteredMap = await evalJs('window.__test.cloudMap()');
+  const mobileReenteredRender = await evalJs('window.__test.renderStats()');
+  const mobileClosedAgain = await closeCloudAndWaitPreview(true);
+  const mobileClosedMap = await evalJs('window.__test.cloudMap()');
+  const idleStart = await waitCloudRenderIdle();
+  await sleep(700);
+  const idleEnd = await evalJs('({ raf: window.__rafAudit.read(), render: window.__test.renderStats() })');
+  const postCloseRaf = idleEnd.raf.fired - idleStart.raf.fired;
+  const postCloseFrames = idleEnd.render.rendererFrame - idleStart.render.rendererFrame;
+  const postCloseCameraStable = idleStart.render.cameraMatrix.every(
+    (value, index) => Math.abs(value - idleEnd.render.cameraMatrix[index]) <= 1e-7,
+  );
   record(
     offscreenCloud.stats.depth === 3
       && hasExactCloudDepths(offscreenCloud.stats, 3)
+      && mobilePreviewCloud.depth === 3
+      && hasExactCloudDepths(mobilePreviewCloud, 3)
       && mobileEnteredCloud.depth === 4
       && hasExactCloudDepths(mobileEnteredCloud, 4)
       && mobileEnteredCloud.layers.some((layer) => layer.depth === 4)
@@ -1641,16 +1927,33 @@ async function runMobileChecks() {
       && !mobileLeftCloud.layers.some((layer) => layer.depth === 4)
       && !mobileLeftMap.layers.some((layer) => layer.depth === 4)
       && mobileLeftMap.orphanRenderObjects === 0
+      && mobileReopenTouched
       && mobileReenteredCloud.depth === 4
       && hasExactCloudDepths(mobileReenteredCloud, 4)
       && mobileReenteredCloud.layers.some((layer) => layer.depth === 4)
-      && mobileReenteredCloud.nodes === count(mobileReenteredCloud.fen, 4),
-    '④ 手机路径网进视口长满 L4、离屏释放、再进入会完整长回',
-    `屏外 ${JSON.stringify(offscreenCloud.stats.layers.map((layer) => layer.depth))}`
-      + ` → 进入 ${JSON.stringify(mobileEnteredCloud.layers.map((layer) => layer.depth))}/${mobileEnteredCloud.nodes}`
-      + ` → 离屏 ${JSON.stringify(mobileLeftCloud.layers.map((layer) => layer.depth))}/pending=${mobileLeftCloud.deepPending}`
+      && mobileReenteredCloud.nodes === count(mobileReenteredCloud.fen, 4)
+      && mobileReenteredMap.layers.every((layer) => layer.objects === 1)
+      && mobileReenteredRender.renderCalls <= 7
+      && mobileClosedAgain.depth === 3
+      && hasExactCloudDepths(mobileClosedAgain, 3)
+      && mobileClosedMap.layers.every((layer) => layer.depth <= 3 && layer.objects === 1)
+      && idleEnd.render.geometries < mobileReenteredRender.geometries
+      && idleEnd.render.auto === false
+      && idleEnd.render.scheduled === false
+      && idleEnd.render.runningAnimations === 0
+      && postCloseRaf <= 1
+      && postCloseFrames <= 1
+      && postCloseCameraStable,
+    '④ 手机只有放大时加载 L4，收起即释放；再次放大仍能完整长回',
+    `缩略 ${JSON.stringify(mobilePreviewCloud.layers.map((layer) => layer.depth))}`
+      + ` → 放大 ${JSON.stringify(mobileEnteredCloud.layers.map((layer) => layer.depth))}/${mobileEnteredCloud.nodes}`
+      + ` → 收起 ${JSON.stringify(mobileLeftCloud.layers.map((layer) => layer.depth))}/pending=${mobileLeftCloud.deepPending}`
       + `/scene=${JSON.stringify(mobileLeftMap.layers.map((layer) => layer.depth))}`
-      + ` → 再入 ${JSON.stringify(mobileReenteredCloud.layers.map((layer) => layer.depth))}/${mobileReenteredCloud.nodes}`);
+      + ` → 再放大 ${JSON.stringify(mobileReenteredCloud.layers.map((layer) => layer.depth))}/${mobileReenteredCloud.nodes}`
+      + ` calls=${mobileReenteredRender.renderCalls}`
+      + ` → 再收起 ${JSON.stringify(mobileClosedAgain.layers.map((layer) => layer.depth))}`
+      + ` geometries=${mobileReenteredRender.geometries}→${idleEnd.render.geometries}`
+      + `｜静置 rAF/WebGL=${postCloseRaf}/${postCloseFrames}`);
 
   // 不走测试钩子，发真实 touch 事件点 e2 → e4。
   await evalJs(`(() => {
@@ -1725,6 +2028,86 @@ async function runMobileChecks() {
       ? landscapeProblems.join('; ')
       : `viewport ${landscape.viewport.w}×${landscape.viewport.h}｜真实滑动到 y=${Math.round(landscapeScrollY)}｜背景亮边 ${landscapeTopEdge.lightRatio}/${landscapeBottomEdge.lightRatio}`);
 
+  // 844×390 也是常见 iPhone 横屏宽度，不能只验普通页面、却让全屏变体棋盘沿用桌面布局被裁掉。
+  await waitCloudPreview();
+  const wideFullOpened = await touchSelector('#cloudOpen');
+  await sleep(220);
+  await settleLayout();
+  const wideFull = await evalJs(`(() => {
+    const box = (selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect();
+      return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+    };
+    const targetButtons = [
+      ...document.querySelectorAll('#cloudControls button'),
+      document.getElementById('exploreReset'),
+      document.querySelector('#explorePath button'),
+      document.querySelector('#exploreChoices button'),
+      document.querySelector('button.cloud-root-label'),
+    ].filter(Boolean);
+    const choices = document.getElementById('exploreChoices');
+    return {
+      full: document.body.classList.contains('cloud-full'),
+      panel: box('#cloudExplorer'),
+      board: box('#exploreBoard'),
+      summary: box('#exploreSummary'),
+      choices: box('#exploreChoices'),
+      choicesClientH: choices.clientHeight,
+      choicesScrollH: choices.scrollHeight,
+      targets: targetButtons.map((button) => {
+        const r = button.getBoundingClientRect();
+        const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+        const hit = document.elementFromPoint(x, y);
+        return {
+          id: button.id || button.textContent.trim(),
+          w: r.width, h: r.height,
+          inside: x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight,
+          hit: !!hit && hit.closest('button') === button,
+        };
+      }),
+      render: window.__test.renderStats(),
+      viewport: { w: innerWidth, h: innerHeight },
+      backgroundInert:
+        document.getElementById('boardPanel').inert
+        && document.getElementById('stage').inert,
+    };
+  })()`);
+  const wideFullFile = `${shotBase}-mobile-844-landscape-explorer.png`;
+  const wideFullShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(wideFullFile, Buffer.from(wideFullShot.data, 'base64'));
+  const wideFullClosed = await closeCloudAndWaitPreview(true);
+  const wideFullOk =
+    wideFullOpened
+    && wideFull.full
+    && wideFull.panel.x >= -1
+    && wideFull.panel.y >= -1
+    && wideFull.panel.right <= wideFull.viewport.w + 1
+    && wideFull.panel.bottom <= wideFull.viewport.h + 1
+    && wideFull.panel.w <= wideFull.viewport.w * .5
+    && wideFull.board.w >= 108
+    && wideFull.board.w <= 140
+    && Math.abs(wideFull.board.w - wideFull.board.h) <= 1
+    && wideFull.summary.bottom <= wideFull.choices.y + 1
+    && wideFull.choicesClientH >= 80
+    && wideFull.choicesScrollH > wideFull.choicesClientH
+    && wideFull.targets.length >= 9
+    && wideFull.targets.every((target) =>
+      target.w >= 43.9 && target.h >= 43.9 && target.inside && target.hit)
+    && wideFull.render.dpr <= 1.25
+    && wideFull.backgroundInert
+    && wideFullClosed.depth === 3;
+  record(
+    wideFullOk,
+    '④ 844×390 真实手机横屏的放大探索也完整可看、可点、可滚动、可收起',
+    `panel=${Math.round(wideFull.panel.w)}×${Math.round(wideFull.panel.h)}`
+      + `｜board=${Math.round(wideFull.board.w)}`
+      + `｜choices=${Math.round(wideFull.choicesClientH)}/${Math.round(wideFull.choicesScrollH)}`
+      + `｜targets=${wideFull.targets.length}`
+      + ` bad=${wideFull.targets.filter((target) =>
+        target.w < 43.9 || target.h < 43.9 || !target.inside || !target.hit)
+        .map((target) => target.id).join(',') || '无'}`
+      + `｜DPR=${wideFull.render.dpr}｜截图 ${wideFullFile}`);
+
   const landscapeTargets = [...landscape.controls.buttons, landscape.controls.firstCard].filter(Boolean);
   const landscapeTargetsOk = landscapeTargets.length > 0 && landscapeTargets.every((r) => r.h >= 43.9);
 
@@ -1738,6 +2121,88 @@ async function runMobileChecks() {
     Math.abs(smallLandscape.panels.boardPanel.docY - smallLandscape.panels.stage.docY) <= 1
     && smallLandscape.panels.boardPanel.docRight <= smallLandscape.panels.stage.docX + 1
     && smallLandscape.panels.cloudPanel.docY > smallLandscape.panels.boardPanel.docY;
+  await waitCloudPreview();
+  const smallFullOpened = await touchSelector('#cloudOpen');
+  await sleep(220);
+  await settleLayout();
+  const smallFull = await evalJs(`(() => {
+    const box = (selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect();
+      return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+    };
+    const targetButtons = [
+      ...document.querySelectorAll('#cloudControls button'),
+      document.getElementById('exploreReset'),
+      document.querySelector('#explorePath button'),
+      document.querySelector('#exploreChoices button'),
+      document.querySelector('button.cloud-root-label'),
+    ].filter(Boolean);
+    return {
+      full: document.body.classList.contains('cloud-full'),
+      panel: box('#cloudExplorer'),
+      board: box('#exploreBoard'),
+      summary: box('#exploreSummary'),
+      choices: box('#exploreChoices'),
+      targets: targetButtons.map((button) => {
+        const r = button.getBoundingClientRect();
+        const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+        const hit = document.elementFromPoint(x, y);
+        return {
+          id: button.id || button.textContent.trim(),
+          w: r.width, h: r.height,
+          inside: x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight,
+          hit: !!hit && hit.closest('button') === button,
+        };
+      }),
+      choicesClientH: document.getElementById('exploreChoices').clientHeight,
+      choicesScrollH: document.getElementById('exploreChoices').scrollHeight,
+      render: window.__test.renderStats(),
+      viewport: { w: innerWidth, h: innerHeight },
+      rootW: document.documentElement.clientWidth,
+      scrollW: document.documentElement.scrollWidth,
+      backgroundInert:
+        document.getElementById('boardPanel').inert
+        && document.getElementById('stage').inert,
+    };
+  })()`);
+  const smallFullFile = `${shotBase}-mobile-landscape-explorer.png`;
+  const smallFullShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(smallFullFile, Buffer.from(smallFullShot.data, 'base64'));
+  const smallFullClosed = await closeCloudAndWaitPreview(true);
+  const smallFullClosedUi = await evalJs(`({
+    full: document.body.classList.contains('cloud-full'),
+    closeDisplay: getComputedStyle(document.getElementById('cloudClose')).display,
+  })`);
+  const smallFullChecks = {
+    opened: smallFullOpened && smallFull.full,
+    panel:
+      smallFull.panel.x >= -1
+      && smallFull.panel.y >= -1
+      && smallFull.panel.right <= smallFull.viewport.w + 1
+      && smallFull.panel.bottom <= smallFull.viewport.h + 1,
+    board: smallFull.board.w >= 108 && Math.abs(smallFull.board.w - smallFull.board.h) <= 1,
+    summary: smallFull.summary.bottom <= smallFull.choices.y + 1,
+    scrollable: smallFull.choicesScrollH > smallFull.choicesClientH,
+    targets:
+      smallFull.targets.length >= 9
+      && smallFull.targets.every((target) =>
+        target.w >= 43.9 && target.h >= 43.9 && target.inside && target.hit),
+    dpr: smallFull.render.dpr <= 1.25,
+    rootWidth: smallFull.rootW >= smallFull.scrollW - 1,
+    inert: smallFull.backgroundInert,
+    closed:
+      smallFullClosed.depth === 3
+      && !smallFullClosedUi.full
+      && smallFullClosedUi.closeDisplay === 'none',
+  };
+  const smallFullOk = Object.values(smallFullChecks).every(Boolean);
+  const smallFullBadTargets = smallFull.targets.filter(
+    (target) =>
+      target.w < 43.9
+      || target.h < 43.9
+      || !target.inside
+      || !target.hit,
+  );
 
   await setViewport(1024, 768, 'landscapePrimary');
   await evalJs('window.scrollTo(0, 0)');
@@ -1757,11 +2222,19 @@ async function runMobileChecks() {
       && smallProblems.length === 0
       && smallTwoColumn
       && smallTargets.length > 0 && smallTargets.every((r) => r.h >= 43.9)
+      && smallFullOk
       && tabletProblems.length === 0
       && tabletTwoColumn
       && tabletTargets.length > 0 && tabletTargets.every((r) => r.h >= 43.9),
-    '④ 常见手机横屏与平板均完整，按钮和走法卡不小于 44px',
-    `844 棋盘 ${Math.round(landscape.board.w)}px｜667 双栏 ${smallTwoColumn ? '是' : '否'} / ${smallProblems.length ? smallProblems.join('; ') : '无重叠'}｜1024 双栏 ${tabletTwoColumn ? '是' : '否'} / ${tabletProblems.length ? tabletProblems.join('; ') : '无重叠'}`);
+    '④ 常见手机横屏与平板均完整；667×375 放大探索可看、可点、可收起',
+    `844 棋盘 ${Math.round(landscape.board.w)}px`
+      + `｜667 双栏 ${smallTwoColumn ? '是' : '否'} / ${smallProblems.length ? smallProblems.join('; ') : '无重叠'}`
+      + ` / 全屏=${smallFullOk} board=${Math.round(smallFull.board.w)}px DPR=${smallFull.render.dpr}`
+      + ` fail=${Object.entries(smallFullChecks).filter(([, ok]) => !ok).map(([key]) => key).join('/') || '无'}`
+      + ` badTargets=${smallFullBadTargets.map((target) =>
+        `${target.id}:${target.w.toFixed(1)}×${target.h.toFixed(1)}/${target.inside}/${target.hit}`).join(',') || '无'}`
+      + `｜1024 双栏 ${tabletTwoColumn ? '是' : '否'} / ${tabletProblems.length ? tabletProblems.join('; ') : '无重叠'}`
+      + `｜横屏截图 ${smallFullFile}`);
 
   } finally {
     try {
@@ -1782,6 +2255,34 @@ async function main() {
   console.log(`验收目标: ${URL_}（CDP ${PORT}）\n`);
   await attach();
 
+  // 独立包裹真实 rAF：性能断言不相信页面自记的“我已经停了”，而是从导航前开始数浏览器实际回调。
+  await send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `(() => {
+      const realRaf = window.requestAnimationFrame.bind(window);
+      const realCaf = window.cancelAnimationFrame.bind(window);
+      let requested = 0, fired = 0, cancelled = 0;
+      const pending = new Set();
+      window.requestAnimationFrame = (callback) => {
+        requested++;
+        let id;
+        id = realRaf((time) => {
+          pending.delete(id);
+          fired++;
+          callback(time);
+        });
+        pending.add(id);
+        return id;
+      };
+      window.cancelAnimationFrame = (id) => {
+        if (pending.delete(id)) cancelled++;
+        return realCaf(id);
+      };
+      window.__rafAudit = { read: () => ({ requested, fired, cancelled, pending: pending.size }) };
+      const visibilityStates = [document.visibilityState];
+      document.addEventListener('visibilitychange', () => visibilityStates.push(document.visibilityState));
+      window.__visibilityAudit = { read: () => visibilityStates.slice() };
+    })();`,
+  });
   await send('Page.navigate', { url: URL_ });
   let ready = false;
   for (let i = 0; i < 160; i++) {
@@ -1828,8 +2329,100 @@ async function main() {
       + `｜棋谱 ${JSON.stringify(coldState?.history || [])}`);
   await evalJs('window.__test.reset()');
 
-  // 1) 初始局面：等第 4 层长满，对数
-  const s1 = await waitCloud();
+  // 1) 缩略窗只铺到 L3，并且稳定后浏览器不再持续 requestAnimationFrame / WebGL 重绘。
+  const preview1 = await waitCloudPreview();
+  await settleLayout();
+  const idleBefore = await evalJs('({ raf: window.__rafAudit.read(), render: window.__test.renderStats() })');
+  await sleep(700);
+  const idleAfter = await evalJs('({ raf: window.__rafAudit.read(), render: window.__test.renderStats() })');
+  const idleRafFired = idleAfter.raf.fired - idleBefore.raf.fired;
+  const idleRenderFrames = idleAfter.render.rendererFrame - idleBefore.render.rendererFrame;
+  const idleCameraStable = idleBefore.render.cameraMatrix.every(
+    (value, index) => Math.abs(value - idleAfter.render.cameraMatrix[index]) <= 1e-7,
+  );
+  record(
+    preview1.depth === 3
+      && preview1.deepPending === true
+      && hasExactCloudDepths(preview1, 3)
+      && idleRafFired <= 1
+      && idleRenderFrames <= 1
+      && idleAfter.raf.pending === 0
+      && idleAfter.render.scheduled === false
+      && idleAfter.render.auto === false
+      && idleCameraStable,
+    '② 缩略路径网只建真实 L3，静置 700ms 后没有持续 rAF 或 WebGL 重绘',
+    `layers=${JSON.stringify(preview1.layers.map((layer) => layer.depth))}`
+      + `｜rAF +${idleRafFired} / WebGL frame +${idleRenderFrames}`
+      + `｜pending=${idleAfter.raf.pending}/${idleAfter.render.scheduled}`
+      + `｜camera stable=${idleCameraStable}`);
+
+  // L3 已完整、L4 Worker 刚启动但首批尚未到达时切后台，是最容易丢 deepPending 的竞态窗口。
+  const visibilityRaceStart = await evalJs(`(() => {
+    window.__test.toggleCloudFull(true);
+    const cloud = window.__cloudStats();
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+    document.querySelector('#exploreChoices button[data-explore-rank]')?.click();
+    return { cloud, hiddenCloud: window.__cloudStats(), explorer: window.__test.explorer() };
+  })()`);
+  let lifecycleError = '';
+  try {
+    await sleep(160);
+    await evalJs(`(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      delete document.hidden;
+      delete document.visibilityState;
+    })()`);
+    await send('Page.bringToFront');
+  } catch (err) {
+    lifecycleError = err?.message || String(err);
+  }
+  let visibilityRaceEnd = null;
+  const visibilityRaceDeadline = Date.now() + 15000;
+  while (!lifecycleError && Date.now() < visibilityRaceDeadline) {
+    visibilityRaceEnd = await evalJs('window.__cloudStats()');
+    if (visibilityRaceEnd.error || (!visibilityRaceEnd.growing && visibilityRaceEnd.depth >= 4)) break;
+    await sleep(160);
+  }
+  const visibilityStates = await evalJs('window.__visibilityAudit.read()');
+  const visibilityExplorerEnd = await evalJs('window.__test.explorer()');
+  record(
+    !lifecycleError
+      && visibilityRaceStart.cloud.depth === 3
+      && visibilityRaceStart.cloud.growing === true
+      && !visibilityRaceStart.cloud.layers.some((layer) => layer.depth === 4)
+      && visibilityRaceStart.explorer.path.length === 1
+      && visibilityRaceStart.hiddenCloud.depth === 3
+      && visibilityRaceStart.hiddenCloud.growing === false
+      && visibilityRaceStart.hiddenCloud.deepPending === true
+      && !visibilityRaceStart.hiddenCloud.layers.some((layer) => layer.depth === 4)
+      && visibilityStates.includes('hidden')
+      && visibilityStates.at(-1) === 'visible'
+      && visibilityRaceEnd?.depth === 4
+      && visibilityRaceEnd?.growing === false
+      && visibilityRaceEnd?.deepPending === false
+      && hasExactCloudDepths(visibilityRaceEnd, 4)
+      && visibilityExplorerEnd.path.length === 1
+      && visibilityExplorerEnd.path[0].after === visibilityRaceStart.explorer.path[0].after
+      && visibilityExplorerEnd.gameFen === visibilityRaceStart.explorer.gameFen,
+    '② L4 首批到达前切后台再回来，保留 L3 与选路并能自动续满 L4',
+    `起点 depth/growing=${visibilityRaceStart.cloud.depth}/${visibilityRaceStart.cloud.growing}`
+      + `｜后台 depth/growing/pending=${visibilityRaceStart.hiddenCloud.depth}`
+      + `/${visibilityRaceStart.hiddenCloud.growing}/${visibilityRaceStart.hiddenCloud.deepPending}`
+      + `｜visibility=${visibilityStates.join('→')}`
+      + `｜回来 depth/growing/pending=${visibilityRaceEnd?.depth ?? '无'}`
+      + `/${visibilityRaceEnd?.growing ?? '无'}/${visibilityRaceEnd?.deepPending ?? '无'}`
+      + `｜选路 ${visibilityRaceStart.explorer.path.map((step) => step.san).join('→')}`
+      + `→${visibilityExplorerEnd.path.map((step) => step.san).join('→')}`
+      + `｜协议错误=${lifecycleError || '无'}`);
+  await evalJs('document.getElementById("exploreReset").click()');
+  await closeCloudAndWaitPreview();
+
+  // 只有用户明确点「放大探索」才加载完整第 4 层，再逐层对数。
+  const s1 = await openCloudAndWait();
   console.log('初始路径网: ' + JSON.stringify({ depth: s1.depth, nodes: s1.nodes, total: s1.totalNodes, ms: s1.ms, layers: s1.layers }));
   await checkNodesMatchCount(s1, '');
 
@@ -1868,14 +2461,16 @@ async function main() {
       && cloudMap1.nonLineSegmentObjects === 0
       && cloudMap1.indexedLinkObjects === 0
       && cloudMap1.orphanRenderObjects === 0
+      && cloudMap1.layers.every((layer) => layer.objects === 1)
       && cloudMap1.layers.every((layer) => layer.finite),
-    '② 所有路径都是真实非索引 LineSegments，顶点/颜色对齐且没有隐藏或 drawRange 假账',
+    '② 所有路径都是真实非索引 LineSegments；L4 完成后合并为单对象降低 draw call',
     cloudMap1.layers.map((layer) => `L${layer.depth}:${layer.count}/${layer.finite ? 'finite' : 'NaN'}`).join('　')
       + `｜objects=${cloudMap1.lineObjects}`
       + `｜hidden/odd/color/draw=${cloudMap1.hiddenLineObjects}/${cloudMap1.oddVertexObjects}`
       + `/${cloudMap1.colorMismatchObjects}/${cloudMap1.partialDrawObjects}`
       + `｜wrongType/index/orphan=${cloudMap1.nonLineSegmentObjects}`
-      + `/${cloudMap1.indexedLinkObjects}/${cloudMap1.orphanRenderObjects}`);
+      + `/${cloudMap1.indexedLinkObjects}/${cloudMap1.orphanRenderObjects}`
+      + `｜每层 objects=${cloudMap1.layers.map((layer) => layer.objects).join('/')}`);
 
   const board1 = await evalJs('window.__test.board()');
   const boardAudit1 = auditBoardDom(board1);
@@ -1956,6 +2551,7 @@ async function main() {
 
   // 2) 截图（② 路径网清晰）：正常画布与隐藏真实 cloudGroup 后的画面对撞，
   // 避免背景、标签或 HUD 很亮时把“线其实没画出来”误判成绿。
+  const originalCloudAuto = await evalJs('window.__test.renderStats().auto');
   await evalJs('window.__test.setCloudAuto(false)');
   await settleLayout();
   const shot = await send('Page.captureScreenshot', { format: 'png' });
@@ -1984,7 +2580,7 @@ async function main() {
     fs.writeFileSync(hiddenDeepFile, Buffer.from(hiddenDeepShot.data, 'base64'));
   } finally {
     deepVisibilityRestored = await evalJs('window.__test.setCloudDepthVisible(4, true)');
-    cloudAutoRestored = await evalJs('window.__test.setCloudAuto(true)');
+    cloudAutoRestored = await evalJs(`window.__test.setCloudAuto(${originalCloudAuto})`) === originalCloudAuto;
     await settleLayout();
   }
   const pathPixels = cloudPathPixelDiff(SHOT, hiddenCloudFile, skyRect);
@@ -2010,6 +2606,111 @@ async function main() {
     '② 路径网真实线条差分中暖/冷两色都看得出来',
     `暖 ${pathPixels.warm} (${pathPixels.warmOfChanged})｜冷 ${pathPixels.cold} (${pathPixels.coldOfChanged})`);
 
+  // ＋/－/回到全景都走真实按钮，DPR 则直接读 three.js renderer。
+  const zoomStart = await evalJs('window.__test.cloudMap().view');
+  const zoomInClicked = await clickSelector('#cloudZoomIn');
+  const zoomedIn = await evalJs('window.__test.cloudMap().view');
+  const zoomOutClicked = await clickSelector('#cloudZoomOut');
+  const zoomedOut = await evalJs('window.__test.cloudMap().view');
+  const resetViewClicked = await clickSelector('#cloudResetView');
+  const resetView = await evalJs('({ map: window.__test.cloudMap(), render: window.__test.renderStats() })');
+  record(
+    zoomInClicked
+      && zoomOutClicked
+      && resetViewClicked
+      && zoomedIn.dist < zoomStart.dist
+      && zoomedOut.dist > zoomedIn.dist
+      && Math.abs(resetView.map.view.yaw - 0.08) <= 1e-9
+      && Math.abs(resetView.map.view.pitch - 0.15) <= 1e-9
+      && Math.abs(resetView.map.view.dist - 29) <= 1e-9
+      && resetView.map.view.auto === false
+      && resetView.render.dpr <= 1.5
+      && resetView.render.pixelWidth > 0
+      && resetView.render.pixelHeight > 0,
+    '② 放大探索可用真实 ＋/－ 缩放并回到全景，桌面渲染倍率不超过 1.5',
+    `dist ${zoomStart.dist.toFixed(2)}→${zoomedIn.dist.toFixed(2)}→${zoomedOut.dist.toFixed(2)}→${resetView.map.view.dist.toFixed(2)}`
+      + `｜DPR ${resetView.render.dpr}｜画布 ${resetView.render.pixelWidth}×${resetView.render.pixelHeight}`);
+
+  // 在右侧变体棋盘真实点两步；Node 端逐手重放，且预览 DOM 必须逐格等于结果 FEN。
+  const explorerRoot = await evalJs('window.__test.explorer()');
+  const preferredRootChoice = explorerRoot.choices.find((choice) => choice.san === 'e4')
+    || explorerRoot.choices[0];
+  const explorerFirstClicked = preferredRootChoice
+    ? await clickSelector(`#exploreChoices button[data-explore-rank="${preferredRootChoice.rank}"]`)
+    : false;
+  const explorerAfterFirst = await evalJs('window.__test.explorer()');
+  const replyChoice = explorerAfterFirst.choices[0] || null;
+  const explorerReplyClicked = replyChoice
+    ? await clickSelector(`#exploreChoices button[data-explore-rank="${replyChoice.rank}"]`)
+    : false;
+  const explorerAfterReply = await evalJs('window.__test.explorer()');
+  const explorerMapAfterReply = await evalJs('window.__test.cloudMap()');
+  const explorerPreviewAudit = auditExplorerPreview(explorerAfterReply);
+  let explorerReplayOk = true;
+  let explorerReplayFen = explorerRoot.rootFen;
+  try {
+    const replay = new Chess(explorerRoot.rootFen);
+    for (const move of explorerAfterReply.path) {
+      const playedMove = replay.move(move.san);
+      if (!playedMove || replay.fen() !== move.after) explorerReplayOk = false;
+    }
+    explorerReplayFen = replay.fen();
+  } catch {
+    explorerReplayOk = false;
+  }
+  const replyLegalCount = new Chess(explorerAfterReply.renderedFen).moves().length;
+  const explorerChoiceSans = new Set(explorerAfterReply.choices.map((choice) => choice.san));
+  record(
+    explorerFirstClicked
+      && explorerReplyClicked
+      && explorerAfterReply.path.length === 2
+      && explorerAfterReply.pathButtons.length === 3
+      && explorerAfterReply.pathButtons.at(-1)?.current === true
+      && explorerReplayOk
+      && explorerReplayFen === explorerAfterReply.renderedFen
+      && explorerPreviewOk(explorerPreviewAudit)
+      && explorerAfterReply.choices.length === replyLegalCount
+      && explorerAfterReply.labels.length > 0
+      && explorerAfterReply.labels.every((label) => explorerChoiceSans.has(label.san))
+      && explorerMapAfterReply.routePoints === explorerAfterReply.path.length + 1
+      && explorerAfterReply.gameFen === explorerRoot.gameFen
+      && JSON.stringify(explorerAfterReply.gameHistory) === JSON.stringify(explorerRoot.gameHistory)
+      && explorerAfterReply.thinking === explorerRoot.thinking
+      && JSON.stringify(explorerAfterReply.aiPending) === JSON.stringify(explorerRoot.aiPending),
+    '② 变体棋盘可连续点两步：线图、面包屑与逐格棋盘结果同源，实战完全不动',
+    `路径 ${explorerAfterReply.path.map((move) => move.san).join(' → ')}`
+      + `｜preview ${explorerPreviewAudit.actualCount}/${explorerPreviewAudit.expectedCount}`
+      + `｜回应 ${explorerAfterReply.choices.length}/${replyLegalCount}`
+      + `｜route position.count=${explorerMapAfterReply.routePoints}`
+      + `｜实战未变=${explorerAfterReply.gameFen === explorerRoot.gameFen}`);
+
+  const explorerRootClicked = await clickSelector('#explorePath button[data-explore-depth="0"]');
+  const explorerRewound = await evalJs('window.__test.explorer()');
+  const explorerMapRewound = await evalJs('window.__test.cloudMap()');
+  const explorerRootPreviewAudit = auditExplorerPreview(explorerRewound);
+  record(
+    explorerRootClicked
+      && explorerRewound.path.length === 0
+      && explorerRewound.pathButtons.length === 1
+      && explorerRewound.pathButtons[0]?.current === true
+      && explorerRewound.renderedFen === explorerRewound.gameFen
+      && explorerPreviewOk(explorerRootPreviewAudit)
+      && explorerRewound.choices.length === new Chess(explorerRewound.renderedFen).moves().length
+      && explorerMapRewound.routePoints === 0
+      && explorerRewound.gameFen === explorerRoot.gameFen
+      && JSON.stringify(explorerRewound.gameHistory) === JSON.stringify(explorerRoot.gameHistory),
+    '② 点「现在」可回退到实战局面，棋盘、候选和路线一起复原',
+    `path=${explorerRewound.path.length}｜preview ${explorerRootPreviewAudit.actualCount}/${explorerRootPreviewAudit.expectedCount}`
+      + `｜候选 ${explorerRewound.choices.length}｜route position.count=${explorerMapRewound.routePoints}`);
+
+  // 全屏截图验证完就收起并释放 L4；棋子像素验收必须截到真实主棋盘。
+  await closeCloudAndWaitPreview();
+  await evalJs('document.getElementById("board").scrollIntoView({ block: "center" })');
+  await settleLayout();
+  const boardPixelsSnapshot = await evalJs('window.__test.board()');
+  const boardNormalFile = SHOT.replace(/\.png$/i, '-board-normal.png');
+  const boardNormalShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(boardNormalFile, Buffer.from(boardNormalShot.data, 'base64'));
   const boardBlankFile = SHOT.replace(/\.png$/i, '-board-blank.png');
   await evalJs('document.getElementById("boardPieces").style.visibility = "hidden"');
   await settleLayout();
@@ -2018,7 +2719,7 @@ async function main() {
   await evalJs('document.getElementById("boardPieces").style.visibility = ""');
   await settleLayout();
   const desktopLayout = await evalJs('window.__test.layout()');
-  const boardPixels1 = boardPiecePixelStats(SHOT, boardBlankFile, board1, desktopLayout.viewport);
+  const boardPixels1 = boardPiecePixelStats(boardNormalFile, boardBlankFile, boardPixelsSnapshot, desktopLayout.viewport);
   record(
     boardPixels1.white >= 150
       && boardPixels1.black <= 120
@@ -2354,10 +3055,11 @@ async function main() {
       + `｜renderer=${board2.renderModes.join('/')}｜边界=${boardAudit2.boundsOk}`);
 
   // 5) AI 走完后的新局面，再对一次数（这次的 fen 不是起始局面，能证明不是对着写死的数字）
-  const s2 = await waitCloud();
+  const s2 = await openCloudAndWait();
   console.log('AI 应手后路径网: ' + JSON.stringify({ depth: s2.depth, nodes: s2.nodes, total: s2.totalNodes, ms: s2.ms }));
   record(s2.fen !== s1.fen, '第二朵云的根局面确实换了', s2.fen);
   await checkNodesMatchCount(s2, '(局中)');
+  await closeCloudAndWaitPreview();
 
   // 6) 分叉图：每列声明的「一共多少种走法」拿 count(该列局面, 1) 对撞，
   //    卡片数是从 SVG 里真数出来的 <g class="card">，不是页面自己报的账
@@ -2494,10 +3196,8 @@ async function main() {
     `上一手 ${previousAiSan || '无'}｜新请求 pending=${!!secondRequest.pending}`
       + `｜thinking=${secondRequest.state.thinking}｜ai=${secondRequest.ai ? secondRequest.ai.san : 'null'}`);
   for (let i = 0; i < 200 && !(await evalJs('window.__test.state().history.length >= 4')); i++) await sleep(50);
-  // L4 的产品契约是「路径窗可见才续建」。前面的分叉交互可能让浏览器把路径窗滚出视口；
-  // 明确滚回来再要求长满，避免把正确的 deepPending 节流误判成 Worker 卡死。
-  await evalJs('document.getElementById("skyBox").scrollIntoView({ block: "center", inline: "nearest" })');
-  await waitCloud();
+  // L4 的产品契约是「用户明确放大才续建」；第三次也通过真实按钮进入。
+  await openCloudAndWait();
   const cols2 = await evalJs('window.__forkStats()');
   const st3 = await evalJs('window.__test.state()');
   const bad3 = [];
@@ -2515,6 +3215,7 @@ async function main() {
   fs.writeFileSync(SHOT2, Buffer.from(shot2.data, 'base64'));
   console.log(`走过两回合的截图: ${SHOT2}`);
 
+  await closeCloudAndWaitPreview();
   await runMobileChecks();
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');

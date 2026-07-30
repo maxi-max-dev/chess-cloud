@@ -72,6 +72,11 @@
   }
   #sky { display: block; width: 100%; height: 100%; touch-action: none; overscroll-behavior: contain; }
   #skyHint { position: absolute; right: 8px; bottom: 6px; font-size: 10.5px; color: #7b8296; pointer-events: none; }
+  #cloudOpen {
+    position: absolute; z-index: 5; left: 8px; bottom: 7px;
+    min-height: 44px; padding: 7px 11px;
+    color: #c8edff; background: rgba(11,20,32,.82);
+  }
   #cloudLabels {
     position: absolute; z-index: 3; inset: 0;
     overflow: hidden; pointer-events: none; opacity: 1;
@@ -135,22 +140,65 @@
   #cloudMapHud b { color: #edf3ff; font-size: 12px; }
   #cloudLayerLegend { margin-top: 5px; font-size: 10.5px; color: #778198; font-variant-numeric: tabular-nums; }
   #cloudChoice { margin-top: 5px; min-height: 17px; color: #9edcff; font-size: 11px; }
-  #cloudClose {
-    display: none; position: absolute; z-index: 5;
+  #cloudControls {
+    display: none; position: absolute; z-index: 7;
     top: max(14px, env(safe-area-inset-top));
     right: max(14px, env(safe-area-inset-right));
-    min-width: 48px; min-height: 44px; pointer-events: auto;
+    gap: 6px; align-items: center;
+  }
+  #cloudControls button {
+    min-width: 44px; min-height: 44px; padding: 7px 10px; pointer-events: auto;
     background: rgba(8,11,19,.78); backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
-  #cloudResetView {
-    display: none; position: absolute; z-index: 5;
-    top: max(14px, env(safe-area-inset-top));
-    right: max(76px, calc(env(safe-area-inset-right) + 76px));
-    min-height: 44px; pointer-events: auto;
-    background: rgba(8,11,19,.78); backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+  #cloudControls #cloudClose { min-width: 48px; }
+  #cloudClose { display: none; }
+  body.cloud-full #cloudClose { display: block; }
+  #cloudMotion[aria-pressed="true"] { color: #bdefff; border-color: rgba(143,216,255,.55); }
+  #cloudExplorer {
+    display: none; position: absolute; z-index: 6;
+    top: 70px; right: max(14px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+    width: min(330px, calc(100% - 28px)); padding: 12px;
+    border: 1px solid rgba(143,216,255,.22); border-radius: 15px;
+    color: #dce8f8; background: rgba(7,10,17,.91);
+    box-shadow: 0 18px 60px rgba(0,0,0,.5);
+    backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+    overflow: hidden;
   }
+  #exploreHead { display: flex; align-items: center; gap: 8px; }
+  #exploreHead b { font-size: 13px; }
+  #exploreHead span { color: #7f8aa2; font-size: 10px; }
+  #exploreReset { margin-left: auto; min-height: 38px; }
+  #explorePath {
+    display: flex; gap: 5px; margin-top: 8px; padding-bottom: 2px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  #explorePath button {
+    flex: 0 0 auto; min-height: 34px; padding: 4px 8px;
+    color: #a8dfff; background: rgba(30,57,83,.45);
+  }
+  #explorePath button.is-current { color: #fff; border-color: #8fd8ff; background: rgba(44,83,119,.78); }
+  #exploreBoard {
+    display: block; width: min(100%, 236px); height: auto; aspect-ratio: 1;
+    margin: 10px auto 8px; border-radius: 9px; background: #22293a;
+    box-shadow: 0 10px 30px rgba(0,0,0,.28);
+  }
+  #exploreSummary { min-height: 42px; color: #aebad0; font-size: 11px; line-height: 1.45; }
+  #exploreSummary b { color: #f3f7ff; }
+  #exploreChoices {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    max-height: min(30vh, 230px); margin-top: 8px; padding-right: 2px;
+    overflow-y: auto; overscroll-behavior: contain;
+  }
+  #exploreChoices button {
+    min-height: 46px; padding: 6px 8px; text-align: left;
+    border-color: color-mix(in srgb, var(--choice-color) 38%, transparent);
+    background: rgba(17,23,36,.82);
+  }
+  #exploreChoices button:hover { background: rgba(33,45,66,.92); }
+  #exploreChoices b { display: block; font-size: 13px; }
+  #exploreChoices small { display: block; margin-top: 2px; color: var(--choice-color); font-size: 9.5px; }
   body.cloud-full { overflow: hidden; overscroll-behavior: none; }
   body.cloud-full #cloudPanel {
     position: fixed;
@@ -180,8 +228,9 @@
   }
   body.cloud-full #cloudLabels { opacity: 1; }
   body.cloud-full #cloudMapHud,
-  body.cloud-full #cloudClose,
-  body.cloud-full #cloudResetView { display: block; }
+  body.cloud-full #cloudExplorer { display: block; }
+  body.cloud-full #cloudControls { display: flex; }
+  body.cloud-full #cloudOpen { display: none; }
   body.cloud-full #skyHint {
     right: max(14px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
@@ -204,48 +253,48 @@
   }
   /* 棋子完全由本地 SVG 几何组成，不再依赖系统 Unicode 棋子字形。
      黑白双方共用六种造型，只切换材质，避免某些系统把白棋也画成黑色。 */
-  #board .piece3d { pointer-events: none; user-select: none; }
-  #board .piece3d[data-color="w"] {
+  .chess-board .piece3d { pointer-events: none; user-select: none; }
+  .chess-board .piece3d[data-color="w"] {
     --piece-main: url(#board-white-main);
     --piece-side: url(#board-white-side);
     --piece-edge: #626d82;
     --piece-shine: rgba(255,255,255,.92);
     --piece-cut: #747f93;
   }
-  #board .piece3d[data-color="b"] {
+  .chess-board .piece3d[data-color="b"] {
     --piece-main: url(#board-black-main);
     --piece-side: url(#board-black-side);
     --piece-edge: #a8b3c7;
     --piece-shine: rgba(216,228,247,.72);
     --piece-cut: #020309;
   }
-  #board .piece-ground-shadow { fill: rgba(2,4,10,.34); }
-  #board .piece-body {
+  .chess-board .piece-ground-shadow { fill: rgba(2,4,10,.34); }
+  .chess-board .piece-body {
     fill: var(--piece-main);
     stroke: var(--piece-edge);
     stroke-width: .85;
     stroke-linejoin: round;
   }
-  #board .piece-side {
+  .chess-board .piece-side {
     fill: var(--piece-side);
     stroke: var(--piece-edge);
     stroke-width: .72;
     stroke-linejoin: round;
   }
-  #board .piece-shine {
+  .chess-board .piece-shine {
     fill: none;
     stroke: var(--piece-shine);
     stroke-width: 1.15;
     stroke-linecap: round;
     opacity: .72;
   }
-  #board .piece-cut {
+  .chess-board .piece-cut {
     fill: none;
     stroke: var(--piece-cut);
     stroke-width: 2.1;
     stroke-linecap: round;
   }
-  #board .piece-eye {
+  .chess-board .piece-eye {
     fill: var(--piece-cut);
     stroke: var(--piece-shine);
     stroke-width: .55;
@@ -258,19 +307,19 @@
   #board .coach-path[data-step="you"] {
     stroke: #ffd36a; stroke-width: 5;
     filter: drop-shadow(0 0 5px rgba(255,211,106,.62));
-    animation: coach-you-flow 2.6s ease-in-out infinite;
+    animation: coach-you-flow 1.5s ease-in-out 1 both;
   }
   #board .coach-path[data-step="reply"] {
     stroke: #65b8ff; stroke-width: 4;
     filter: drop-shadow(0 0 5px rgba(70,155,255,.58));
-    animation: coach-reply-flow 2.6s ease-in-out infinite;
+    animation: coach-reply-flow 1.5s ease-in-out 1 both;
   }
   #board .coach-target {
     fill: none; pointer-events: none; vector-effect: non-scaling-stroke;
-    animation: coach-target-pulse 2.6s ease-in-out infinite;
+    animation: coach-target-pulse 1.5s ease-in-out 1 both;
   }
   #board .coach-target[data-step="you"] { stroke: #ffd36a; stroke-width: 3; }
-  #board .coach-target[data-step="reply"] { stroke: #65b8ff; stroke-width: 3; animation-delay: .82s; }
+  #board .coach-target[data-step="reply"] { stroke: #65b8ff; stroke-width: 3; animation-delay: .4s; }
   #board .coach-tag {
     font-size: 10px; font-weight: 700; text-anchor: middle; pointer-events: none;
     paint-order: stroke; stroke: rgba(5,6,11,.9); stroke-width: 4px; stroke-linejoin: round;
@@ -281,18 +330,18 @@
     0% { stroke-dashoffset: 1; opacity: 0; }
     7% { opacity: 1; }
     34% { stroke-dashoffset: 0; opacity: 1; }
-    54%, 100% { stroke-dashoffset: 0; opacity: .18; }
+    54%, 100% { stroke-dashoffset: 0; opacity: .72; }
   }
   @keyframes coach-reply-flow {
     0%, 34% { stroke-dashoffset: 1; opacity: 0; }
     42% { opacity: 1; }
     72% { stroke-dashoffset: 0; opacity: 1; }
-    90%, 100% { stroke-dashoffset: 0; opacity: .2; }
+    90%, 100% { stroke-dashoffset: 0; opacity: .68; }
   }
   @keyframes coach-target-pulse {
     0%, 18%, 100% { r: 7px; opacity: .18; }
     34% { r: 12px; opacity: .9; }
-    55% { r: 8px; opacity: .28; }
+    55%, 100% { r: 8px; opacity: .42; }
   }
   #status { margin-top: 10px; min-height: 34px; font-size: 13px; color: var(--dim); }
   #status b { color: var(--ink); font-weight: 600; }
@@ -407,6 +456,11 @@
 
   /* 手机竖屏：先下棋，再看分叉，最后保留完整路径网入口。 */
   @media (max-width: 760px) {
+    .panel {
+      background: rgba(11,14,23,.96);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
     body {
       grid-template-columns: minmax(0, 1fr);
       grid-template-areas:
@@ -436,10 +490,48 @@
     .coach-card { flex: 0 0 min(78%, 250px); scroll-snap-align: start; }
     #moveLine { line-height: 1.7; }
     #forkFoot { padding: 10px 14px 12px; min-height: 70px; }
+    body.cloud-full #cloudControls {
+      left: max(10px, env(safe-area-inset-left));
+      right: max(10px, env(safe-area-inset-right));
+      justify-content: flex-end;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    body.cloud-full #cloudControls button { flex: 0 0 auto; padding-inline: 9px; }
+    body.cloud-full #cloudMotion { max-width: 106px; overflow: hidden; white-space: nowrap; }
+    body.cloud-full #cloudMapHud {
+      top: 64px; width: calc(100% - 28px); padding: 8px 10px;
+      backdrop-filter: none; -webkit-backdrop-filter: none;
+    }
+    body.cloud-full #cloudExplorer {
+      left: max(10px, env(safe-area-inset-left));
+      right: max(10px, env(safe-area-inset-right));
+      top: auto; bottom: max(10px, env(safe-area-inset-bottom));
+      width: auto; height: min(330px, 42dvh); padding: 9px;
+      display: grid; grid-template-columns: 142px minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 6px 10px;
+      backdrop-filter: none; -webkit-backdrop-filter: none;
+    }
+    #exploreHead { grid-column: 1 / -1; }
+    #exploreReset, #explorePath button { min-height: 44px; min-width: 44px; }
+    button.cloud-root-label, button.cloud-path-label { min-width: 44px; min-height: 44px; }
+    #explorePath { grid-column: 1 / -1; margin-top: 0; }
+    #exploreBoard { grid-column: 1; grid-row: 3; width: 142px; margin: 0; align-self: start; }
+    #exploreSummary {
+      grid-column: 2; grid-row: 3; min-height: 0;
+      max-height: 46px; overflow: hidden;
+    }
+    #exploreChoices {
+      grid-column: 2; grid-row: 3; align-self: stretch;
+      grid-template-columns: 1fr; max-height: none; margin-top: 52px;
+    }
+    #exploreChoices button { min-height: 44px; }
+    body.cloud-full #skyHint { display: none; }
   }
 
   /* 常见手机横屏：利用横向空间保留棋盘 + 分叉双栏，整页仍可纵向滚动。 */
-  @media (min-width: 560px) and (max-width: 760px) and (max-height: 520px) and (orientation: landscape) {
+  @media (min-width: 560px) and (max-width: 950px) and (max-height: 520px) and (orientation: landscape) {
     body {
       grid-template-columns: minmax(276px, 44%) minmax(0, 1fr);
       grid-template-areas:
@@ -456,10 +548,42 @@
     #stage { height: auto; min-height: 620px; }
     #stageHead .sub { display: none; }
     #coachPanel { padding: 8px; }
+    body.cloud-full #cloudMapHud {
+      top: 64px; left: 8px; width: calc(52% - 16px);
+    }
+    body.cloud-full #cloudExplorer {
+      left: auto; right: max(8px, env(safe-area-inset-right));
+      top: 64px; bottom: max(8px, env(safe-area-inset-bottom));
+      width: min(310px, 48vw); height: auto; padding: 8px;
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 5px 8px;
+      backdrop-filter: none; -webkit-backdrop-filter: none;
+    }
+    #exploreHead { grid-column: 1 / -1; }
+    #exploreReset, #explorePath button { min-width: 44px; min-height: 44px; }
+    button.cloud-root-label, button.cloud-path-label { min-width: 44px; min-height: 44px; }
+    #explorePath { grid-column: 1 / -1; margin-top: 0; }
+    #exploreBoard {
+      grid-column: 1; grid-row: 3;
+      width: 112px; margin: 0; align-self: start;
+    }
+    #exploreSummary {
+      grid-column: 2; grid-row: 3;
+      min-height: 0; max-height: 44px; overflow: hidden;
+    }
+    #exploreChoices {
+      grid-column: 2; grid-row: 3; align-self: stretch;
+      grid-template-columns: 1fr; max-height: none; margin-top: 48px;
+    }
+    #exploreChoices button { min-height: 44px; }
+    body.cloud-full #skyHint { display: none; }
   }
 
   @media (prefers-reduced-motion: reduce) {
     #board .coach-path, #board .coach-target { animation: none !important; opacity: .82; stroke-dashoffset: 0; }
+    .cloud-label { transition: none; }
   }
 
 </style>
@@ -476,15 +600,36 @@
       <div id="cloudLayerLegend">正在读取真实路径数…</div>
       <div id="cloudChoice">拖动观察；点走法标签，只选路线、不直接落子</div>
     </div>
-    <button id="cloudResetView" type="button">回到全景</button>
-    <button id="cloudClose" type="button" aria-label="收起路径网">收起</button>
-    <div id="skyHint">点开全景 · 拖动旋转</div>
+    <div id="cloudControls" aria-label="路径网视角控制">
+      <button id="cloudZoomOut" type="button" aria-label="缩小路径网">－</button>
+      <button id="cloudZoomIn" type="button" aria-label="放大路径网">＋</button>
+      <button id="cloudResetView" type="button">回到全景</button>
+      <button id="cloudMotion" type="button" aria-pressed="false">自动巡航：关</button>
+      <button id="cloudClose" type="button" aria-label="收起路径网">收起</button>
+    </div>
+    <aside id="cloudExplorer" aria-label="变体棋盘">
+      <div id="exploreHead">
+        <b>变体棋盘</b><span>走后即时评估 · 不改变实战</span>
+        <button id="exploreReset" type="button">回到现在</button>
+      </div>
+      <div id="explorePath" aria-label="变体路径"></div>
+      <svg id="exploreBoard" class="chess-board" viewBox="0 0 400 400"
+           xmlns="http://www.w3.org/2000/svg" role="img" aria-label="变体预演棋盘">
+        <g id="exploreSquares"></g>
+        <g id="explorePieces"></g>
+        <g id="exploreOverlay"></g>
+      </svg>
+      <div id="exploreSummary"></div>
+      <div id="exploreChoices" aria-label="这个局面的其他走法"></div>
+    </aside>
+    <button id="cloudOpen" type="button">放大探索</button>
+    <div id="skyHint">拖动观察</div>
   </div>
   <div id="cloudStats">—</div>
 </div>
 
 <div class="panel" id="boardPanel">
-  <svg id="board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"
+  <svg id="board" class="chess-board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"
        role="grid" aria-label="国际象棋棋盘，白方在下">
     <defs id="boardPieceDefs">
       <linearGradient id="board-white-main" x1="0" y1="0" x2="1" y2="1">
@@ -609,7 +754,7 @@
     <div id="moveLine"></div>
   </div>
   <div id="forkWrap"><svg id="fork" xmlns="http://www.w3.org/2000/svg"></svg></div>
-  <div id="forkFoot">点按任意一条只会选择路径并在棋盘预览；确认后再走，不会误落子。</div>
+  <div id="forkFoot">当前一步会在棋盘画箭头；未来各步请用「放大探索」逐格预演。确认后才落子。</div>
 </div>
 
 <script type="module">
@@ -617,12 +762,12 @@ import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 import { Chess, rankMoves, MATE } from './engine.js';
 
 // ─────────────────────────────────────────────── 常量
-const SYNC_DEPTH = 3;      // 屏外最多预备到这一层；计算仍全部在 Worker
-const DEEP_DEPTH = 4;      // 路径网可见时，Worker 渐进生长到这一层
-const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，应手有硬上限）
+const SYNC_DEPTH = 3;      // 缩略态只预备到这一层；计算仍全部在 Worker
+const DEEP_DEPTH = 4;      // 用户明确放大探索时，Worker 才渐进生长到这一层
+const AI_BUDGET_MS = 1300; // 给冷启动/调度留出余量；迭代加深到时交卷，应手硬上限 ≤3 秒
 const COMPACT_AI_BUDGET_MS = 900;  // 手机/矮视口给渲染与触控留足余量，守住总应手 ≤3 秒
 const AI_WATCHDOG_MS = 2200; // Worker/JIT 再慢也在这里切到预存的合法保底步
-const BATCH_PARENTS = 400; // Worker 每批处理多少个父节点
+const BATCH_PARENTS = 400; // L4 渐进回传；完成后合并为一个真实 geometry，压低交互 draw call
 const ROOT_FAN = 0.34;      // 第一层只向「未来」方向张开，不再围成球壳
 const CLOUD_TARGET_X = 8.2; // 镜头看树体中段，让「现在」留在画面左边
 const CLOUD_LABELS_MAX = 8; // 只标少量真实走法，不能给几十万条路径造 DOM
@@ -646,7 +791,7 @@ const cloudLabelsEl = document.getElementById('cloudLabels');
 const cloudLayerLegendEl = document.getElementById('cloudLayerLegend');
 const cloudChoiceEl = document.getElementById('cloudChoice');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setPixelRatio(1); // 缩略窗固定 DPR1；全屏按设备能力提升，避免小窗白烧像素
 renderer.setClearColor(0x05060b, 1);
 
 const scene = new THREE.Scene();
@@ -737,6 +882,7 @@ function clearCloud() {
   cloudTimingByDepth.clear();
   cloudLabelsEl.replaceChildren();
   layers.clear();
+  requestCloudRender();
 }
 
 function removeCloudLayer(depth) {
@@ -747,6 +893,44 @@ function removeCloudLayer(depth) {
     obj.geometry.dispose();
   }
   layers.delete(depth);
+  requestCloudRender();
+}
+
+function mergeCloudLayer(depth) {
+  const rec = layers.get(depth);
+  if (!rec || rec.objects.length <= 1) return false;
+  let positionCount = 0;
+  for (const obj of rec.objects) {
+    positionCount += obj.geometry.getAttribute('position')?.count || 0;
+  }
+  if (positionCount === 0) return false;
+  const positions = new Float32Array(positionCount * 3);
+  const colors = new Uint8Array(positionCount * 3);
+  let offset = 0;
+  for (const obj of rec.objects) {
+    const position = obj.geometry.getAttribute('position');
+    const color = obj.geometry.getAttribute('color');
+    positions.set(position.array, offset * 3);
+    colors.set(color.array, offset * 3);
+    offset += position.count;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Uint8BufferAttribute(colors, 3, true));
+  const merged = new THREE.LineSegments(
+    geometry,
+    lineMaterials[Math.min(depth, lineMaterials.length - 1)],
+  );
+  merged.userData = { kind: 'cloud-links', depth };
+  merged.frustumCulled = false;
+  for (const obj of rec.objects) {
+    cloudGroup.remove(obj);
+    obj.geometry.dispose();
+  }
+  cloudGroup.add(merged);
+  rec.objects = [merged];
+  requestCloudRender();
+  return true;
 }
 
 function discardPartialDeepLayer() {
@@ -763,6 +947,30 @@ function restoreCloudTiming(depth) {
   cloudState.workerMs = timing.workerMs;
   cloudState.mainMs = timing.mainMs;
   cloudState.ms = timing.workerMs + timing.mainMs;
+}
+
+function releaseDeepCloud() {
+  const wasGrowingDeep = cloudWorker && cloudWorkerTargetDepth === DEEP_DEPTH;
+  if (wasGrowingDeep) {
+    cloudWorker.terminate();
+    cloudWorker = null;
+    cloudWorkerTargetDepth = 0;
+  }
+  if (layers.has(DEEP_DEPTH)) removeCloudLayer(DEEP_DEPTH);
+  if (cloudLayerFens.get(SYNC_DEPTH)?.length) {
+    restoreCloudTiming(SYNC_DEPTH);
+    cloudState.depth = SYNC_DEPTH;
+    cloudState.growing = false;
+    cloudState.deepPending = true;
+    updateHud();
+    requestCloudRender();
+    return true;
+  }
+  if (wasGrowingDeep && !thinking) {
+    const gen = prepareCloud();
+    startCloudWorker({ gen, startDepth: 1, targetDepth: SYNC_DEPTH });
+  }
+  return wasGrowingDeep;
 }
 
 function hash01(n) {
@@ -799,8 +1007,10 @@ function appendLayer(depth, parents, scores) {
   const ppos = parent.pos, pdir = parent.dir;
   const step = STEP[depth], spread = SPREAD[depth];
 
-  const pos = new Float32Array(n * 3);
-  const dir = new Float32Array(n * 3);
+  // 最深层没有下一代，不保存也不临时分配 child pos/dir；局中可少掉十余 MB GC 压力。
+  const keepLayout = depth < DEEP_DEPTH;
+  const pos = keepLayout ? new Float32Array(n * 3) : null;
+  const dir = keepLayout ? new Float32Array(n * 3) : null;
   const edgePos = new Float32Array(n * 6);
   const edgeCol = new Uint8Array(n * 6);
 
@@ -835,11 +1045,16 @@ function appendLayer(depth, parents, scores) {
       // 径向抖动：孩子不落在同一个半径上，不然每层都是一层壳
       const jr = depth >= 2 ? 0.72 + 0.58 * hash01(p * 3.7 + j * 11.31 + depth * 57.3) : 1;
       const o = (i + j) * 3;
-      dir[o] = cx; dir[o + 1] = cy; dir[o + 2] = cz;
-      pos[o] = px + cx * step * jr; pos[o + 1] = py + cy * step * jr; pos[o + 2] = pz + cz * step * jr;
+      const childX = px + cx * step * jr;
+      const childY = py + cy * step * jr;
+      const childZ = pz + cz * step * jr;
+      if (keepLayout) {
+        dir[o] = cx; dir[o + 1] = cy; dir[o + 2] = cz;
+        pos[o] = childX; pos[o + 1] = childY; pos[o + 2] = childZ;
+      }
       const eo = (i + j) * 6;
       edgePos[eo] = px; edgePos[eo + 1] = py; edgePos[eo + 2] = pz;
-      edgePos[eo + 3] = pos[o]; edgePos[eo + 4] = pos[o + 1]; edgePos[eo + 5] = pos[o + 2];
+      edgePos[eo + 3] = childX; edgePos[eo + 4] = childY; edgePos[eo + 5] = childZ;
       writeColorBytes(edgeCol, eo, scores[i + j], 0.34);
       writeColorBytes(edgeCol, eo + 3, scores[i + j], 1);
     }
@@ -857,7 +1072,8 @@ function appendLayer(depth, parents, scores) {
   let rec = layers.get(depth);
   if (!rec) { rec = { objects: [], pos: null, dir: null }; layers.set(depth, rec); }
   rec.objects.push(obj);
-  if (depth < DEEP_DEPTH) { rec.pos = pos; rec.dir = dir; }
+  if (keepLayout) { rec.pos = pos; rec.dir = dir; }
+  requestCloudRender();
 }
 
 // ─────────────────────────────────────────────── 棋局 + Worker
@@ -945,12 +1161,15 @@ function prepareCloud() {
   cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
 
   const fen = game.fen();
+  resetExplorer(false);
+  exploreChoiceCache.clear();
   addRoot(0);
   cloudState = {
     fen, depth: 0, ms: 0, workerMs: 0, mainMs: 0,
     growing: false, deepPending: false, error: '', paused: false, gen,
   };
   updateHud();
+  requestCloudRender();
   return gen;
 }
 
@@ -1006,6 +1225,9 @@ function startCloudWorker({
       cloudState.ms = cloudState.workerMs + cloudState.mainMs;
       updateHud();
     } else if (m.type === 'cloudDone') {
+      const mainStarted = performance.now();
+      if (m.depth === DEEP_DEPTH) mergeCloudLayer(DEEP_DEPTH);
+      cloudState.mainMs += performance.now() - mainStarted;
       cloudState.depth = m.depth;
       cloudState.workerMs = cloudWorkerBaseMs + m.ms;
       cloudState.ms = cloudState.workerMs + cloudState.mainMs;
@@ -1053,9 +1275,7 @@ function startCloudWorker({
     startDepth,
     targetDepth,
     parentFens,
-    batchParents: matchMedia('(max-width: 1100px), (max-height: 780px)').matches
-      ? Math.min(120, BATCH_PARENTS)
-      : BATCH_PARENTS,
+    batchParents: BATCH_PARENTS,
   });
   return true;
 }
@@ -1064,6 +1284,7 @@ function maybeStartDeepCloud() {
   if (
     thinking
     || document.hidden
+    || !document.body.classList.contains('cloud-full')
     || cloudWorker
     || cloudState.error
     || cloudState.depth !== SYNC_DEPTH
@@ -1087,7 +1308,11 @@ function growPreparedCloud(gen = cloudState.gen) {
     updateHud();
     return false;
   }
-  const targetDepth = skyIsVisibleNow() ? DEEP_DEPTH : SYNC_DEPTH;
+  // 缩略窗只铺完整 L3；用户明确打开全屏探索时才承担几十万条 L4。
+  const targetDepth =
+    document.body.classList.contains('cloud-full') && skyIsVisibleNow()
+      ? DEEP_DEPTH
+      : SYNC_DEPTH;
   return startCloudWorker({ gen, startDepth: 1, targetDepth });
 }
 
@@ -1367,7 +1592,7 @@ function svgElement(tag, attrs = {}) {
   return el;
 }
 
-function appendPieceModel(pc, sq, f, r) {
+function appendPieceModel(pc, sq, f, r, target = boardPiecesEl) {
   const template = document.getElementById(`board-piece-${pc.type}`);
   if (!template) throw new Error(`缺少棋子模型：${pc.type}`);
   const piece = svgElement('g', {
@@ -1384,13 +1609,35 @@ function appendPieceModel(pc, sq, f, r) {
   model.removeAttribute('id');
   model.removeAttribute('data-piece-template');
   piece.appendChild(model);
-  boardPiecesEl.appendChild(piece);
+  target.appendChild(piece);
+}
+
+function renderBoardOverlay(board = game.board()) {
+  boardOverlayEl.replaceChildren();
+  const legal = selected ? game.moves({ square: selected, verbose: true }).map((move) => move.to) : [];
+  for (let r = 0; r < 8; r++) {
+    for (let f = 0; f < 8; f++) {
+      const sq = FILES[f] + (8 - r);
+      if (!legal.includes(sq)) continue;
+      const dot = svgElement('circle', {
+        cx: f * CELL + CELL / 2,
+        cy: r * CELL + CELL / 2,
+        r: board[r][f] ? 21 : 7.5,
+        fill: 'none',
+        stroke: 'rgba(255,240,190,.85)',
+        'stroke-width': board[r][f] ? 2.5 : 15,
+        'data-sq': sq,
+      });
+      boardOverlayEl.appendChild(dot);
+    }
+  }
+  if (forkPreview) appendForkPreview(forkPreview);
+  else if (coachPreview) appendCoachPreview(coachPreview);
 }
 
 function renderBoard() {
   boardSquaresEl.replaceChildren();
   boardPiecesEl.replaceChildren();
-  boardOverlayEl.replaceChildren();
   const legal = selected ? game.moves({ square: selected, verbose: true }).map((m) => m.to) : [];
   const board = game.board();
   const last = game.history({ verbose: true }).slice(-1)[0];
@@ -1427,27 +1674,8 @@ function renderBoard() {
     }
   }
 
-  // 第三层画合法落点和预览，覆盖在棋子之上但仍把触控交给格子。
-  for (let r = 0; r < 8; r++) {
-    for (let f = 0; f < 8; f++) {
-      const sq = FILES[f] + (8 - r);
-      if (legal.includes(sq)) {
-        const dot = svgElement('circle', {
-          cx: f * CELL + CELL / 2,
-          cy: r * CELL + CELL / 2,
-          r: board[r][f] ? 21 : 7.5,
-          fill: 'none',
-          stroke: 'rgba(255,240,190,.85)',
-          'stroke-width': board[r][f] ? 2.5 : 15,
-          'data-sq': sq,
-        });
-        boardOverlayEl.appendChild(dot);
-      }
-    }
-  }
-
-  if (forkPreview) appendForkPreview(forkPreview);
-  else if (coachPreview) appendCoachPreview(coachPreview);
+  // 第三层只重建轻量 overlay；分叉 hover 不再反复克隆 32 枚棋子。
+  renderBoardOverlay(board);
   boardEl.setAttribute(
     'aria-label',
     `国际象棋棋盘，${game.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${boardPiecesEl.childElementCount} 枚棋子`,
@@ -1500,6 +1728,10 @@ function updateHud() {
   for (const d of builtDepths()) total += nodesAt(d);
   const layerTxt = cloudState.growing ? `${cloudState.depth}+ 层` : `${cloudState.depth} 层`;
   const deepest = nodesAt(cloudState.depth);
+  const fastPreview =
+    cloudState.depth === SYNC_DEPTH
+    && cloudState.deepPending
+    && !document.body.classList.contains('cloud-full');
   if (cloudState.error) {
     document.getElementById('cloudStats').innerHTML =
       `路径网计算失败 · 已保留真实绘制到第 <b>${cloudState.depth}</b> 层`;
@@ -1512,10 +1744,13 @@ function updateHud() {
   }
   document.getElementById('cloudStats').innerHTML =
     `铺了 <b>${layerTxt}</b>　·　当前可见层 ${Math.round(cloudState.ms)} ms 计算`
+    + (fastPreview ? '　·　快速预览；放大后加载完整第 4 层' : '')
     + (lastAi ? `　·　AI 应手 <b>${lastAi.totalMs} ms</b>（搜到 ${lastAi.depth} 层）` : '');
   document.getElementById('cloudCount').innerHTML = cloudState.growing
     ? `已绘制 <span class="grow">${total.toLocaleString('en-US')}</span> 条真实路径，还在长`
-    : `${cloudState.depth} 步后 ${deepest.toLocaleString('en-US')} 条路径 · 共绘制 ${total.toLocaleString('en-US')} 条`;
+    : fastPreview
+      ? `快速预览 ${cloudState.depth} 步 · ${deepest.toLocaleString('en-US')} 条真实路径`
+      : `${cloudState.depth} 步后 ${deepest.toLocaleString('en-US')} 条路径 · 共绘制 ${total.toLocaleString('en-US')} 条`;
   cloudLayerLegendEl.textContent = builtDepths()
     .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
     .join('　·　');
@@ -1526,10 +1761,12 @@ function updateHud() {
 // 其余折成一行「还有 N 条」。点哪条，右边就顺它接着分叉。
 const forkEl = document.getElementById('fork');
 const forkWrap = document.getElementById('forkWrap');
-const FORK_IDLE_TEXT = '亮蓝主干就是当前选路；点走法只预览，确认后再落子。';
+const FORK_IDLE_TEXT = '亮蓝主干就是当前选路；当前一步看棋盘箭头，未来各步用「放大探索」逐格预演；确认后再落子。';
 const CARD_H = 44, CARD_GAP = 8, HEAD_H = 62;
 let forkScrollGen = 0;
 let forkStale = false;
+let forkHoverKey = '';
+const forkReplyCountCache = new Map();
 
 function markForkStale() {
   forkStale = true;
@@ -1631,7 +1868,7 @@ function moveQuality(score, bestScore, white = true) {
 
 function replyDescription(reply) {
   if (!reply) return '对手没有合法回应';
-  let text = `对手优先防：${PIECE_NAME[reply.piece] || '棋子'}走 ${reply.san}`;
+  let text = `对手强回应：${PIECE_NAME[reply.piece] || '棋子'}走 ${reply.san}`;
   if (reply.captured) text += `，吃${PIECE_NAME[reply.captured] || '子'}`;
   if (reply.san.endsWith('#')) text += '并将死';
   else if (reply.san.endsWith('+')) text += '并将军';
@@ -1734,7 +1971,7 @@ function coachCardHtml(candidate, active) {
     + `<span class="coach-quality">${candidate.quality.label}</span></span>`
     + `<span class="coach-situation" style="--situation-color:${candidate.situation.color}">${candidate.situation.label}</span>`
     + `<span class="coach-reply">${esc(replyDescription(reply))}</span>`
-    + `<span class="coach-raw">引擎原分 ${scoreText(candidate.score)}</span>`
+    + `<span class="coach-raw">含对手强回应 · 引擎原分 ${scoreText(candidate.score)}</span>`
     + `</button>`;
 }
 
@@ -1746,7 +1983,7 @@ function renderCoachCandidate(candidate, { rerenderBoard = true } = {}) {
   coachTitleEl.textContent = coachModel.total > 3
     ? `${candidate.from.toUpperCase()} 的${PIECE_NAME[coachModel.piece]}共 ${coachModel.total} 种，先看前三`
     : `${candidate.from.toUpperCase()} 的${PIECE_NAME[coachModel.piece]}：先看 ${candidate.san}`;
-  coachExplainEl.textContent = '黄线是你，蓝线是对手；回应按引擎强度排序，不是历史胜率';
+  coachExplainEl.textContent = '黄线是你，蓝线是对手；这里的判断已算入对手强回应，不是历史胜率';
   coachMovesEl.innerHTML = coachModel.candidates
     .map((move) => coachCardHtml(move, move.rank === candidate.rank))
     .join('');
@@ -1756,7 +1993,7 @@ function renderCoachCandidate(candidate, { rerenderBoard = true } = {}) {
       + `${index + 1}. ${PIECE_NAME[reply.piece] || '棋子'} ${esc(reply.san)}</span>`
   ).join('');
   coachReplyStripEl.innerHTML =
-    `<span>优先防的强回应：</span>${chips}`
+    `<span>对手的强回应：</span>${chips}`
     + `<button type="button" data-coach-action="play" data-rank="${candidate.rank}">就走 ${esc(candidate.san)}</button>`;
   if (rerenderBoard) renderBoard();
   return true;
@@ -1927,7 +2164,10 @@ coachMovesEl.addEventListener('click', (ev) => {
   const card = ev.target.closest('button.coach-card');
   if (!card || !coachModel || thinking) return;
   const candidate = coachModel.candidates.find((move) => move.rank === +card.dataset.rank);
-  if (candidate) renderCoachCandidate(candidate);
+  if (candidate && renderCoachCandidate(candidate)) {
+    coachMovesEl.querySelector(`button.coach-card[data-rank="${candidate.rank}"]`)
+      ?.focus({ preventScroll: true });
+  }
 });
 
 coachReplyStripEl.addEventListener('click', (ev) => {
@@ -1937,13 +2177,27 @@ coachReplyStripEl.addEventListener('click', (ev) => {
   if (candidate) tryMove(candidate.from, candidate.to, candidate.promotion);
 });
 
-function renderFork(force = false) {
+function refreshColumnVisibility() {
+  for (let i = 0; i < columns.length; i++) {
+    const column = columns[i];
+    column.expanded = !!expanded[i];
+    column.visibleIndices = column.expanded
+      ? column.ranked.map((_, rank) => rank)
+      : [...Array(column.baseShown).keys()];
+    if (!column.visibleIndices.includes(column.chosen)) column.visibleIndices.push(column.chosen);
+    column.shown = column.visibleIndices.length;
+  }
+}
+
+function renderFork(force = false, rebuild = true) {
   if (forkStale && !force) return false;
   forkStale = false;
+  forkHoverKey = '';
   forkWrap.inert = false;
   forkEl.style.opacity = '';
   forkEl.removeAttribute('aria-busy');
-  columns = buildColumns();
+  if (rebuild) columns = buildColumns();
+  else refreshColumnVisibility();
   const compact = matchMedia('(max-width: 1100px), (max-height: 780px)').matches;
   const minColW = compact ? 150 : 112;
   const W = Math.max(columns.length * minColW, forkWrap.clientWidth || 900);
@@ -2080,7 +2334,7 @@ function setColumnExpanded(col, open) {
   if (thinking || forkStale) return false;
   if (!columns[col] || columns[col].ranked.length <= columns[col].baseShown) return false;
   expanded[col] = !!open;
-  renderFork();
+  renderFork(false, false);
   return true;
 }
 
@@ -2132,22 +2386,34 @@ forkEl.addEventListener('keydown', (ev) => {
 });
 
 function showMoveDetails(c, m, rank) {
-  forkPreview = { from: m.from, to: m.to, color: cssColor(m.score, 1.35) };
-  renderBoard();
-  const replies = new Chess(m.after).moves().length;
+  const isCurrentPosition = c.fen === game.fen();
+  // 未来列的坐标属于未来 FEN，绝不能把它冒充成当前棋盘上的箭头。
+  forkPreview = isCurrentPosition
+    ? { from: m.from, to: m.to, color: cssColor(m.score, 1.35) }
+    : null;
+  renderBoardOverlay();
+  let replies = forkReplyCountCache.get(m.after);
+  if (replies === undefined) {
+    replies = new Chess(m.after).moves().length;
+    forkReplyCountCache.set(m.after, replies);
+  }
   const situation = scoreSituation(m.score);
   const quality = moveQuality(m.score, c.ranked[0].score, c.white);
   document.getElementById('forkFoot').innerHTML =
     `<b>${esc(m.san)}</b>　这一步在 ${c.ranked.length} 种里排第 <b>${rank + 1}</b>`
     + `　·　走完之后对方有 <b>${replies}</b> 种回应`
     + `　·　<b>${situation.label}</b>，${quality.label}`
-    + `　·　引擎原分 ${scoreText(m.score)}`;
+    + `　·　引擎原分 ${scoreText(m.score)}`
+    + (isCurrentPosition ? '' : '　·　这是未来局面；用「放大探索」看逐格棋盘');
 }
 
 forkEl.addEventListener('mouseover', (ev) => {
   if (thinking || forkStale) return;
   const card = ev.target.closest ? ev.target.closest('g.card') : null;
   if (!card) return;
+  const key = `${card.dataset.col}:${card.dataset.idx}`;
+  if (key === forkHoverKey) return;
+  forkHoverKey = key;
   const c = columns[+card.dataset.col];
   const m = c && c.ranked[+card.dataset.idx];
   if (!m) return;
@@ -2155,7 +2421,8 @@ forkEl.addEventListener('mouseover', (ev) => {
 });
 forkEl.addEventListener('mouseleave', () => {
   if (thinking || forkStale) return;
-  forkPreview = null; renderBoard();
+  forkHoverKey = '';
+  forkPreview = null; renderBoardOverlay();
   document.getElementById('forkFoot').textContent = FORK_IDLE_TEXT;
 });
 
@@ -2165,6 +2432,163 @@ document.getElementById('btnPlayLine').onclick = () => {
   const m = columns[0].ranked[columns[0].chosen];
   tryMove(m.from, m.to, m.promotion);
 };
+
+// ─────────────────────────────────────────────── 全屏变体棋盘
+const exploreSquaresEl = document.getElementById('exploreSquares');
+const explorePiecesEl = document.getElementById('explorePieces');
+const exploreOverlayEl = document.getElementById('exploreOverlay');
+const explorePathEl = document.getElementById('explorePath');
+const exploreSummaryEl = document.getElementById('exploreSummary');
+const exploreChoicesEl = document.getElementById('exploreChoices');
+const exploreChoiceCache = new Map();
+const EXPLORE_MAX_PLY = SYNC_DEPTH;
+let explorerState = { rootFen: '', path: [], choices: [] };
+
+function explorerFen() {
+  return explorerState.path.at(-1)?.after || explorerState.rootFen || game.fen();
+}
+
+function resetExplorer(render = true) {
+  explorerState = { rootFen: game.fen(), path: [], choices: [] };
+  if (render) renderExplorer();
+  return true;
+}
+
+function ensureExplorerRoot() {
+  if (explorerState.rootFen !== game.fen()) resetExplorer(false);
+}
+
+function explorerChoicesFor(fen) {
+  let ranked = exploreChoiceCache.get(fen);
+  if (!ranked) {
+    ranked = rankMoves(fen, { depth: 1 });
+    exploreChoiceCache.set(fen, ranked);
+  }
+  return ranked;
+}
+
+function renderExplorerBoard(fen, lastMove = null) {
+  const viewGame = new Chess(fen);
+  const board = viewGame.board();
+  exploreSquaresEl.replaceChildren();
+  explorePiecesEl.replaceChildren();
+  exploreOverlayEl.replaceChildren();
+  for (let r = 0; r < 8; r++) {
+    for (let f = 0; f < 8; f++) {
+      const sq = FILES[f] + (8 - r);
+      const dark = (r + f) % 2 === 1;
+      const highlighted = lastMove && (sq === lastMove.from || sq === lastMove.to);
+      const rect = svgElement('rect', {
+        x: f * CELL, y: r * CELL, width: CELL, height: CELL,
+        fill: highlighted ? (dark ? '#5c6132' : '#b3b06a') : (dark ? '#3b4560' : '#8b97b4'),
+        stroke: dark ? 'rgba(8,12,21,.34)' : 'rgba(236,242,255,.08)',
+        'stroke-width': .55,
+        'data-sq': sq,
+      });
+      exploreSquaresEl.appendChild(rect);
+      const pc = board[r][f];
+      if (pc) appendPieceModel(pc, sq, f, r, explorePiecesEl);
+    }
+  }
+  if (lastMove) {
+    const [x1, y1] = squareXY(lastMove.from), [x2, y2] = squareXY(lastMove.to);
+    exploreOverlayEl.appendChild(svgElement('line', {
+      x1, y1, x2, y2, stroke: '#8fd8ff', 'stroke-width': 5,
+      'stroke-linecap': 'round', opacity: '.82', 'pointer-events': 'none',
+    }));
+    exploreOverlayEl.appendChild(svgElement('circle', {
+      cx: x2, cy: y2, r: 9, fill: '#8fd8ff', opacity: '.9', 'pointer-events': 'none',
+    }));
+  }
+  document.getElementById('exploreBoard').setAttribute(
+    'aria-label',
+    `变体预演棋盘，${viewGame.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${explorePiecesEl.childElementCount} 枚棋子`,
+  );
+}
+
+function renderExplorer() {
+  ensureExplorerRoot();
+  const fen = explorerFen();
+  const last = explorerState.path.at(-1) || null;
+  explorerState.choices =
+    !thinking && explorerState.path.length < EXPLORE_MAX_PLY
+      ? explorerChoicesFor(fen)
+      : [];
+  renderExplorerBoard(fen, last);
+
+  explorePathEl.innerHTML =
+    `<button type="button" data-explore-depth="0"${explorerState.path.length === 0 ? ' class="is-current"' : ''}>现在</button>`
+    + explorerState.path.map((move, index) =>
+      `<button type="button" data-explore-depth="${index + 1}"`
+      + `${index === explorerState.path.length - 1 ? ' class="is-current"' : ''}>`
+      + `${index + 1}. ${esc(move.san)}</button>`
+    ).join('');
+
+  if (thinking) {
+    exploreSummaryEl.innerHTML = '<b>黑方正在思考。</b><br>应手完成后再探索，不与 AI 抢主线程。';
+    exploreChoicesEl.replaceChildren();
+    syncCloudMap();
+    return;
+  }
+  const side = fen.split(' ')[1] === 'w' ? '白方' : '黑方';
+  const situation = last ? scoreSituation(last.score) : null;
+  exploreSummaryEl.innerHTML = last
+    ? (explorerState.path.length >= EXPLORE_MAX_PLY
+      ? `<b>已到可交互第 ${EXPLORE_MAX_PLY} 步；点上方路径回退。</b><br>`
+        + `${explorerState.path.map((move) => esc(move.san)).join(' → ')} 后，`
+        + `<span style="color:${situation.color}">${situation.label}</span>。`
+      : `如果走到 <b>${explorerState.path.map((move) => esc(move.san)).join(' → ')}</b>：`
+        + `<b style="color:${situation.color}">${situation.label}</b>。`
+        + `现在轮到${side}，可从下面换一枚棋子或另一种走法。`)
+    : `<b>当前实战局面。</b><br>现在轮到${side}；点下面任意走法，棋盘会显示真实走后局面。`;
+  exploreChoicesEl.innerHTML = explorerState.choices.map((move, rank) => {
+    const situationNow = scoreSituation(move.score);
+    return `<button type="button" data-explore-rank="${rank}" data-san="${esc(move.san)}"`
+      + ` data-from="${move.from}" data-to="${move.to}" data-after="${esc(move.after)}"`
+      + ` style="--choice-color:${cssColor(move.score, 1.25)}">`
+      + `<b>${esc(move.san)}</b><small>${PIECE_NAME[move.piece] || '棋子'} · 即时评估：${situationNow.short}</small></button>`;
+  }).join('');
+  exploreChoicesEl.scrollTop = 0;
+  syncCloudMap();
+}
+
+function chooseExplorerMove(rank) {
+  ensureExplorerRoot();
+  if (thinking || explorerState.path.length >= EXPLORE_MAX_PLY) return false;
+  const move = explorerState.choices[rank];
+  if (!move) return false;
+  explorerState.path.push({
+    san: move.san, from: move.from, to: move.to,
+    promotion: move.promotion || '', after: move.after,
+    score: move.score, piece: move.piece, captured: move.captured || '',
+  });
+  renderExplorer();
+  focusExplorerNode();
+  (
+    exploreChoicesEl.querySelector('button[data-explore-rank]')
+    || explorePathEl.querySelector('button.is-current')
+  )?.focus({ preventScroll: true });
+  return true;
+}
+
+function rewindExplorer(depth) {
+  const nextDepth = Math.max(0, Math.min(Number(depth) || 0, explorerState.path.length));
+  explorerState.path = explorerState.path.slice(0, nextDepth);
+  renderExplorer();
+  focusExplorerNode();
+  explorePathEl.querySelector('button.is-current')?.focus({ preventScroll: true });
+  return true;
+}
+
+exploreChoicesEl.addEventListener('click', (event) => {
+  const choice = event.target.closest('button[data-explore-rank]');
+  if (choice) chooseExplorerMove(+choice.dataset.exploreRank);
+});
+explorePathEl.addEventListener('click', (event) => {
+  const crumb = event.target.closest('button[data-explore-depth]');
+  if (crumb) rewindExplorer(+crumb.dataset.exploreDepth);
+});
+document.getElementById('exploreReset').onclick = () => resetExplorer();
 
 // ─────────────────────────────────────────────── 路径网标签 + 与平面选路联动
 function cloudMoveMeta(after) {
@@ -2187,11 +2611,74 @@ function traceCloudRoute() {
     const o = index * 3;
     route.push({
       depth, index, san: move.san,
+      rank: c.chosen, parentFen: c.fen, after: move.after,
+      from: move.from, to: move.to, promotion: move.promotion || '', score: move.score,
       position: [pos[o], pos[o + 1], pos[o + 2]],
     });
     parentIndex = index;
   }
   return route;
+}
+
+function traceExplorerRoute() {
+  ensureExplorerRoot();
+  const route = [];
+  let parentIndex = 0;
+  for (let depth = 1; depth <= Math.min(SYNC_DEPTH, explorerState.path.length); depth++) {
+    const move = explorerState.path[depth - 1];
+    const fens = cloudLayerFens.get(depth), parents = cloudLayerParents.get(depth);
+    const pos = layers.get(depth)?.pos;
+    if (!fens || !parents || !pos) break;
+    let index = -1;
+    for (let i = 0; i < fens.length; i++) {
+      if (parents[i] === parentIndex && fens[i] === move.after) { index = i; break; }
+    }
+    if (index < 0) break;
+    const o = index * 3;
+    route.push({
+      ...move, depth, index,
+      parentFen: depth === 1 ? explorerState.rootFen : explorerState.path[depth - 2].after,
+      position: [pos[o], pos[o + 1], pos[o + 2]],
+    });
+    parentIndex = index;
+  }
+  return route;
+}
+
+function explorerGraphChoices(route = traceExplorerRoute()) {
+  const depth = explorerState.path.length + 1;
+  if (depth > SYNC_DEPTH || explorerState.choices.length === 0) return [];
+  const fens = cloudLayerFens.get(depth), parents = cloudLayerParents.get(depth);
+  const pos = layers.get(depth)?.pos;
+  if (!fens || !parents || !pos) return [];
+  const parentIndex = route.at(-1)?.index ?? 0;
+  const out = [];
+  for (let rank = 0; rank < explorerState.choices.length && out.length < CLOUD_LABELS_MAX; rank++) {
+    const move = explorerState.choices[rank];
+    let index = -1;
+    for (let i = 0; i < fens.length; i++) {
+      if (parents[i] === parentIndex && fens[i] === move.after) { index = i; break; }
+    }
+    if (index >= 0) out.push({ move, rank, depth, index });
+  }
+  return out;
+}
+
+function focusExplorerNode() {
+  const route = traceExplorerRoute();
+  const step = route.at(-1);
+  if (!step) {
+    cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
+  } else {
+    cloudTargetGoal.set(
+      CLOUD_TARGET_X * 0.48 + step.position[0] * 0.52,
+      step.position[1] * 0.52,
+      step.position[2] * 0.52,
+    );
+  }
+  setCloudMotion(false);
+  requestCloudRender();
+  return !!step;
 }
 
 function updateCloudRoute(route = traceCloudRoute()) {
@@ -2200,7 +2687,10 @@ function updateCloudRoute(route = traceCloudRoute()) {
     cloudRouteLine.geometry.dispose();
     cloudRouteLine = null;
   }
-  if (route.length === 0) return;
+  if (route.length === 0) {
+    requestCloudRender();
+    return;
+  }
   const points = [0, 0, 0];
   for (const step of route) points.push(...step.position);
   const geo = new THREE.BufferGeometry();
@@ -2210,6 +2700,7 @@ function updateCloudRoute(route = traceCloudRoute()) {
   cloudRouteLine.frustumCulled = false;
   cloudRouteLine.renderOrder = 10;
   cloudGroup.add(cloudRouteLine);
+  requestCloudRender();
 }
 
 function syncCloudMap() {
@@ -2218,6 +2709,37 @@ function syncCloudMap() {
   if (!first || !depthOne?.pos || cloudFirstMoves.length === 0) {
     cloudLabelsEl.replaceChildren();
     updateCloudRoute([]);
+    return;
+  }
+
+  const exploring =
+    document.body.classList.contains('cloud-full')
+    && explorerState.rootFen === game.fen();
+  if (exploring) {
+    const route = traceExplorerRoute();
+    const graphChoices = explorerGraphChoices(route);
+    const labels = graphChoices.map(({ move, rank, depth, index }) =>
+      `<button type="button" class="cloud-label cloud-move-label cloud-explore-label"`
+      + ` data-depth="${depth}" data-index="${index}" data-explore-rank="${rank}" data-san="${esc(move.san)}"`
+      + ` data-situation="${scoreSituation(move.score).key}" aria-pressed="false"`
+      + ` title="预演 ${esc(move.san)} · 引擎原分 ${scoreText(move.score)}"`
+      + ` style="--move-color:${cssColor(move.score, 1.25)}">`
+      + `<b>${esc(move.san)}</b><small>${scoreSituation(move.score).short}</small></button>`
+    ).join('');
+    const breadcrumbs = route.map((step) =>
+      `<button type="button" class="cloud-label cloud-path-label is-selected"`
+      + ` data-depth="${step.depth}" data-index="${step.index}" data-explore-depth="${step.depth}"`
+      + ` data-san="${esc(step.san)}" aria-label="回到第 ${step.depth} 步 ${esc(step.san)}">`
+      + `<small>${step.depth}步</small><b>${esc(step.san)}</b></button>`
+    ).join('');
+    cloudLabelsEl.innerHTML =
+      `<button type="button" class="cloud-label cloud-root-label${route.length === 0 ? ' is-selected' : ''}"`
+      + ` data-depth="0" data-index="0" data-explore-depth="0">现在</button>${breadcrumbs}${labels}`;
+    cloudChoiceEl.innerHTML = route.length
+      ? `正在预演：<b>${explorerState.path.map((move) => esc(move.san)).join(' → ')}</b>；点线旁标签换走法`
+      : '从「现在」出发；点线旁走法，右侧棋盘会显示真实走后局面';
+    updateCloudRoute(route);
+    requestCloudRender();
     return;
   }
 
@@ -2245,6 +2767,7 @@ function syncCloudMap() {
   const picked = columns.map((c) => c.ranked[c.chosen].san);
   cloudChoiceEl.innerHTML = `当前选路：<b>${picked.map(esc).join(' → ')}</b>`;
   updateCloudRoute(route);
+  requestCloudRender();
 }
 
 const labelWorld = new THREE.Vector3();
@@ -2256,10 +2779,10 @@ function positionCloudLabels() {
   if (!layers.get(1)?.pos || !w || !h) return;
   const skyRect = skyBox.getBoundingClientRect();
   const exclusions = full
-    ? [
+      ? [
         document.getElementById('cloudMapHud'),
-        document.getElementById('cloudResetView'),
-        document.getElementById('cloudClose'),
+        document.getElementById('cloudControls'),
+        document.getElementById('cloudExplorer'),
         document.getElementById('skyHint'),
       ]
       .map((el) => el.getBoundingClientRect())
@@ -2310,7 +2833,7 @@ function positionCloudLabels() {
   }
 
   candidates.sort((a, b) => b.priority - a.priority);
-  const maxVisible = full ? (w <= 600 ? 5 : 7) : 3;
+  const maxVisible = full ? (w <= 600 ? 6 : 10) : 3;
   const accepted = [];
   for (const item of candidates) {
     const collides = accepted.some((a) => Math.hypot(a.x - item.x, a.y - item.y) < (w <= 600 ? 58 : 72));
@@ -2331,10 +2854,27 @@ function focusCloudMove(after) {
     pos[o + 1] * 0.42,
     pos[o + 2] * 0.42,
   );
-  view.auto = false;
+  setCloudMotion(false);
+  requestCloudRender();
 }
 
 cloudLabelsEl.addEventListener('click', (ev) => {
+  const explorerDepth = ev.target.closest
+    ? ev.target.closest('button[data-explore-depth]')
+    : null;
+  if (explorerDepth) {
+    ev.stopPropagation();
+    rewindExplorer(+explorerDepth.dataset.exploreDepth);
+    return;
+  }
+  const explorerChoice = ev.target.closest
+    ? ev.target.closest('button[data-explore-rank]')
+    : null;
+  if (explorerChoice) {
+    ev.stopPropagation();
+    chooseExplorerMove(+explorerChoice.dataset.exploreRank);
+    return;
+  }
   const label = ev.target.closest ? ev.target.closest('button.cloud-move-label') : null;
   if (!label || !columns[0]) return;
   ev.stopPropagation();
@@ -2345,28 +2885,68 @@ cloudLabelsEl.addEventListener('click', (ev) => {
 
 // ─────────────────────────────────────────────── 路径网视角
 const DEFAULT_VIEW = Object.freeze({ yaw: 0.08, pitch: 0.15, dist: 29 });
-const view = { ...DEFAULT_VIEW, auto: true };
+const motionPreference = matchMedia('(prefers-reduced-motion: reduce)');
+let reducedMotion = motionPreference.matches;
+const view = { ...DEFAULT_VIEW, auto: false };
 const cloudTargetGoal = new THREE.Vector3(CLOUD_TARGET_X, 0, 0);
+let renderFrameId = 0;
+let cruiseTimer = 0;
+
+function updateMotionButton() {
+  const button = document.getElementById('cloudMotion');
+  if (!button) return;
+  button.setAttribute('aria-pressed', String(view.auto));
+  button.textContent = `自动巡航：${view.auto ? '开' : '关'}`;
+}
+
+function scheduleCruise() {
+  clearTimeout(cruiseTimer);
+  cruiseTimer = 0;
+  if (
+    !view.auto
+    || reducedMotion
+    || document.hidden
+    || !document.body.classList.contains('cloud-full')
+  ) return;
+  cruiseTimer = setTimeout(() => {
+    cruiseTimer = 0;
+    view.yaw += 0.0024;
+    requestCloudRender();
+    scheduleCruise();
+  }, 42); // 约 24fps；只有用户明确打开巡航时才持续。
+}
+
+function setCloudMotion(auto) {
+  view.auto = !!auto && !reducedMotion;
+  updateMotionButton();
+  scheduleCruise();
+  requestCloudRender();
+  return view.auto;
+}
+
 function resetCloudView() {
   view.yaw = DEFAULT_VIEW.yaw;
   view.pitch = DEFAULT_VIEW.pitch;
   view.dist = DEFAULT_VIEW.dist;
-  view.auto = true;
+  setCloudMotion(false);
   cloudTarget.set(CLOUD_TARGET_X, 0, 0);
   cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
+  requestCloudRender();
   return true;
 }
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
   drag = { x: e.clientX, y: e.clientY, moved: false };
+  setCloudMotion(false);
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
-  if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) { drag.moved = true; view.auto = false; }
+  if (Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 3) drag.moved = true;
   view.yaw -= (e.clientX - drag.x) * 0.005;
   view.pitch = Math.max(-1.45, Math.min(1.45, view.pitch + (e.clientY - drag.y) * 0.005));
   drag = { x: e.clientX, y: e.clientY, moved: drag.moved };
+  requestCloudRender();
 });
 canvas.addEventListener('pointerup', () => {
   if (drag && !drag.moved && !document.body.classList.contains('cloud-full')) {
@@ -2377,8 +2957,17 @@ canvas.addEventListener('pointerup', () => {
 canvas.addEventListener('pointercancel', () => { drag = null; });
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
+  setCloudMotion(false);
   view.dist = Math.max(8, Math.min(58, view.dist * (1 + Math.sign(e.deltaY) * 0.09)));
+  requestCloudRender();
 }, { passive: false });
+
+function zoomCloud(factor) {
+  setCloudMotion(false);
+  view.dist = Math.max(8, Math.min(58, view.dist * factor));
+  requestCloudRender();
+  return view.dist;
+}
 
 function toggleCloudFull(force) {
   const next = typeof force === 'boolean'
@@ -2386,31 +2975,73 @@ function toggleCloudFull(force) {
     : !document.body.classList.contains('cloud-full');
   document.body.classList.toggle('cloud-full', next);
   const full = document.body.classList.contains('cloud-full');
+  for (const id of ['boardPanel', 'stage']) {
+    document.getElementById(id).inert = full;
+  }
   const coarse = matchMedia('(pointer: coarse)').matches || innerWidth <= 760;
   document.getElementById('skyHint').textContent = full
-    ? (coarse ? '拖动旋转 · 点标签选路' : '拖动旋转 · 滚轮缩放 · 点标签选路')
-    : '点开全景 · 拖动旋转';
+    ? (coarse ? '拖动旋转 · 用 ＋/－ 缩放' : '拖动旋转 · 滚轮或 ＋/－ 缩放')
+    : '拖动观察';
   scheduleResize();
-  if (full) maybeStartDeepCloud();
+  if (full) {
+    renderExplorer();
+    maybeStartDeepCloud();
+    requestAnimationFrame(() => document.getElementById('cloudClose').focus({ preventScroll: true }));
+  } else {
+    setCloudMotion(false);
+    releaseDeepCloud();
+    syncCloudMap();
+    document.getElementById('cloudOpen').focus({ preventScroll: true });
+  }
+  updateHud();
+  requestCloudRender();
   return full;
 }
+document.getElementById('cloudOpen').onclick = () => toggleCloudFull(true);
 document.getElementById('cloudClose').onclick = () => toggleCloudFull(false);
 document.getElementById('cloudResetView').onclick = resetCloudView;
+document.getElementById('cloudZoomOut').onclick = () => zoomCloud(1.18);
+document.getElementById('cloudZoomIn').onclick = () => zoomCloud(0.84);
+document.getElementById('cloudMotion').onclick = () => setCloudMotion(!view.auto);
+addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && document.body.classList.contains('cloud-full')) {
+    event.preventDefault();
+    toggleCloudFull(false);
+  }
+});
+motionPreference.addEventListener('change', (event) => {
+  reducedMotion = event.matches;
+  if (reducedMotion) setCloudMotion(false);
+});
 
 let forkViewportW = -1, forkViewportH = -1, resizeFrame = 0;
+let rendererW = -1, rendererH = -1, rendererDpr = -1;
 function resize() {
   const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight);
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
-  renderer.setSize(w, h, false);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
+  const full = document.body.classList.contains('cloud-full');
+  const compactPointer =
+    matchMedia('(pointer: coarse)').matches
+    || Math.min(innerWidth, innerHeight) <= 520;
+  const dpr = full
+    ? Math.min(devicePixelRatio || 1, compactPointer ? 1.25 : 1.5)
+    : 1;
+  if (w !== rendererW || h !== rendererH || dpr !== rendererDpr) {
+    rendererW = w;
+    rendererH = h;
+    rendererDpr = dpr;
+    renderer.setPixelRatio(dpr);
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
   const fw = forkWrap.clientWidth, fh = forkWrap.clientHeight;
   if (fw !== forkViewportW || fh !== forkViewportH) {
     forkViewportW = fw;
     forkViewportH = fh;
     // 思考阶段不为即将失效的中间局面重排分叉，避免 resize 把 watchdog 卡住。
-    if (!thinking && !forkStale) renderFork();
+    if (!thinking && !forkStale) renderFork(false, false);
   }
+  requestCloudRender();
 }
 function scheduleResize() {
   if (resizeFrame) return;
@@ -2420,6 +3051,8 @@ function scheduleResize() {
   });
 }
 addEventListener('resize', scheduleResize);
+if ('ResizeObserver' in window) new ResizeObserver(scheduleResize).observe(skyBox);
+if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
 
 let cloudInView = true;
 if ('IntersectionObserver' in window) {
@@ -2427,70 +3060,92 @@ if ('IntersectionObserver' in window) {
     cloudInView = entries.some((entry) => entry.isIntersecting);
     if (cloudInView) {
       maybeStartDeepCloud();
+      requestCloudRender();
       return;
+    }
+    if (renderFrameId) {
+      cancelAnimationFrame(renderFrameId);
+      renderFrameId = 0;
     }
 
     // 第四层可能有几十万节点：离开视口就停，不截断冒充完整结果。
-    // 已有三层时保留真实三层；尚未铺到三层则在屏外只重建到三层。
+    // 已有三层时保留真实三层；尚未铺到三层则只重建到三层。
     if (cloudWorker && cloudWorkerTargetDepth === DEEP_DEPTH) {
-      cloudWorker.terminate();
-      cloudWorker = null;
-      cloudWorkerTargetDepth = 0;
-      if (cloudState.depth >= SYNC_DEPTH && cloudLayerFens.get(SYNC_DEPTH)?.length) {
-        removeCloudLayer(DEEP_DEPTH);
-        restoreCloudTiming(SYNC_DEPTH);
-        cloudState.depth = SYNC_DEPTH;
-        cloudState.growing = false;
-        cloudState.deepPending = true;
-        updateHud();
-      } else if (!thinking) {
-        const gen = prepareCloud();
-        startCloudWorker({ gen, startDepth: 1, targetDepth: SYNC_DEPTH });
-      }
+      releaseDeepCloud();
     } else if (
       !cloudWorker
       && cloudState.depth === DEEP_DEPTH
       && cloudLayerFens.get(SYNC_DEPTH)?.length
     ) {
       // 长满后离开视口也释放最重的一层；回来看时从真实第 3 层完整续长。
-      removeCloudLayer(DEEP_DEPTH);
-      restoreCloudTiming(SYNC_DEPTH);
-      cloudState.depth = SYNC_DEPTH;
-      cloudState.growing = false;
-      cloudState.deepPending = true;
-      updateHud();
+      releaseDeepCloud();
     }
   }, { threshold: 0 });
   cloudObserver.observe(skyBox);
 }
 
-addEventListener('visibilitychange', () => {
+document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    if (renderFrameId) {
+      cancelAnimationFrame(renderFrameId);
+      renderFrameId = 0;
+    }
+    clearTimeout(cruiseTimer);
+    cruiseTimer = 0;
+    const baseComplete =
+      cloudState.depth >= SYNC_DEPTH
+      && !!cloudLayerFens.get(SYNC_DEPTH)?.length;
     if (cloudWorker) {
       cloudWorker.terminate();
       cloudWorker = null;
       cloudWorkerTargetDepth = 0;
     }
-    if (layers.has(DEEP_DEPTH)) {
-      removeCloudLayer(DEEP_DEPTH);
+    if (baseComplete) {
+      if (layers.has(DEEP_DEPTH)) removeCloudLayer(DEEP_DEPTH);
       restoreCloudTiming(SYNC_DEPTH);
-      cloudState.depth = Math.min(cloudState.depth, SYNC_DEPTH);
-      cloudState.deepPending = cloudLayerFens.get(SYNC_DEPTH)?.length > 0;
+      cloudState.depth = SYNC_DEPTH;
+      // 即使 L4 Worker 尚未送来首批 geometry，也必须恢复“回来继续”的事实。
+      cloudState.deepPending = true;
     }
     cloudState.growing = false;
-    cloudState.paused = true;
+    // 完整 L3 是可恢复基线：切后台只释放 L4，不重算 L1-L3，也不清用户的变体路径。
+    cloudState.paused = !baseComplete;
     updateHud();
     return;
   }
-  if (cloudState.paused && !thinking && cloudState.fen === game.fen()) rebuildCloud();
+  if (cloudState.paused && !thinking && cloudState.fen === game.fen()) {
+    rebuildCloud();
+  } else {
+    cloudState.paused = false;
+    maybeStartDeepCloud();
+  }
+  scheduleCruise();
+  requestCloudRender();
 });
 
-function frame() {
+function requestCloudRender() {
+  if (renderFrameId || document.hidden) return false;
+  renderFrameId = requestAnimationFrame(renderCloudFrame);
+  return true;
+}
+
+function renderCloudFrame() {
+  renderFrameId = 0;
   const active = !document.hidden
     && (cloudInView || document.body.classList.contains('cloud-full'));
-  if (active) {
-    if (view.auto) view.yaw += 0.0009;
-    cloudTarget.lerp(cloudTargetGoal, 0.055);
+  if (!active) return;
+  let settling = false;
+  const targetDelta = cloudTarget.distanceToSquared(cloudTargetGoal);
+  if (targetDelta > 0.0004) {
+    if (reducedMotion) cloudTarget.copy(cloudTargetGoal);
+    else {
+      cloudTarget.lerp(cloudTargetGoal, 0.14);
+      settling = true;
+    }
+  } else {
+    cloudTarget.copy(cloudTargetGoal);
+  }
+  {
     const cp = Math.cos(view.pitch);
     // 竖屏全屏时保持近似相同的水平视野，避免路径网被放大裁成一块“背景”。
     const fitDist = view.dist / Math.min(1, Math.max(0.55, camera.aspect));
@@ -2503,9 +3158,9 @@ function frame() {
     renderer.render(scene, camera);
     positionCloudLabels();
   }
-  requestAnimationFrame(frame);
+  if (settling) requestCloudRender();
 }
-requestAnimationFrame(frame);
+requestCloudRender();
 
 // ─────────────────────────────────────────────── 对外的检查窗口
 /**
@@ -2557,15 +3212,18 @@ window.__forkStats = () => columns.map((c, i) => ({
  * 棋盘现状。棋子清单从实际渲染的 g.piece3d 读取，测试可拿 FEN 独立逐格对撞；
  * material 是实例真正继承到的 SVG paint，geometry 是实际子图元签名。
  */
-function boardSnapshot() {
-  const boardRect = boardEl.getBoundingClientRect();
-  const geometryOf = (root) => [...root.querySelectorAll('path,ellipse,circle,rect,polygon')].map((part) => {
+function pieceGeometryOf(root) {
+  return [...root.querySelectorAll('path,ellipse,circle,rect,polygon')].map((part) => {
     const attrs = ['d', 'cx', 'cy', 'r', 'rx', 'ry', 'x', 'y', 'width', 'height', 'points']
       .map((name) => part.hasAttribute(name) ? `${name}=${part.getAttribute(name)}` : '')
       .filter(Boolean)
       .join(',');
     return `${part.tagName}:${attrs}`;
   }).join('|');
+}
+
+function boardSnapshot() {
+  const boardRect = boardEl.getBoundingClientRect();
   const pieces = [...boardPiecesEl.querySelectorAll('g.piece3d')].map((piece) => {
     const r = piece.getBoundingClientRect();
     const style = getComputedStyle(piece);
@@ -2576,7 +3234,7 @@ function boardSnapshot() {
       render: piece.dataset.render,
       material: style.getPropertyValue('--piece-main').trim(),
       parts: piece.querySelectorAll('path,ellipse,circle,rect,polygon').length,
-      geometry: geometryOf(piece),
+      geometry: pieceGeometryOf(piece),
       rect: { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom },
     };
   });
@@ -2594,7 +3252,7 @@ function boardSnapshot() {
       sideParts: model.querySelectorAll('.piece-side').length,
       shineParts: model.querySelectorAll('.piece-shine').length,
       groundShadows: model.querySelectorAll('.piece-ground-shadow').length,
-      geometry: geometryOf(model),
+      geometry: pieceGeometryOf(model),
     })),
     unicodeGlyphs: boardEl.querySelectorAll('text.glyph').length,
     renderModes: [...new Set(pieces.map((piece) => piece.render))],
@@ -2690,6 +3348,98 @@ function cloudMapSnapshot() {
     labels: labelList,
     cameraMatrix: Array.from(camera.matrixWorld.elements),
     target: cloudTarget.toArray(),
+    view: { yaw: view.yaw, pitch: view.pitch, dist: view.dist, auto: view.auto },
+    renderFrameScheduled: renderFrameId !== 0,
+    rendererFrame: renderer.info.render.frame,
+  };
+}
+
+function explorerSnapshot() {
+  const exploreBoardRect = document.getElementById('exploreBoard').getBoundingClientRect();
+  const previewPieces = [...explorePiecesEl.querySelectorAll('g.piece3d')].map((piece) => {
+    const rect = piece.getBoundingClientRect();
+    const style = getComputedStyle(piece);
+    return {
+      sq: piece.dataset.sq,
+      color: piece.dataset.color,
+      type: piece.dataset.type,
+      render: piece.dataset.render,
+      material: style.getPropertyValue('--piece-main').trim(),
+      geometry: pieceGeometryOf(piece),
+      rect: {
+        x: rect.x, y: rect.y, w: rect.width, h: rect.height,
+        right: rect.right, bottom: rect.bottom,
+      },
+    };
+  });
+  const pathButtons = [...explorePathEl.querySelectorAll('button[data-explore-depth]')].map((button) => ({
+    depth: Number(button.dataset.exploreDepth),
+    text: button.textContent.trim(),
+    current: button.classList.contains('is-current'),
+  }));
+  const choices = [...exploreChoicesEl.querySelectorAll('button[data-explore-rank]')].map((button) => ({
+    rank: Number(button.dataset.exploreRank),
+    san: button.dataset.san || '',
+    from: button.dataset.from || '',
+    to: button.dataset.to || '',
+    after: button.dataset.after || '',
+  }));
+  const labels = [...cloudLabelsEl.querySelectorAll('button.cloud-explore-label')].map((button) => {
+    const rect = button.getBoundingClientRect();
+    return {
+      rank: Number(button.dataset.exploreRank),
+      depth: Number(button.dataset.depth),
+      index: Number(button.dataset.index),
+      san: button.dataset.san || '',
+      visible:
+        button.classList.contains('is-visible')
+        && rect.width > 0 && rect.height > 0,
+      x: (rect.left + rect.right) / 2,
+      y: (rect.top + rect.bottom) / 2,
+    };
+  });
+  return {
+    active: document.body.classList.contains('cloud-full'),
+    rootFen: explorerState.rootFen,
+    renderedFen: explorerFen(),
+    gameFen: game.fen(),
+    gameHistory: game.history(),
+    thinking,
+    aiPending: aiPending ? { id: aiPending.id, fen: aiPending.fen } : null,
+    path: explorerState.path.map((move, index) => ({
+      depth: index + 1,
+      san: move.san, from: move.from, to: move.to,
+      promotion: move.promotion || '', after: move.after, score: move.score,
+    })),
+    pathButtons,
+    choices,
+    labels,
+    boardRect: {
+      x: exploreBoardRect.x, y: exploreBoardRect.y,
+      w: exploreBoardRect.width, h: exploreBoardRect.height,
+      right: exploreBoardRect.right, bottom: exploreBoardRect.bottom,
+    },
+    previewPieces,
+    previewPieceCount: previewPieces.length,
+    renderModes: [...new Set(previewPieces.map((piece) => piece.render))],
+  };
+}
+
+function renderStatsSnapshot() {
+  return {
+    rendererFrame: renderer.info.render.frame,
+    scheduled: renderFrameId !== 0,
+    auto: view.auto,
+    reducedMotion,
+    cameraMatrix: Array.from(camera.matrixWorld.elements),
+    runningAnimations: document.getAnimations()
+      .filter((animation) => animation.playState === 'running').length,
+    dpr: renderer.getPixelRatio(),
+    pixelWidth: canvas.width,
+    pixelHeight: canvas.height,
+    renderCalls: renderer.info.render.calls,
+    geometries: renderer.info.memory.geometries,
+    textures: renderer.info.memory.textures,
   };
 }
 
@@ -2878,22 +3628,21 @@ window.__test = {
     quality: moveQuality(score, bestScore, white),
   }),
   cloudMap: cloudMapSnapshot,
+  explorer: explorerSnapshot,
+  renderStats: renderStatsSnapshot,
   setCloudVisible: (visible) => {
     cloudGroup.visible = !!visible;
-    renderer.render(scene, camera);
+    requestCloudRender();
     return cloudGroup.visible;
   },
   setCloudDepthVisible: (depth, visible) => {
     const rec = layers.get(Number(depth));
     if (!rec) return false;
     for (const obj of rec.objects) obj.visible = !!visible;
-    renderer.render(scene, camera);
+    requestCloudRender();
     return rec.objects.every((obj) => obj.visible === !!visible);
   },
-  setCloudAuto: (auto) => {
-    view.auto = !!auto;
-    return view.auto;
-  },
+  setCloudAuto: setCloudMotion,
   pickBranch: (col, idx) => chooseForkBranch(col, idx),
   expandCol: (col) => setColumnExpanded(col, true),
   collapseCol: (col) => setColumnExpanded(col, false),
