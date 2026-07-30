@@ -1,8 +1,8 @@
 # 交接文档 · chess-cloud
 
 写给下一个接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**，
-照着做就能接着干。截止 2026-07-30，当前最终架构已经写进这份文档；本地最终复验已是
-`verify.mjs` 8/8、`live-check.mjs` 64/64。线上发布状态和文件哈希必须以第 8 节的发布后实测为准。
+照着做就能接着干。截止 2026-07-30，当前最终架构已经写进这份文档；本地最终复验是
+`verify.mjs` 8/8、`live-check.mjs` 64/64，线上复验也是 `live-check.mjs` 64/64。
 
 - 线上：https://maxi-max-dev.github.io/chess-cloud/
 - 仓库：https://github.com/maxi-max-dev/chess-cloud （main 分支，GitHub Pages 从 main 根目录发布）
@@ -280,11 +280,22 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 | `live-check.mjs` 项数 | 固定 64 项；反向验证真实输出为 10/63、聚焦复验 6/64 失败 |
 | `verify.mjs` 项数 | 固定 8 项 |
 | 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 64/64 |
+| 线上完整验收 | `live-check.mjs` 64/64 |
 | AI 首屏云并发 / 正常桌面 / 真实手机 | 1,554ms / 1,538ms / 967ms |
 | 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 948ms / 1,629ms / 2,250ms |
 | 正预算 deadline 探针 | 正常 140.4ms；临时关周期查钟 210.7ms 并按预期报红 |
 | 桌面白/黑棋截图中位亮度 | 195.7 / 57.4；逐类型最小差 122.9 |
+| 线上 AI 首屏云并发 / 正常桌面 / 真实手机 | 1,591ms / 1,533ms / 1,029ms |
+| 线上 4× CPU / reset / Worker 被杀保底 | 952ms / 1,627ms / 2,257ms |
 | 环境 | node v22.23.1、chess.js 1.4.0、three 0.160.0 |
+
+发布后逐字节哈希（本地与 GitHub Pages 完全一致）：
+
+```text
+507520aa5a4fe5c6b774601459d7296d43fece23168b85f81b20a2e3dd201be6  index.html
+ca2328e5b569afe0a1f4e0ceea9f4e57e2a2521468e3bfd1898f5897f2d5631f  engine.js
+b863c89eaaeebc7972d8824cdbbee4514cfee60383716bfb0d85b3cba25cbbb1  worker.js
+```
 
 ---
 
@@ -333,4 +344,5 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 - 当前功能基线：六种分层 SVG 3D 棋子（非 WebGL mesh）；主视图是连续分叉路径；星图从「现在」
   向未来展开并带真实标签；手机竖屏/短横屏均已适配。
 - 本轮最终本地输出：`node verify.mjs` **8/8**；`node live-check.mjs` **64/64**。
-- `main` 同步状态、线上复验和三个静态文件哈希由主代理发布后填写；本节不提前宣称已经完成。
+- 本轮最终线上输出：`node live-check.mjs --url ...` **64/64**；三个运行文件哈希与本地一致。
+- `main` 已推送；GitHub Pages 已更新。交接时工作树与 `origin/main` 必须保持同步。
