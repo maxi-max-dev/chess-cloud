@@ -12,6 +12,7 @@
     --cold: #2f86ff;
     --glass: rgba(14, 17, 27, 0.72);
     --edge: rgba(150, 170, 220, 0.16);
+    --treeW: min(600px, 42vw);
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #05060b; }
@@ -20,9 +21,10 @@
     color: var(--ink);
     -webkit-font-smoothing: antialiased;
   }
-  #sky { position: fixed; inset: 0; display: block; }
+  /* 星云只占左边，右边整块让给树 */
+  #sky { position: fixed; left: 0; top: 0; width: calc(100vw - var(--treeW)); height: 100%; display: block; }
   #vignette {
-    position: fixed; inset: 0; pointer-events: none;
+    position: fixed; left: 0; top: 0; width: calc(100vw - var(--treeW)); height: 100%; pointer-events: none;
     background: radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,0) 38%, rgba(0,0,0,.55) 100%);
   }
 
@@ -36,22 +38,23 @@
     box-shadow: 0 18px 50px rgba(0,0,0,.45);
   }
 
-  /* 棋盘 */
-  #boardPanel { left: 22px; bottom: 22px; padding: 14px 14px 12px; width: 316px; }
-  #board { display: block; width: 288px; height: 288px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+  /* 棋盘（放大到 400） */
+  #boardPanel { left: 22px; bottom: 22px; padding: 16px 16px 13px; width: 434px; }
+  #board { display: block; width: 400px; height: 400px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
   #board text.glyph { pointer-events: none; user-select: none; }
-  #status { margin-top: 10px; min-height: 34px; font-size: 12.5px; color: var(--dim); }
+  #status { margin-top: 11px; min-height: 36px; font-size: 13px; color: var(--dim); }
   #status b { color: var(--ink); font-weight: 600; }
-  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
   button {
     font: inherit; font-size: 12px; color: var(--ink);
     background: rgba(120,150,220,.14); border: 1px solid var(--edge);
     border-radius: 9px; padding: 5px 11px; cursor: pointer;
   }
   button:hover { background: rgba(120,150,220,.26); }
+  button:disabled { opacity: .38; cursor: default; }
 
-  /* 右上抬头 */
-  #hud { right: 22px; top: 22px; padding: 13px 15px; width: 258px; }
+  /* 抬头挪到左上，右边整块留给树 */
+  #hud { left: 22px; top: 22px; padding: 13px 15px; width: 262px; }
   #hud h1 { margin: 0 0 2px; font-size: 15px; font-weight: 650; letter-spacing: .02em; }
   #hud .sub { color: var(--dim); font-size: 11.5px; margin-bottom: 10px; }
   table.kv { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
@@ -62,12 +65,45 @@
   .legend { margin-top: 11px; }
   .bar { height: 7px; border-radius: 4px; background: linear-gradient(90deg, var(--cold), #767a96, var(--warm)); }
   .ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); margin-top: 3px; }
-  #tip { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); font-size: 11.5px; color: #5d6478; }
+
+  /* 树面板 */
+  #treePanel {
+    position: fixed; right: 0; top: 0; bottom: 0; width: var(--treeW);
+    background: rgba(9, 11, 18, 0.86);
+    border-left: 1px solid var(--edge);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    display: flex; flex-direction: column;
+  }
+  body.tree-off { --treeW: 0px; }
+  body.tree-off #treePanel { display: none; }
+  #treeHead { padding: 14px 18px 10px; border-bottom: 1px solid var(--edge); }
+  #treeHead h2 { margin: 0 0 3px; font-size: 14px; font-weight: 650; }
+  #treeHead .sub { font-size: 11.5px; color: var(--dim); }
+  #lineText {
+    margin-top: 9px; font-size: 12.5px; line-height: 1.9; font-variant-numeric: tabular-nums;
+    max-height: 76px; overflow-y: auto;
+  }
+  #lineText .past { color: #6f768c; }
+  #lineText .fut { color: var(--ink); }
+  #lineText .now { color: #7ee0a8; margin: 0 6px; }
+  #lineText .num { color: #575e73; margin-right: 2px; }
+  #treeWrap { flex: 1; overflow-y: auto; overflow-x: hidden; }
+  #tree { display: block; }
+  #tree circle.node { cursor: pointer; }
+  #tree circle.node:hover { stroke: #fff; stroke-width: 2; }
+  #tree circle.past { cursor: default; }
+  #treeFoot { padding: 10px 18px 14px; border-top: 1px solid var(--edge); font-size: 12px; color: var(--dim); min-height: 62px; }
+  #treeFoot b { color: var(--ink); }
+
+  #toggleTree { position: fixed; right: calc(var(--treeW) + 14px); top: 22px; z-index: 5; }
 </style>
 </head>
 <body>
 <canvas id="sky"></canvas>
 <div id="vignette"></div>
+
+<button id="toggleTree">收起树</button>
 
 <div class="panel" id="hud">
   <h1>可能性星云</h1>
@@ -86,25 +122,37 @@
 </div>
 
 <div class="panel" id="boardPanel">
-  <svg id="board" viewBox="0 0 288 288" xmlns="http://www.w3.org/2000/svg"></svg>
+  <svg id="board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"></svg>
   <div id="status">正在生成星云…</div>
   <div class="row">
     <button id="btnReset">重开</button>
     <button id="btnCenter">回正视角</button>
+    <button id="btnPlayLine">走树上这一步</button>
   </div>
 </div>
 
-<div id="tip">拖动旋转 · 滚轮缩放 · 你执白先走</div>
+<div id="treePanel">
+  <div id="treeHead">
+    <h2>脉络</h2>
+    <div class="sub">从下往上：走过的路 → 现在 → 你能选的岔路。金色是已经走过的，蓝色那条是默认线（每步只按「眼前这一步谁占便宜」挑，不是最优解）。点上面任意一个点，树就顺那条重新往上长。</div>
+    <div id="lineText"></div>
+  </div>
+  <div id="treeWrap"><svg id="tree" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  <div id="treeFoot">把鼠标放到任意一个点上，棋盘会标出那一步。</div>
+</div>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { Chess, expand, MATE } from './engine.js';
+import { Chess, expand, scoreChild, MATE } from './engine.js';
 
 // ─────────────────────────────────────────────── 常量
 const SYNC_DEPTH = 3;      // 前几层主线程同步铺开
 const DEEP_DEPTH = 4;      // 这一层交给 Worker 渐进生长
 const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，所以应手有硬上限）
-const BATCH_PARENTS = 400;  // Worker 每批处理多少个父节点
+const BATCH_PARENTS = 400; // Worker 每批处理多少个父节点
+
+const PAST_LEVELS = 6;     // 树上往回看几步
+const FUTURE_LEVELS = 5;   // 树上往前长几层
 
 // 每层往外推多远 / 散开的锥半角 / 星点大小 / 不透明度，下标 = 层号
 // 锥角收窄 + 步长快速衰减，20 条主枝才分得开，看着才像放射决策树而不是一个毛球
@@ -161,21 +209,33 @@ const lineMaterial = new THREE.LineBasicMaterial({
 
 // ─────────────────────────────────────────────── 星色：分数 → 颜色
 // 分数正 = 白优（暖），负 = 黑优（冷）。分数来自 engine.js 里那一份 evaluate()。
+// 星云和树共用这一个映射，两边的颜色才是一回事。
 const WARM = [1.00, 0.44, 0.08];
 const COLD = [0.10, 0.46, 1.00];
 // 均势必须是真中性灰：之前调成偏蓝的，结果「黑优」和「均势」在画面上根本分不开
 const EVEN = [0.55, 0.53, 0.55];
 const COLOR_FULL = 120;            // 多少百分兵算「一边倒」（≈一个兵），到顶就是纯暖/纯冷
 
-function writeColor(out, o, score) {
+function mixColor(score) {
   let t = score / COLOR_FULL;
   if (t > 1) t = 1; else if (t < -1) t = -1;
   const k = Math.sign(t) * Math.pow(Math.abs(t), 0.55);   // 提一下小分差的辨识度
   const target = k >= 0 ? WARM : COLD;
   const a = Math.abs(k);
-  out[o]     = EVEN[0] + (target[0] - EVEN[0]) * a;
-  out[o + 1] = EVEN[1] + (target[1] - EVEN[1]) * a;
-  out[o + 2] = EVEN[2] + (target[2] - EVEN[2]) * a;
+  return [
+    EVEN[0] + (target[0] - EVEN[0]) * a,
+    EVEN[1] + (target[1] - EVEN[1]) * a,
+    EVEN[2] + (target[2] - EVEN[2]) * a,
+  ];
+}
+function writeColor(out, o, score) {
+  const c = mixColor(score);
+  out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2];
+}
+function cssColor(score, boost = 1) {
+  const c = mixColor(score);
+  const b = (v) => Math.round(Math.min(1, v * boost) * 255);
+  return `rgb(${b(c[0])},${b(c[1])},${b(c[2])})`;
 }
 
 // ─────────────────────────────────────────────── 星云的层账本
@@ -403,8 +463,10 @@ function onAiMove(result) {
     totalMs: Math.round(performance.now() - aiClock),
   };
   selected = null;
+  futureChosen = [];
   renderBoard();
   rebuildCloud();
+  renderTree();
   setStatus(game.isGameOver()
     ? describeEnd()
     : `黑走 <b>${lastAi.san}</b>（想了 ${lastAi.totalMs}ms，搜到 ${lastAi.depth} 层）。轮到你。`);
@@ -421,9 +483,11 @@ function tryMove(from, to, promotion) {
   }
   if (!mv) return false;
   selected = null;
+  futureChosen = [];
   renderBoard();
   requestAi();       // 先派活给 AI 的 Worker，让它和主线程铺云并行跑
   rebuildCloud();
+  renderTree();
   setStatus(game.isGameOver() ? describeEnd() : `你走 <b>${mv.san}</b>，黑方在想…`);
   return true;
 }
@@ -440,11 +504,16 @@ function describeEnd() {
 // ─────────────────────────────────────────────── 棋盘（自绘 SVG，不引棋盘库）
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const boardEl = document.getElementById('board');
-const CELL = 36;
+const CELL = 50;
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+let preview = null;      // 鼠标停在树上某个走法时，棋盘要标出来的那一步
 
 function squareAt(file, rank) { return FILES[file] + (8 - rank); }
+function squareXY(sq) {
+  const f = FILES.indexOf(sq[0]), r = 8 - Number(sq[1]);
+  return [f * CELL + CELL / 2, r * CELL + CELL / 2];
+}
 
 function renderBoard() {
   while (boardEl.firstChild) boardEl.removeChild(boardEl.firstChild);
@@ -472,10 +541,10 @@ function renderBoard() {
         const dot = document.createElementNS(SVG_NS, 'circle');
         dot.setAttribute('cx', f * CELL + CELL / 2);
         dot.setAttribute('cy', r * CELL + CELL / 2);
-        dot.setAttribute('r', board[r][f] ? 15 : 5.5);
+        dot.setAttribute('r', board[r][f] ? 21 : 7.5);
         dot.setAttribute('fill', 'none');
         dot.setAttribute('stroke', 'rgba(255,240,190,.85)');
-        dot.setAttribute('stroke-width', board[r][f] ? 2 : 11);
+        dot.setAttribute('stroke-width', board[r][f] ? 2.5 : 15);
         dot.dataset.sq = sq;
         boardEl.appendChild(dot);
       }
@@ -487,16 +556,36 @@ function renderBoard() {
         t.setAttribute('y', r * CELL + CELL / 2 + 1);
         t.setAttribute('text-anchor', 'middle');
         t.setAttribute('dominant-baseline', 'central');
-        t.setAttribute('font-size', 27);
+        t.setAttribute('font-size', 38);
         t.setAttribute('class', 'glyph');
         t.setAttribute('fill', pc.color === 'w' ? '#f6f3ea' : '#14161f');
         t.setAttribute('stroke', pc.color === 'w' ? '#1b1d26' : '#9aa3bb');
-        t.setAttribute('stroke-width', 0.9);
+        t.setAttribute('stroke-width', 1.1);
         t.setAttribute('paint-order', 'stroke');
         t.textContent = GLYPH[pc.type];
         boardEl.appendChild(t);
       }
     }
+  }
+
+  // 鼠标停在树上某个岔路时，棋盘把那一步画出来：起点虚线圈，终点实心点
+  if (preview) {
+    const [x1, y1] = squareXY(preview.from), [x2, y2] = squareXY(preview.to);
+    const ring = document.createElementNS(SVG_NS, 'circle');
+    ring.setAttribute('cx', x1); ring.setAttribute('cy', y1); ring.setAttribute('r', 21);
+    ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', preview.color);
+    ring.setAttribute('stroke-width', 3); ring.setAttribute('stroke-dasharray', '5 4');
+    boardEl.appendChild(ring);
+    const ln = document.createElementNS(SVG_NS, 'line');
+    ln.setAttribute('x1', x1); ln.setAttribute('y1', y1);
+    ln.setAttribute('x2', x2); ln.setAttribute('y2', y2);
+    ln.setAttribute('stroke', preview.color); ln.setAttribute('stroke-width', 5);
+    ln.setAttribute('stroke-linecap', 'round'); ln.setAttribute('opacity', '.9');
+    boardEl.appendChild(ln);
+    const dot = document.createElementNS(SVG_NS, 'circle');
+    dot.setAttribute('cx', x2); dot.setAttribute('cy', y2); dot.setAttribute('r', 9);
+    dot.setAttribute('fill', preview.color);
+    boardEl.appendChild(dot);
   }
 }
 
@@ -530,6 +619,210 @@ function updateHud() {
     : '—';
 }
 
+// ─────────────────────────────────────────────── 树：一条能读的脉络
+// 最下面是走过的路（每层摊开当时所有的岔路，实际走的那条高亮），
+// 中间一条线是「现在」，往上是还没发生的岔路：点哪个，树就顺哪条往上长。
+const treeEl = document.getElementById('tree');
+const treeWrap = document.getElementById('treeWrap');
+const ROW = 62, PAD = 28;
+let futureChosen = [];      // 未来每一层选了第几条岔路（没选就走贪心）
+let treeLevels = [];
+
+function packMoves(moves) {
+  return moves.map((m) => ({
+    san: m.san, from: m.from, to: m.to, promotion: m.promotion,
+    after: m.after, score: scoreChild(m),
+  }));
+}
+
+/** 静态分对当前行棋方最好的那一步。没人点的时候，树默认顺着这条长。 */
+function greedyBest(packed, whiteToMove) {
+  let best = 0;
+  for (let i = 1; i < packed.length; i++) {
+    if (whiteToMove ? packed[i].score > packed[best].score : packed[i].score < packed[best].score) best = i;
+  }
+  return best;
+}
+
+function buildLevels() {
+  const levels = [];
+  const hist = game.history({ verbose: true });
+  const startAt = Math.max(0, hist.length - PAST_LEVELS);
+
+  // 走过的路：重放到起点，然后一层层记下「当时有哪些岔路、实际走了哪条」
+  const g = new Chess();
+  for (let i = 0; i < startAt; i++) g.move({ from: hist[i].from, to: hist[i].to, promotion: hist[i].promotion });
+  for (let i = startAt; i < hist.length; i++) {
+    const fen = g.fen();
+    const packed = packMoves(g.moves({ verbose: true }));
+    const idx = packed.findIndex((m) => m.san === hist[i].san);
+    levels.push({ kind: 'past', fen, moves: packed, chosen: idx, ply: i });
+    g.move({ from: hist[i].from, to: hist[i].to, promotion: hist[i].promotion });
+  }
+
+  // 还没发生的：从当前局面往上长
+  let fen = game.fen();
+  for (let d = 0; d < FUTURE_LEVELS; d++) {
+    const packed = packMoves(new Chess(fen).moves({ verbose: true }));
+    if (packed.length === 0) break;
+    const white = fen.split(' ')[1] === 'w';
+    let idx = futureChosen[d];
+    if (idx === undefined || idx === null || idx < 0 || idx >= packed.length) idx = greedyBest(packed, white);
+    levels.push({ kind: 'future', fen, moves: packed, chosen: idx, ply: hist.length + d, futureIndex: d });
+    fen = packed[idx].after;
+  }
+  return levels;
+}
+
+function scoreText(s) {
+  if (s >= MATE) return '将死';
+  if (s <= -MATE) return '被将死';
+  return (s >= 0 ? '+' : '') + (s / 100).toFixed(2);
+}
+function plyLabel(ply) {
+  return `第 ${Math.floor(ply / 2) + 1} 回合 · ${ply % 2 === 0 ? '白' : '黑'}`;
+}
+
+/**
+ * 兄弟节点怎么排：选中的那条永远坐正中间，其余按「离它多远」左右交替往外铺。
+ * 这样主干从下到上是一条直线，岔路向两边对称扇开，一眼就看得出哪条是主线。
+ */
+function seatsOf(lv) {
+  const n = lv.moves.length;
+  const c = lv.chosen < 0 ? 0 : lv.chosen;
+  const seat = new Array(n);
+  seat[c] = 0;
+  const others = [];
+  for (let j = 0; j < n; j++) if (j !== c) others.push(j);
+  others.sort((a, b) => Math.abs(a - c) - Math.abs(b - c) || a - b);
+  let left = -1, right = 1;
+  for (let k = 0; k < others.length; k++) {
+    seat[others[k]] = (k % 2 === 0) ? right++ : left--;
+  }
+  return seat;
+}
+
+function renderTree() {
+  treeLevels = buildLevels();
+  const W = Math.max(320, treeWrap.clientWidth || 560);
+  const contentH = (treeLevels.length + 1) * ROW + PAD * 2;
+  const H = Math.max(contentH, treeWrap.clientHeight || 400);   // 撑满容器，树才是「从最底下长上来」
+  const CX = W / 2;
+  const SIDE = Math.max(60, W / 2 - 132);   // 左右各留 132px 给分数和走法说明，别压在节点上
+
+  const seats = treeLevels.map(seatsOf);
+  let maxSeat = 1;
+  for (const s of seats) for (const v of s) maxSeat = Math.max(maxSeat, Math.abs(v));
+  const gap = Math.max(4.5, Math.min(24, SIDE / maxSeat));
+
+  const yOf = (i) => H - PAD - (i + 1) * ROW;   // i = -1 就是最底下的起点
+  const pastCount = treeLevels.filter((l) => l.kind === 'past').length;
+  let svg = '';
+
+  // 连线：下面那层选中的点，往上扇开连到这一层的每一条岔路
+  for (let i = 0; i < treeLevels.length; i++) {
+    const lv = treeLevels[i];
+    const y = yOf(i), py = yOf(i - 1);
+    for (let j = 0; j < lv.moves.length; j++) {
+      const x = CX + seats[i][j] * gap;
+      const isPick = j === lv.chosen;
+      const col = isPick ? (lv.kind === 'past' ? '#d3b862' : '#8fd8ff') : 'rgba(150,162,196,.16)';
+      svg += `<path d="M${CX},${py} C${CX},${(py - ROW * 0.45).toFixed(1)} ${x.toFixed(1)},${(y + ROW * 0.45).toFixed(1)} ${x.toFixed(1)},${y}" fill="none" stroke="${col}" stroke-width="${isPick ? 2.6 : 1}"/>`;
+    }
+  }
+
+  // 最底下的起点
+  svg += `<circle cx="${CX}" cy="${yOf(-1)}" r="5.5" fill="#fff" opacity=".9"/>`;
+  svg += `<text x="${CX}" y="${yOf(-1) + 22}" font-size="11" fill="#6f768c" text-anchor="middle">${pastCount ? '这局从这里开始' : '当前局面'}</text>`;
+
+  // 「现在」那条分隔线
+  if (pastCount > 0 && pastCount < treeLevels.length) {
+    const y = (yOf(pastCount - 1) + yOf(pastCount)) / 2;
+    svg += `<line x1="14" y1="${y}" x2="${W - 14}" y2="${y}" stroke="#7ee0a8" stroke-width="1" stroke-dasharray="4 5" opacity=".5"/>`;
+    svg += `<text x="${W - 16}" y="${y - 6}" font-size="10.5" fill="#7ee0a8" text-anchor="end">现在 · 往上都还没发生</text>`;
+  }
+
+  // 节点 + 每层的说明（分数固定在左边一列，走法固定在右边一列，都不压节点）
+  for (let i = 0; i < treeLevels.length; i++) {
+    const lv = treeLevels[i];
+    const y = yOf(i);
+    for (let j = 0; j < lv.moves.length; j++) {
+      const m = lv.moves[j];
+      const x = CX + seats[i][j] * gap;
+      const isPick = j === lv.chosen;
+      const stroke = isPick ? (lv.kind === 'past' ? '#e8cf7a' : '#bfe9ff') : null;
+      svg += `<circle class="node ${lv.kind}" cx="${x.toFixed(1)}" cy="${y}" r="${isPick ? 7.5 : 3.4}"`
+        + ` fill="${cssColor(m.score, isPick ? 1.25 : 1)}"`
+        + (stroke ? ` stroke="${stroke}" stroke-width="2.2"` : '')
+        + ` data-lv="${i}" data-idx="${j}"><title>${m.san}　${scoreText(m.score)}</title></circle>`;
+    }
+    const pick = lv.chosen >= 0 ? lv.moves[lv.chosen] : null;
+    const tag = lv.kind === 'past' ? '走了' : (lv.futureIndex === 0 ? '轮到这一步' : '接着走');
+    svg += `<text x="${W - 16}" y="${y - 4}" font-size="14" font-weight="650" text-anchor="end" fill="${lv.kind === 'past' ? '#dfd2a2' : '#e4ecff'}">${pick ? pick.san : '—'}</text>`;
+    svg += `<text x="${W - 16}" y="${y + 13}" font-size="10.5" text-anchor="end" fill="#6f768c">${plyLabel(lv.ply)} · ${tag} · ${lv.moves.length} 条岔路</text>`;
+    if (pick) {
+      svg += `<text x="16" y="${y - 4}" font-size="13" fill="${cssColor(pick.score, 1.35)}" font-variant-numeric="tabular-nums">${scoreText(pick.score)}</text>`;
+      svg += `<text x="16" y="${y + 13}" font-size="10.5" fill="#6f768c">这条线的评估</text>`;
+    }
+  }
+
+  treeEl.setAttribute('width', W);
+  treeEl.setAttribute('height', H);
+  treeEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  treeEl.innerHTML = svg;
+
+  // 顶上那行棋谱
+  const parts = treeLevels.map((lv) => {
+    const pick = lv.chosen >= 0 ? lv.moves[lv.chosen] : null;
+    if (!pick) return '';
+    const num = lv.ply % 2 === 0 ? `<span class="num">${Math.floor(lv.ply / 2) + 1}.</span>` : '';
+    return `${num}<span class="${lv.kind === 'past' ? 'past' : 'fut'}">${pick.san}</span>`;
+  });
+  document.getElementById('lineText').innerHTML =
+    parts.slice(0, pastCount).join(' ')
+    + (pastCount ? '<span class="now">▸现在▸</span>' : '')
+    + parts.slice(pastCount).join(' ');
+
+  const first = treeLevels.find((l) => l.kind === 'future');
+  document.getElementById('btnPlayLine').disabled =
+    !(first && game.turn() === 'w' && !thinking && !game.isGameOver());
+}
+
+treeEl.addEventListener('click', (ev) => {
+  const c = ev.target.closest ? ev.target.closest('circle.node') : null;
+  if (!c) return;
+  const lv = treeLevels[+c.dataset.lv];
+  if (!lv || lv.kind !== 'future') return;          // 走过的路改不了
+  futureChosen = futureChosen.slice(0, lv.futureIndex);
+  futureChosen[lv.futureIndex] = +c.dataset.idx;
+  renderTree();
+});
+
+treeEl.addEventListener('mouseover', (ev) => {
+  const c = ev.target.closest ? ev.target.closest('circle.node') : null;
+  if (!c) return;
+  const lv = treeLevels[+c.dataset.lv];
+  const m = lv && lv.moves[+c.dataset.idx];
+  if (!m) return;
+  preview = { from: m.from, to: m.to, color: cssColor(m.score, 1.35) };
+  renderBoard();
+  document.getElementById('treeFoot').innerHTML =
+    `<b>${m.san}</b>　${plyLabel(lv.ply)}　评估 <b>${scoreText(m.score)}</b>`
+    + `　·　这一步之后对方有 <b>${new Chess(m.after).moves().length}</b> 种回应`
+    + (lv.kind === 'past' ? '　·　这层已经走过了，改不了' : '　·　点它就顺这条往上长');
+});
+treeEl.addEventListener('mouseleave', () => {
+  preview = null; renderBoard();
+  document.getElementById('treeFoot').textContent = '把鼠标放到任意一个点上，棋盘会标出那一步。';
+});
+
+document.getElementById('btnPlayLine').onclick = () => {
+  const first = treeLevels.find((l) => l.kind === 'future');
+  if (!first || first.chosen < 0) return;
+  const m = first.moves[first.chosen];
+  tryMove(m.from, m.to, m.promotion);
+};
+
 // ─────────────────────────────────────────────── 视角（手搓 orbit，不引控件）
 const view = { yaw: 0.6, pitch: 0.28, dist: 54, auto: true };
 let drag = null;
@@ -551,13 +844,20 @@ canvas.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 function resize() {
-  const w = innerWidth, h = innerHeight;
+  const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  renderTree();
 }
 addEventListener('resize', resize);
-resize();
+
+document.getElementById('toggleTree').onclick = () => {
+  document.body.classList.toggle('tree-off');
+  const off = document.body.classList.contains('tree-off');
+  document.getElementById('toggleTree').textContent = off ? '展开树' : '收起树';
+  requestAnimationFrame(resize);
+};
 
 function frame() {
   if (view.auto) view.yaw += 0.0009;
@@ -593,6 +893,19 @@ window.__cloudStats = () => {
   };
 };
 
+/**
+ * 树现状。siblings 是从 SVG 里真数出来的 <circle> 个数，不是我记的账，
+ * 所以「这一层有几条岔路」也能拿 chess.js 去对撞。
+ */
+window.__treeStats = () => treeLevels.map((lv, i) => ({
+  level: i,
+  kind: lv.kind,
+  ply: lv.ply,
+  fen: lv.fen,
+  siblings: treeEl.querySelectorAll(`circle.node[data-lv="${i}"]`).length,
+  chosenSan: lv.chosen >= 0 ? lv.moves[lv.chosen].san : null,
+}));
+
 // 验收用的钩子：走的是和点棋盘完全同一条路
 window.__test = {
   tryMove,
@@ -601,7 +914,18 @@ window.__test = {
     history: game.history(), over: game.isGameOver(), thinking,
   }),
   ai: () => lastAi,
-  reset: () => { game.reset(); selected = null; lastAi = null; thinking = false; renderBoard(); rebuildCloud(); },
+  pickTreeNode: (level, idx) => {
+    const lv = treeLevels[level];
+    if (!lv || lv.kind !== 'future') return false;
+    futureChosen = futureChosen.slice(0, lv.futureIndex);
+    futureChosen[lv.futureIndex] = idx;
+    renderTree();
+    return true;
+  },
+  reset: () => {
+    game.reset(); selected = null; lastAi = null; thinking = false; futureChosen = [];
+    renderBoard(); rebuildCloud(); renderTree();
+  },
 };
 
 document.getElementById('btnReset').onclick = () => window.__test.reset();
@@ -609,9 +933,11 @@ document.getElementById('btnCenter').onclick = () => {
   view.yaw = 0.6; view.pitch = 0.28; view.dist = 54; view.auto = true;
 };
 
+resize();
 renderBoard();
 rebuildCloud();
-setStatus('你执白，点子走棋。每落一步，之后的未来会重新炸开。');
+renderTree();
+setStatus('你执白，点子走棋。右边那棵树能一层层看清岔路。');
 </script>
 </body>
 </html>

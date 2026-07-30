@@ -150,11 +150,16 @@ function decodePng(buf) {
 
 function shotStats(file) {
   const { w, h, ch, px } = decodePng(fs.readFileSync(file));
-  // 只看画面中段：左下是棋盘面板、右上是抬头，别把面板的像素算成星
-  const x0 = (w * 0.30) | 0, x1 = (w * 0.72) | 0, y0 = (h * 0.05) | 0, y1 = (h * 0.95) | 0;
+  // 暖冷是成片分布的，只取一小块会被那块的颜色带偏。所以量整朵云，
+  // 只把挡在前面的三块面板挖掉：左上抬头、左下棋盘、右边整条树面板（连同收树按钮）。
+  const inPanel = (x, y) =>
+    (x < w * 0.21 && y < h * 0.30) ||     // 抬头
+    (x < w * 0.33 && y > h * 0.38) ||     // 棋盘面板
+    (x > w * 0.55);                       // 树面板 + 收树按钮
   let total = 0, lit = 0, warm = 0, cold = 0, bright = 0;
-  for (let y = y0; y < y1; y++) {
-    for (let x = x0; x < x1; x++) {
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (inPanel(x, y)) continue;
       const o = (y * w + x) * ch;
       const r = px[o], g = px[o + 1], b = px[o + 2];
       total++;
@@ -169,6 +174,7 @@ function shotStats(file) {
   return {
     w, h, total, lit, warm, cold, bright,
     litRatio: +(lit / total).toFixed(4),
+    brightRatio: +(bright / total).toFixed(4),
     warmOfLit: +(warm / Math.max(1, lit)).toFixed(4),
     coldOfLit: +(cold / Math.max(1, lit)).toFixed(4),
   };
@@ -236,8 +242,9 @@ async function main() {
   fs.writeFileSync(SHOT, Buffer.from(shot.data, 'base64'));
   const bytes = fs.statSync(SHOT).size;
   const ss = shotStats(SHOT);
-  record(ss.litRatio > 0.05 && ss.bright > 2000,
-    '② 截图里星云确实成形', `${SHOT} ${bytes}B｜中段亮像素 ${ss.lit}/${ss.total} (${ss.litRatio})，其中很亮的 ${ss.bright}`);
+  // 阈值用「占比」不用「绝对个数」，换布局/换分辨率都不会被量法误伤
+  record(ss.litRatio > 0.05 && ss.brightRatio > 0.002,
+    '② 截图里星云确实成形', `${SHOT} ${bytes}B｜取样区亮像素 ${ss.lit}/${ss.total} (${ss.litRatio})，很亮的占比 ${ss.brightRatio}`);
   record(ss.warmOfLit > 0.02 && ss.coldOfLit > 0.02,
     '② 暖/冷两色都真的看得出来', `暖 ${ss.warm} (${ss.warmOfLit})｜冷 ${ss.cold} (${ss.coldOfLit})`);
 
@@ -282,6 +289,60 @@ async function main() {
   console.log('AI 应手后星云: ' + JSON.stringify({ depth: s2.depth, nodes: s2.nodes, total: s2.totalNodes, ms: s2.ms }));
   record(s2.fen !== s1.fen, '第二朵云的根局面确实换了', s2.fen);
   await checkNodesMatchCount(s2, '(局中)');
+
+  // 6) 树：每层的岔路数是从 SVG 里真数出来的 <circle>，拿 count(该层局面, 1) 对撞
+  const tree = await evalJs('window.__treeStats()');
+  console.log('树的层: ' + JSON.stringify(tree.map((t) => `${t.kind}#${t.ply}:${t.siblings}→${t.chosenSan}`)));
+  let treeOk = tree.length >= 6;
+  const detail = [];
+  for (const lv of tree) {
+    const e = count(lv.fen, 1);
+    if (lv.siblings !== e) { treeOk = false; detail.push(`第${lv.level}层 ${lv.siblings}≠${e}`); }
+  }
+  record(treeOk, '③ 树上每层岔路数 == count(该层局面, 1)',
+    detail.length ? detail.join('; ') : `${tree.length} 层全对，含走过的 ${tree.filter((t) => t.kind === 'past').length} 层 + 未来 ${tree.filter((t) => t.kind === 'future').length} 层`);
+
+  // 走过的那几层，高亮的那条必须就是实际走的棋
+  const st2 = await evalJs('window.__test.state()');
+  const pastSans = tree.filter((t) => t.kind === 'past').map((t) => t.chosenSan);
+  record(JSON.stringify(pastSans) === JSON.stringify(st2.history.slice(-pastSans.length)),
+    '③ 树上走过的那条线 == 真实棋谱', `树 ${JSON.stringify(pastSans)} vs 棋谱 ${JSON.stringify(st2.history)}`);
+
+  // 点树上另一条岔路，主干必须真的改道
+  const before = tree.find((t) => t.kind === 'future');
+  const switched = await evalJs(`(() => {
+    const t = window.__treeStats();
+    const i = t.findIndex((x) => x.kind === 'future');
+    const before = t[i].chosenSan;
+    // 挑一个和当前不同的岔路
+    window.__test.pickTreeNode(i, t[i].siblings - 1);
+    const after = window.__treeStats()[i].chosenSan;
+    return { i, before, after, n: t[i].siblings };
+  })()`);
+  record(switched.before !== switched.after,
+    '③ 点另一条岔路，树真的改道', `第 ${switched.i} 层（共 ${switched.n} 条）：${switched.before} → ${switched.after}`);
+
+  // 7) 再走一个回合，让树上攒出更多「走过的路」，把那几层也验一遍
+  await evalJs(`window.__test.tryMove('d2','d4')`);
+  for (let i = 0; i < 200 && !(await evalJs('window.__test.state().history.length >= 4')); i++) await sleep(50);
+  await waitCloud();
+  const tree2 = await evalJs('window.__treeStats()');
+  const st3 = await evalJs('window.__test.state()');
+  let tree2Ok = tree2.filter((t) => t.kind === 'past').length === 4;
+  const d2 = [];
+  for (const lv of tree2) {
+    const e = count(lv.fen, 1);
+    if (lv.siblings !== e) { tree2Ok = false; d2.push(`第${lv.level}层 ${lv.siblings}≠${e}`); }
+  }
+  const past2 = tree2.filter((t) => t.kind === 'past').map((t) => t.chosenSan);
+  if (JSON.stringify(past2) !== JSON.stringify(st3.history)) { tree2Ok = false; d2.push('走过的线和棋谱对不上'); }
+  record(tree2Ok, '③ 走满两回合后，树的每层仍然对得上',
+    d2.length ? d2.join('; ') : `棋谱 ${JSON.stringify(st3.history)}｜各层岔路 ${tree2.map((t) => t.siblings).join('/')}`);
+
+  const shot2 = await send('Page.captureScreenshot', { format: 'png' });
+  const SHOT2 = SHOT.replace(/\.png$/, '-line.png');
+  fs.writeFileSync(SHOT2, Buffer.from(shot2.data, 'base64'));
+  console.log(`走过两回合的截图: ${SHOT2}`);
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
 
