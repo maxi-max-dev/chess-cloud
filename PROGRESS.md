@@ -172,10 +172,10 @@ Worker/星云生命周期和旧分叉隔离等关键路径，完整验收准确�
   `8902` 在页面代码里也无匹配。
   （README.md 里有「197,281」这种带千位逗号的说明文字，是文档不是代码，grep 裸数字不命中。）
 - 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 77/77。
-- 线上复验 ⏳ 本轮 push 后更新；目标运行文件哈希：
+- 线上复验 ✅ `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 77/77；运行文件哈希：
   `index.html` `57c0e569…`、`engine.js` `64a26efa…`、`worker.js` `a065d664…`。
-- 发布状态 ⏳ 本轮 push、线上哈希和 77/77 完成后更新。
-- BLOCKED.md 已更新，19 条待裁决；随本轮一起提交。
+- 发布状态 ✅ `main` 已推送；GitHub Pages 三个运行文件与本地逐字节一致。
+- BLOCKED.md 已提交，19 条待裁决。
 
 ## 期间为什么改过方向（如实记录）
 1. 第一版星云颜色全糊成白。原因两条：均势色被我调成偏蓝的（b 比 r 高 41），导致「黑优」和「均势」

@@ -362,17 +362,17 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 | `live-check.mjs` 项数 | 固定 77 项；反向验证抓到持续重绘、旧 FEN、L4 后台竞态和 844 横屏裁切 |
 | `verify.mjs` 项数 | 固定 8 项 |
 | 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 77/77 |
-| 线上完整验收 | 本轮 push 后按第 9 节更新 |
+| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 77/77 |
 | AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,397ms / 1,348ms / 967ms |
 | 两套独立浏览器同时冷启动 | 2,718ms / 2,564ms，均未改 3 秒门槛 |
 | 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 949ms / 1,423ms / 2,243ms |
 | 正预算 deadline 探针 | 正常 140.4ms；临时关周期查钟 210.7ms 并按预期报红 |
 | 桌面白/黑棋截图中位亮度 | 195.7 / 57.4；逐类型最小差 122.9 |
-| 线上 AI 首屏路径并发 / 正常桌面 / 真实手机 | 本轮 push 后按第 9 节更新 |
-| 线上 4× CPU / reset / Worker 被杀保底 | 本轮 push 后按第 9 节更新 |
+| 线上 AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,930ms / 1,357ms / 955ms |
+| 线上 4× CPU / reset / Worker 被杀保底 | 944ms / 1,420ms / 2,259ms |
 | 环境 | node v22.23.1、chess.js 1.4.0、three 0.160.0 |
 
-本轮待发布的本地目标哈希（push 后必须与 GitHub Pages 逐字节一致）：
+本轮发布后的逐字节哈希（本地与 GitHub Pages 已完全一致）：
 
 ```text
 57c0e5692c6fa7c8e0d9b02efd3083f2fe67f7a9a0295c2080cee6c758e6963f  index.html
@@ -435,5 +435,5 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
   geometry，收起立即释放；默认巡航关闭，手机全屏 DPR 封顶 1.25。
 - 本轮最终本地输出：`node verify.mjs` **8/8**、`node live-check.mjs` **77/77**。
 - 本轮最终线上输出：`node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`
-  **待本轮 push 后填写**；三个运行文件必须用第 8 节命令确认与本地逐字节一致。
-- 发布完成后 `main`、`origin/main` 与工作树必须同步；没有哈希一致和线上 77/77 就不算交接完成。
+  **77/77**；三个运行文件 SHA-256 已用第 8 节流程确认与本地逐字节一致。
+- `main` 已推送，GitHub Pages 已更新；交接时 `main`、`origin/main` 与工作树保持同步。
