@@ -44,7 +44,9 @@
 不用打包、不用构建、没有后端。chess.js 和 three.js 直接从 CDN 引。
 
 ```bash
-node verify.mjs          # 棋核验收（需先 npm i chess.js@1.4.0）
+node verify.mjs                                      # 棋核验收（需先 npm i chess.js@1.4.0）
+node live-check.mjs                                   # 无头 Chrome 真机验收（本地起服务器）
+node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/   # 打线上
 ```
 
 ## 已知边界
