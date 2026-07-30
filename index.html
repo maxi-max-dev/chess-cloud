@@ -66,6 +66,78 @@
   #skyBox { position: relative; width: 402px; height: 158px; border-radius: 9px; overflow: hidden; background: #05060b; cursor: zoom-in; }
   #sky { display: block; width: 100%; height: 100%; touch-action: none; overscroll-behavior: contain; }
   #skyHint { position: absolute; right: 8px; bottom: 6px; font-size: 10.5px; color: #7b8296; pointer-events: none; }
+  #cloudLabels {
+    position: absolute; z-index: 3; inset: 0;
+    overflow: hidden; pointer-events: none; opacity: 1;
+    transition: opacity .18s ease;
+  }
+  .cloud-label {
+    position: absolute; left: 0; top: 0;
+    visibility: hidden; opacity: 0; pointer-events: none;
+    transform: translate3d(-999px, -999px, 0);
+    transition: opacity .14s ease;
+    white-space: nowrap;
+  }
+  .cloud-label.is-visible { visibility: visible; }
+  .cloud-root-label {
+    min-height: 28px; padding: 4px 9px 4px 7px;
+    border: 1px solid rgba(126,224,168,.42); border-radius: 999px;
+    color: #baf4d1; background: rgba(6,16,18,.82);
+    box-shadow: 0 0 22px rgba(126,224,168,.16);
+    font-size: 11px; font-weight: 650;
+  }
+  .cloud-root-label::before {
+    content: ""; display: inline-block; width: 6px; height: 6px;
+    margin-right: 6px; border-radius: 50%; background: #7ee0a8;
+    box-shadow: 0 0 12px rgba(126,224,168,.9);
+  }
+  button.cloud-move-label {
+    min-height: 44px; padding: 5px 10px;
+    border-color: color-mix(in srgb, var(--move-color) 52%, transparent);
+    border-radius: 11px; color: #f4f7ff;
+    background: rgba(10,13,23,.82);
+    box-shadow: 0 8px 22px rgba(0,0,0,.36);
+    pointer-events: auto;
+  }
+  button.cloud-move-label:hover { background: rgba(24,30,46,.92); }
+  body:not(.cloud-full) button.cloud-move-label { display: none; }
+  button.cloud-move-label.is-selected {
+    border-color: #8fd8ff;
+    background: rgba(38,70,104,.9);
+    box-shadow: 0 0 0 1px rgba(143,216,255,.28), 0 0 24px rgba(47,134,255,.24);
+  }
+  .cloud-move-label b { font-size: 13px; }
+  .cloud-move-label small { margin-left: 6px; color: var(--move-color); font-size: 10px; }
+  .cloud-path-label {
+    min-height: 28px; padding: 4px 8px;
+    border: 1px solid rgba(143,216,255,.34); border-radius: 9px;
+    color: #c6eaff; background: rgba(18,34,52,.78);
+    box-shadow: 0 0 16px rgba(47,134,255,.14);
+    font-size: 10.5px;
+  }
+  .cloud-path-label b { font-size: 12px; }
+  .cloud-path-label small { margin-right: 5px; color: #718aa6; }
+  #cloudMapHud {
+    display: none; position: absolute; z-index: 4;
+    left: max(14px, env(safe-area-inset-left));
+    top: max(14px, env(safe-area-inset-top));
+    width: min(440px, calc(100% - 86px)); padding: 11px 13px;
+    border: 1px solid rgba(150,170,220,.18); border-radius: 13px;
+    color: #aab3c8; background: rgba(5,6,11,.72);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    pointer-events: none;
+  }
+  #cloudMapHud b { color: #edf3ff; font-size: 12px; }
+  #cloudLayerLegend { margin-top: 5px; font-size: 10.5px; color: #778198; font-variant-numeric: tabular-nums; }
+  #cloudChoice { margin-top: 5px; min-height: 17px; color: #9edcff; font-size: 11px; }
+  #cloudClose {
+    display: none; position: absolute; z-index: 5;
+    top: max(14px, env(safe-area-inset-top));
+    right: max(14px, env(safe-area-inset-right));
+    min-width: 48px; min-height: 44px; pointer-events: auto;
+    background: rgba(8,11,19,.78); backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
   body.cloud-full { overflow: hidden; overscroll-behavior: none; }
   body.cloud-full #cloudPanel {
     position: fixed;
@@ -93,6 +165,9 @@
     border-radius: 0;
     cursor: zoom-out;
   }
+  body.cloud-full #cloudLabels { opacity: 1; }
+  body.cloud-full #cloudMapHud,
+  body.cloud-full #cloudClose { display: block; }
   body.cloud-full #skyHint {
     right: max(14px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
@@ -124,7 +199,19 @@
   #moveLine .num { color: #4b5165; margin-right: 2px; }
   #forkWrap { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; }
   #fork { display: block; }
+  #fork path { vector-effect: non-scaling-stroke; }
+  #fork .branch-edge { stroke-linecap: round; transition: opacity .14s ease; }
+  #fork .branch-edge:not([data-selected="true"]) { opacity: .72; }
+  #fork .route-underlay {
+    fill: none; stroke: rgba(47,134,255,.22); stroke-width: 7;
+    stroke-linecap: round; filter: drop-shadow(0 0 7px rgba(47,134,255,.34));
+  }
+  #fork .branch-edge[data-selected="true"] {
+    stroke: #8fd8ff; stroke-width: 2.8;
+    filter: drop-shadow(0 0 5px rgba(75,170,255,.76));
+  }
   #fork g.card { cursor: pointer; }
+  #fork g.card[data-selected="true"] { filter: drop-shadow(0 0 6px rgba(88,176,255,.24)); }
   #fork g.more { cursor: pointer; }
   #forkFoot { padding: 10px 20px 13px; border-top: 1px solid var(--edge); font-size: 12px; color: var(--dim); min-height: 58px; }
   #forkFoot b { color: var(--ink); }
@@ -215,7 +302,17 @@
 
 <div class="panel" id="cloudPanel">
   <h1>全景星云<span id="cloudCount">正在铺开…</span></h1>
-  <div id="skyBox"><canvas id="sky"></canvas><div id="skyHint">点开全屏</div></div>
+  <div id="skyBox">
+    <canvas id="sky"></canvas>
+    <div id="cloudLabels" aria-label="星图走法"></div>
+    <div id="cloudMapHud">
+      <b>从一个局面，长出所有未来</b>
+      <div id="cloudLayerLegend">正在读取真实星数…</div>
+      <div id="cloudChoice">拖动观察；点走法标签，只选路线、不直接落子</div>
+    </div>
+    <button id="cloudClose" type="button" aria-label="收起星图">收起</button>
+    <div id="skyHint">点开全景 · 拖动旋转</div>
+  </div>
   <div id="cloudStats">—</div>
 </div>
 
@@ -231,11 +328,11 @@
 <div class="panel" id="stage">
   <div id="stageHead">
     <h2>可能性分叉</h2>
-    <div class="sub">一列 = 一步棋。每列先列出<b>最靠谱的几条</b>（往前看两步排的），旁边写着这一步一共有多少种。点任意一条，右边就顺它接着分叉。</div>
+    <div class="sub">从左向右就是时间。亮蓝主干是<b>当前选中的路径</b>；点任意走法，后面的未来会从这里重新长出来。每列都能展开，也能收回。</div>
     <div id="moveLine"></div>
   </div>
   <div id="forkWrap"><svg id="fork" xmlns="http://www.w3.org/2000/svg"></svg></div>
-  <div id="forkFoot">点按任意一条，棋盘会预览并沿它继续分叉；鼠标也可停留预览。</div>
+  <div id="forkFoot">点按任意一条只会选择路径并在棋盘预览；确认后再走，不会误落子。</div>
 </div>
 
 <script type="module">
@@ -246,8 +343,11 @@ import { Chess, expand, rankMoves, MATE } from './engine.js';
 const SYNC_DEPTH = 3;      // 星云前几层主线程同步铺开
 const DEEP_DEPTH = 4;      // 这一层交给 Worker 渐进生长
 const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，应手有硬上限）
-const COMPACT_AI_BUDGET_MS = 1200; // 手机/矮视口给渲染与触控留余量，守住总应手 ≤3 秒
+const COMPACT_AI_BUDGET_MS = 900;  // 手机/矮视口给渲染与触控留足余量，守住总应手 ≤3 秒
 const BATCH_PARENTS = 400; // Worker 每批处理多少个父节点
+const ROOT_FAN = 0.62;      // 第一层只向「未来」方向张开，不再围成球壳
+const CLOUD_TARGET_X = 8.2; // 镜头看树体中段，让「现在」留在画面左边
+const CLOUD_LABELS_MAX = 8; // 只标少量真实走法，不能给几十万颗星造 DOM
 
 const COLS = 5;                    // 分叉图往前排几步
 const SHOW = [7, 6, 5, 4, 4];      // 每列先列出几条（其余折起来）
@@ -256,7 +356,7 @@ const RANK_DEPTH = 2;              // 排序往前看几步
 // 星云每层往外推多远 / 散开的锥半角 / 星点大小 / 不透明度，下标 = 层号
 const STEP    = [0, 9.2, 5.0, 2.9, 1.6];
 const SPREAD  = [0, 0, 0.50, 0.34, 0.26];
-const PT_SIZE = [3.4, 2.0, 1.20, 0.62, 0.36];
+const PT_SIZE = [1.45, 2.0, 1.20, 0.62, 0.36];
 const PT_OPAC = [1.0, 0.95, 0.72, 0.46, 0.21];
 
 const GOLDEN = 2.39996322972865332;
@@ -264,13 +364,18 @@ const GOLDEN = 2.39996322972865332;
 // ─────────────────────────────────────────────── three.js 场景
 const canvas = document.getElementById('sky');
 const skyBox = document.getElementById('skyBox');
+const cloudLabelsEl = document.getElementById('cloudLabels');
+const cloudLayerLegendEl = document.getElementById('cloudLayerLegend');
+const cloudChoiceEl = document.getElementById('cloudChoice');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
 renderer.setClearColor(0x05060b, 1);
 
 const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x05060b, 30, 74);
 const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 4000);
 const cloudGroup = new THREE.Group();
+const cloudTarget = new THREE.Vector3(CLOUD_TARGET_X, 0, 0);
 scene.add(cloudGroup);
 
 const starTex = makeStarTexture();
@@ -302,6 +407,10 @@ const pointMaterials = PT_SIZE.map((size, d) => new THREE.PointsMaterial({
 }));
 const lineMaterial = new THREE.LineBasicMaterial({
   vertexColors: true, transparent: true, opacity: 0.13,
+  depthWrite: false, blending: THREE.AdditiveBlending,
+});
+const cloudRouteMaterial = new THREE.LineBasicMaterial({
+  color: 0x8fd8ff, transparent: true, opacity: 0.92,
   depthWrite: false, blending: THREE.AdditiveBlending,
 });
 
@@ -338,6 +447,10 @@ function cssColor(score, boost = 1) {
 // 铁律：星数一律从几何体 position.count 现读，绝不自己记数。
 const layers = new Map();
 let cloudState = { fen: '', depth: 0, ms: 0, t0: 0, growing: false, gen: 0 };
+let cloudFirstMoves = [];
+let cloudRouteLine = null;
+const cloudLayerFens = new Map();
+const cloudLayerParents = new Map();
 
 function nodesAt(depth) {
   const rec = layers.get(depth);
@@ -353,6 +466,15 @@ function clearCloud() {
     for (const obj of rec.objects) { cloudGroup.remove(obj); obj.geometry.dispose(); }
     if (rec.lines) { cloudGroup.remove(rec.lines); rec.lines.geometry.dispose(); }
   }
+  if (cloudRouteLine) {
+    cloudGroup.remove(cloudRouteLine);
+    cloudRouteLine.geometry.dispose();
+    cloudRouteLine = null;
+  }
+  cloudFirstMoves = [];
+  cloudLayerFens.clear();
+  cloudLayerParents.clear();
+  cloudLabelsEl.replaceChildren();
   layers.clear();
 }
 
@@ -363,15 +485,16 @@ function hash01(n) {
 
 function addRoot(score) {
   const pos = new Float32Array([0, 0, 0]);
-  const col = new Float32Array(3);
-  writeColor(col, 0, score);
+  // 根不是某一方占优的评估点，而是「现在」；用绿色和后续暖/冷走法区分。
+  const col = new Float32Array([0.49, 0.88, 0.66]);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const obj = new THREE.Points(geo, pointMaterials[0]);
+  obj.userData = { kind: 'cloud-points', depth: 0 };
   obj.frustumCulled = false;
   cloudGroup.add(obj);
-  layers.set(0, { objects: [obj], pos, dir: new Float32Array([0, 1, 0]) });
+  layers.set(0, { objects: [obj], pos, dir: new Float32Array([1, 0, 0]) });
 }
 
 /**
@@ -409,22 +532,17 @@ function appendLayer(depth, parents, scores) {
     const phi0 = hash01(p + depth * 131.7) * 6.28318530718;
 
     for (let j = 0; j < k; j++) {
-      let cx, cy, cz;
-      if (depth === 1) {
-        const z = 1 - 2 * (j + 0.5) / k;
-        const r = Math.sqrt(Math.max(0, 1 - z * z));
-        const th = j * GOLDEN;
-        cx = r * Math.cos(th); cy = z; cz = r * Math.sin(th);
-      } else {
-        const a = spread * Math.sqrt((j + 0.5) / k);
-        const ph = phi0 + j * GOLDEN;
-        const sa = Math.sin(a), ca = Math.cos(a);
-        const wx = ux * Math.cos(ph) + vx * Math.sin(ph);
-        const wy = uy * Math.cos(ph) + vy * Math.sin(ph);
-        const wz = uz * Math.cos(ph) + vz * Math.sin(ph);
-        cx = ax * ca + wx * sa; cy = ay * ca + wy * sa; cz = az * ca + wz * sa;
-        const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
-      }
+      // 每一层都沿父节点的前进方向张开。第一层用较宽的锥角，
+      // 所以画面语义是「一个现在 → 向右长出的未来」，而不是包住根点的球壳。
+      const fan = depth === 1 ? ROOT_FAN : spread;
+      const a = fan * Math.sqrt((j + 0.5) / k);
+      const ph = phi0 + j * GOLDEN;
+      const sa = Math.sin(a), ca = Math.cos(a);
+      const wx = ux * Math.cos(ph) + vx * Math.sin(ph);
+      const wy = uy * Math.cos(ph) + vy * Math.sin(ph);
+      const wz = uz * Math.cos(ph) + vz * Math.sin(ph);
+      let cx = ax * ca + wx * sa, cy = ay * ca + wy * sa, cz = az * ca + wz * sa;
+      const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
       // 径向抖动：孩子不落在同一个半径上，不然每层都是一层壳
       const jr = depth >= 2 ? 0.45 + 1.15 * hash01(p * 3.7 + j * 11.31 + depth * 57.3) : 1;
       const o = (i + j) * 3;
@@ -439,6 +557,7 @@ function appendLayer(depth, parents, scores) {
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const obj = new THREE.Points(geo, pointMaterials[Math.min(depth, PT_SIZE.length - 1)]);
+  obj.userData = { kind: 'cloud-points', depth };
   obj.frustumCulled = false;
   cloudGroup.add(obj);
 
@@ -459,6 +578,7 @@ function appendLayer(depth, parents, scores) {
     lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
     lg.setAttribute('color', new THREE.BufferAttribute(lc, 3));
     const lines = new THREE.LineSegments(lg, lineMaterial);
+    lines.userData = { kind: 'cloud-links', depth };
     lines.frustumCulled = false;
     cloudGroup.add(lines);
     rec.lines = lines;
@@ -471,11 +591,13 @@ let selected = null;
 let thinking = false;
 let lastAi = null;
 let aiClock = 0;
+let aiRequestId = 0;
 
 const searchWorker = new Worker('./worker.js', { type: 'module' });
 searchWorker.postMessage({ type: 'ping' });
 searchWorker.onmessage = (ev) => {
   const m = ev.data;
+  if ((m.type === 'searchDone' || m.type === 'searchError') && m.id !== aiRequestId) return;
   if (m.type === 'searchDone') onAiMove(m.result);
   else if (m.type === 'searchError') { thinking = false; setStatus(`AI 出错：${m.message}`); }
 };
@@ -486,15 +608,26 @@ function rebuildCloud() {
   const gen = ++cloudState.gen;
   if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }
   clearCloud();
+  cloudTarget.set(CLOUD_TARGET_X, 0, 0);
+  cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
 
   const fen = game.fen();
   const t0 = performance.now();
   addRoot(0);
+  const firstMoves = new Chess(fen).moves({ verbose: true });
 
   let parentFens = [fen];
   for (let d = 1; d <= SYNC_DEPTH; d++) {
     const { parents, scores, fens } = expand(parentFens, { keepFens: true });
     appendLayer(d, parents, scores);
+    cloudLayerFens.set(d, fens);
+    cloudLayerParents.set(d, parents);
+    if (d === 1) {
+      cloudFirstMoves = firstMoves.map((m, index) => ({
+        san: m.san, after: m.after, from: m.from, to: m.to,
+        promotion: m.promotion, score: scores[index], index,
+      }));
+    }
     parentFens = fens;
   }
   const syncMs = performance.now() - t0;
@@ -525,7 +658,8 @@ function requestAi() {
   const timeBudgetMs = matchMedia('(max-width: 1100px), (max-height: 780px)').matches
     ? COMPACT_AI_BUDGET_MS
     : AI_BUDGET_MS;
-  searchWorker.postMessage({ type: 'search', id: cloudState.gen, fen: game.fen(), timeBudgetMs });
+  const id = ++aiRequestId;
+  searchWorker.postMessage({ type: 'search', id, fen: game.fen(), timeBudgetMs });
 }
 
 function onAiMove(result) {
@@ -539,7 +673,9 @@ function onAiMove(result) {
     totalMs: Math.round(performance.now() - aiClock),
   };
   selected = null;
+  preview = null;
   branchPath = [];
+  expanded = [];
   renderBoard();
   rebuildCloud();
   renderFork();
@@ -555,7 +691,9 @@ function tryMove(from, to, promotion) {
   try { mv = game.move({ from, to, promotion: promotion || 'q' }); } catch (e) { mv = null; }
   if (!mv) return false;
   selected = null;
+  preview = null;
   branchPath = [];
+  expanded = [];
   renderBoard();
   requestAi();       // 先派活给 AI 的 Worker，让它和主线程并行
   rebuildCloud();
@@ -643,16 +781,19 @@ function renderBoard() {
     ring.setAttribute('cx', x1); ring.setAttribute('cy', y1); ring.setAttribute('r', 21);
     ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', preview.color);
     ring.setAttribute('stroke-width', 3); ring.setAttribute('stroke-dasharray', '5 4');
+    ring.setAttribute('pointer-events', 'none');
     boardEl.appendChild(ring);
     const ln = document.createElementNS(SVG_NS, 'line');
     ln.setAttribute('x1', x1); ln.setAttribute('y1', y1);
     ln.setAttribute('x2', x2); ln.setAttribute('y2', y2);
     ln.setAttribute('stroke', preview.color); ln.setAttribute('stroke-width', 5);
     ln.setAttribute('stroke-linecap', 'round'); ln.setAttribute('opacity', '.9');
+    ln.setAttribute('pointer-events', 'none');
     boardEl.appendChild(ln);
     const dot = document.createElementNS(SVG_NS, 'circle');
     dot.setAttribute('cx', x2); dot.setAttribute('cy', y2); dot.setAttribute('r', 9);
     dot.setAttribute('fill', preview.color);
+    dot.setAttribute('pointer-events', 'none');
     boardEl.appendChild(dot);
   }
 }
@@ -681,6 +822,9 @@ function updateHud() {
   document.getElementById('cloudCount').innerHTML = cloudState.growing
     ? `这一步之后 <span class="grow">${total.toLocaleString('en-US')}</span> 种未来，还在长`
     : `这一步之后 ${total.toLocaleString('en-US')} 种未来`;
+  cloudLayerLegendEl.textContent = builtDepths()
+    .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
+    .join('　·　');
 }
 
 // ─────────────────────────────────────────────── 主舞台：平面分叉图
@@ -702,8 +846,18 @@ function buildColumns() {
     if (ranked.length === 0) break;
     let idx = branchPath[i];
     if (idx === undefined || idx === null || idx < 0 || idx >= ranked.length) idx = 0;   // 默认最靠谱那条
-    const shown = expanded[i] ? ranked.length : Math.min(SHOW[i] || 4, ranked.length);
-    cols.push({ fen, ranked, chosen: idx, shown, ply: base + i, white: fen.split(' ')[1] === 'w' });
+    const baseShown = Math.min(SHOW[i] || 4, ranked.length);
+    const visibleIndices = expanded[i]
+      ? ranked.map((_, rank) => rank)
+      : [...Array(baseShown).keys()];
+    // 收起时也绝不能把已经选中的第 12 名藏掉，否则主干会凭空断掉。
+    if (!visibleIndices.includes(idx)) visibleIndices.push(idx);
+    cols.push({
+      fen, ranked, chosen: idx, baseShown,
+      visibleIndices, shown: visibleIndices.length,
+      expanded: !!expanded[i],
+      ply: base + i, white: fen.split(' ')[1] === 'w',
+    });
     fen = ranked[idx].after;
   }
   return cols;
@@ -724,7 +878,9 @@ function renderFork() {
   const colW = W / Math.max(1, columns.length || 1);
   const cardW = Math.max(compact ? 120 : 96, colW - 34);
 
-  const rowsOf = (c) => c.shown + (c.shown < c.ranked.length ? 1 : 0);
+  const hasToggle = (c) => c.ranked.length > c.baseShown;
+  const cardOffset = (c) => c.expanded && hasToggle(c) ? 1 : 0;
+  const rowsOf = (c) => c.visibleIndices.length + (hasToggle(c) ? 1 : 0);
   let maxRows = 1;
   for (const c of columns) maxRows = Math.max(maxRows, rowsOf(c));
   const bodyH = maxRows * (CARD_H + CARD_GAP) - CARD_GAP;
@@ -732,12 +888,27 @@ function renderFork() {
   const top = HEAD_H;
   // 顶对齐：把某一列点开成几十条时，其余列还待在原地看得见
   const colX = (i) => 18 + i * colW;
-  const yOf = (c, j) => top + j * (CARD_H + CARD_GAP);
-  const anchorY = top + (Math.min(rowsOf(columns[0] || { shown: 1, ranked: [] }), 7) * (CARD_H + CARD_GAP) - CARD_GAP) / 2;
+  const yOf = (_, row) => top + row * (CARD_H + CARD_GAP);
+  const rowOf = (c, rank) => cardOffset(c) + Math.max(0, c.visibleIndices.indexOf(rank));
+  const anchorY = top + (Math.min(rowsOf(columns[0] || { visibleIndices: [0], ranked: [], baseShown: 1 }), 7) * (CARD_H + CARD_GAP) - CARD_GAP) / 2;
 
   let svg = '';
 
-  // 连线：上一列选中那条的右边缘，扇开连到这一列每一条的左边缘
+  // 先铺一条更宽的发光主干，再画真实分叉边；视觉上始终能追到「我选的这一条路」。
+  for (let i = 0; i < columns.length; i++) {
+    const c = columns[i], x = colX(i);
+    let fx = 12, fy = anchorY;
+    if (i > 0) {
+      const pc = columns[i - 1];
+      fx = colX(i - 1) + cardW;
+      fy = yOf(pc, rowOf(pc, pc.chosen)) + CARD_H / 2;
+    }
+    const y = yOf(c, rowOf(c, c.chosen)) + CARD_H / 2;
+    const mx = (fx + x) / 2;
+    svg += `<path class="route-underlay" data-col="${i}" d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
+  }
+
+  // 每列都从上一张已选卡继续扇开；非选路线压低，选中边永远在同一条主干上。
   for (let i = 0; i < columns.length; i++) {
     const c = columns[i];
     const x = colX(i);
@@ -745,19 +916,24 @@ function renderFork() {
     if (i === 0) { fx = 12; fy = anchorY; }
     else {
       const pc = columns[i - 1];
-      fx = colX(i - 1) + cardW; fy = yOf(pc, pc.chosen) + CARD_H / 2;
+      fx = colX(i - 1) + cardW;
+      fy = yOf(pc, rowOf(pc, pc.chosen)) + CARD_H / 2;
     }
-    for (let j = 0; j < c.shown; j++) {
-      const y = yOf(c, j) + CARD_H / 2;
-      const isPick = j === c.chosen;
+    for (let row = 0; row < c.visibleIndices.length; row++) {
+      const rank = c.visibleIndices[row];
+      const y = yOf(c, row + cardOffset(c)) + CARD_H / 2;
+      const isPick = rank === c.chosen;
       const col = isPick ? 'rgba(143,216,255,.85)' : 'rgba(150,162,196,.20)';
       const mx = (fx + x) / 2;
-      svg += `<path d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}" fill="none" stroke="${col}" stroke-width="${isPick ? 2.4 : 1}"/>`;
+      svg += `<path class="branch-edge" data-col="${i}" data-idx="${rank}" data-selected="${isPick}"`
+        + ` d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"`
+        + ` fill="none" stroke="${col}" stroke-width="${isPick ? 2.8 : 1}"/>`;
     }
   }
 
   // 最左边那个「现在」的点
-  svg += `<circle cx="12" cy="${anchorY.toFixed(1)}" r="5" fill="#7ee0a8"/>`;
+  svg += `<circle cx="12" cy="${anchorY.toFixed(1)}" r="9" fill="none" stroke="rgba(126,224,168,.25)" stroke-width="1"/>`;
+  svg += `<circle data-root="true" cx="12" cy="${anchorY.toFixed(1)}" r="4.5" fill="#7ee0a8"/>`;
   svg += `<text x="4" y="${(anchorY - 13).toFixed(1)}" font-size="10.5" fill="#7ee0a8">现在</text>`;
 
   // 每一列
@@ -768,28 +944,35 @@ function renderFork() {
     const mine = c.white ? '你' : '他';
     svg += `<text x="${x}" y="20" font-size="11" fill="#5f6679">第 ${Math.floor(c.ply / 2) + 1} 回合 · ${who}走</text>`;
     svg += `<text x="${x}" y="39" font-size="14" font-weight="650" fill="#e4ecff">${mine}有 ${c.ranked.length} 种走法</text>`;
-    svg += `<text x="${x}" y="55" font-size="10.5" fill="#5f6679">${c.shown < c.ranked.length ? `先看最靠谱的 ${c.shown} 条` : '全部列出'}</text>`;
+    svg += `<text x="${x}" y="55" font-size="10.5" fill="#5f6679">${
+      i === 0 ? '从现在出发' : `沿 ${esc(columns[i - 1].ranked[columns[i - 1].chosen].san)} 继续`
+    }</text>`;
 
-    for (let j = 0; j < c.shown; j++) {
-      const m = c.ranked[j];
-      const y = yOf(c, j);
-      const isPick = j === c.chosen;
+    for (let row = 0; row < c.visibleIndices.length; row++) {
+      const rank = c.visibleIndices[row];
+      const m = c.ranked[rank];
+      const y = yOf(c, row + cardOffset(c));
+      const isPick = rank === c.chosen;
       const col = cssColor(m.score, 1.25);
-      svg += `<g class="card" data-col="${i}" data-idx="${j}">`
+      svg += `<g class="card" role="button" tabindex="0" data-col="${i}" data-idx="${rank}" data-san="${esc(m.san)}" data-selected="${isPick}">`
         + `<rect x="${x}" y="${y}" width="${cardW}" height="${CARD_H}" rx="9"`
         + ` fill="${isPick ? 'rgba(60,96,140,.55)' : 'rgba(30,36,52,.62)'}"`
         + ` stroke="${isPick ? '#8fd8ff' : 'rgba(150,170,220,.18)'}" stroke-width="${isPick ? 1.8 : 1}"/>`
         + `<rect x="${x}" y="${y + 7}" width="4" height="${CARD_H - 14}" rx="2" fill="${col}"/>`
         + `<text x="${x + 15}" y="${y + CARD_H / 2 + 1}" font-size="15" font-weight="600" dominant-baseline="middle" fill="#f0f4ff">${esc(m.san)}</text>`
         + `<text x="${x + cardW - 11}" y="${y + CARD_H / 2 + 1}" font-size="12" text-anchor="end" dominant-baseline="middle" fill="${col}" font-variant-numeric="tabular-nums">${scoreText(m.score)}</text>`
-        + (j < 3 ? `<text x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="#6f768c">${j + 1}</text>` : '')
+        + `<text x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="${isPick ? '#9edcff' : '#6f768c'}">${isPick ? '✓ 已选' : `#${rank + 1}`}</text>`
         + `</g>`;
     }
-    if (c.shown < c.ranked.length) {
-      const y = yOf(c, c.shown);
-      svg += `<g class="more" data-col="${i}">`
+    if (hasToggle(c)) {
+      const y = yOf(c, c.expanded ? 0 : c.visibleIndices.length);
+      const hidden = c.ranked.length - c.visibleIndices.length;
+      const label = c.expanded
+        ? `收起到推荐的 ${c.baseShown} 条 ↑`
+        : `展开其余 ${hidden} 条 ↓`;
+      svg += `<g class="more" role="button" tabindex="0" data-col="${i}" data-expanded="${c.expanded}">`
         + `<rect x="${x}" y="${y}" width="${cardW}" height="${CARD_H}" rx="9" fill="rgba(24,29,42,.5)" stroke="rgba(150,170,220,.14)" stroke-width="1" stroke-dasharray="4 4"/>`
-        + `<text x="${x + cardW / 2}" y="${y + CARD_H / 2 + 1}" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#8c93a8">还有 ${c.ranked.length - c.shown} 条 · 点开</text>`
+        + `<text x="${x + cardW / 2}" y="${y + CARD_H / 2 + 1}" font-size="12" text-anchor="middle" dominant-baseline="middle" fill="#8c93a8">${label}</text>`
         + `</g>`;
     }
   }
@@ -808,24 +991,61 @@ function renderFork() {
   }
   const picked = columns.map((c) => c.ranked[c.chosen].san).join(' ');
   document.getElementById('moveLine').innerHTML =
-    (line ? `走过：${line}` : '还没落子。') + (picked ? `　▸　这条分叉：${picked}` : '');
+    (line ? `走过：${line}` : '还没落子。') + (picked ? `　▸　当前选路：<b>${picked}</b>` : '');
 
   document.getElementById('btnPlayLine').disabled =
     !(columns.length && game.turn() === 'w' && !thinking && !game.isGameOver());
+  syncCloudMap();
+}
+
+function setColumnExpanded(col, open) {
+  if (!columns[col] || columns[col].ranked.length <= columns[col].baseShown) return false;
+  expanded[col] = !!open;
+  renderFork();
+  return true;
+}
+
+function toggleColumnExpanded(col) {
+  return setColumnExpanded(col, !expanded[col]);
+}
+
+function scrollForkToward(col) {
+  requestAnimationFrame(() => {
+    const target = forkEl.querySelector(`g.card[data-col="${Math.min(col, columns.length - 1)}"][data-selected="true"]`);
+    if (!target) return;
+    const wr = forkWrap.getBoundingClientRect(), tr = target.getBoundingClientRect();
+    const left = forkWrap.scrollLeft + (tr.left + tr.right - wr.left - wr.right) / 2;
+    forkWrap.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  });
+}
+
+function chooseForkBranch(i, rank, scrollNext = false) {
+  const chosen = columns[i] && columns[i].ranked[rank];
+  if (!chosen) return false;
+  branchPath = branchPath.slice(0, i);
+  branchPath[i] = rank;
+  expanded = expanded.slice(0, i + 1);
+  expanded[i] = false;
+  renderFork();
+  showMoveDetails(columns[i], columns[i].ranked[rank], rank);
+  if (scrollNext) scrollForkToward(i + 1);
+  return true;
+}
+
+function activateForkTarget(target) {
+  const more = target.closest ? target.closest('g.more') : null;
+  if (more) return toggleColumnExpanded(+more.dataset.col);
+  const card = target.closest ? target.closest('g.card') : null;
+  if (!card) return false;
+  return chooseForkBranch(+card.dataset.col, +card.dataset.idx, true);
 }
 
 forkEl.addEventListener('click', (ev) => {
-  const more = ev.target.closest ? ev.target.closest('g.more') : null;
-  if (more) { expanded[+more.dataset.col] = true; renderFork(); return; }
-  const card = ev.target.closest ? ev.target.closest('g.card') : null;
-  if (!card) return;
-  const i = +card.dataset.col;
-  const chosen = columns[i] && columns[i].ranked[+card.dataset.idx];
-  branchPath = branchPath.slice(0, i);
-  branchPath[i] = +card.dataset.idx;
-  expanded = expanded.slice(0, i + 1);
-  renderFork();
-  if (chosen) showMoveDetails(columns[i], chosen, +card.dataset.idx);
+  activateForkTarget(ev.target);
+});
+forkEl.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  if (activateForkTarget(ev.target)) ev.preventDefault();
 });
 
 function showMoveDetails(c, m, rank) {
@@ -848,7 +1068,7 @@ forkEl.addEventListener('mouseover', (ev) => {
 });
 forkEl.addEventListener('mouseleave', () => {
   preview = null; renderBoard();
-  document.getElementById('forkFoot').textContent = '点按任意一条，棋盘会预览并沿它继续分叉；鼠标也可停留预览。';
+  document.getElementById('forkFoot').textContent = '亮蓝主干就是当前选路；点走法只预览，确认后再落子。';
 });
 
 document.getElementById('btnPlayLine').onclick = () => {
@@ -857,8 +1077,177 @@ document.getElementById('btnPlayLine').onclick = () => {
   tryMove(m.from, m.to, m.promotion);
 };
 
+// ─────────────────────────────────────────────── 星图标签 + 与平面选路联动
+function cloudMoveMeta(after) {
+  return cloudFirstMoves.find((m) => m.after === after) || null;
+}
+
+function traceCloudRoute() {
+  const route = [];
+  let parentIndex = 0;
+  for (let depth = 1; depth <= Math.min(SYNC_DEPTH, columns.length); depth++) {
+    const c = columns[depth - 1], move = c.ranked[c.chosen];
+    const fens = cloudLayerFens.get(depth), parents = cloudLayerParents.get(depth);
+    const pos = layers.get(depth)?.pos;
+    if (!fens || !parents || !pos) break;
+    let index = -1;
+    for (let i = 0; i < fens.length; i++) {
+      if (parents[i] === parentIndex && fens[i] === move.after) { index = i; break; }
+    }
+    if (index < 0) break;
+    const o = index * 3;
+    route.push({
+      depth, index, san: move.san,
+      position: [pos[o], pos[o + 1], pos[o + 2]],
+    });
+    parentIndex = index;
+  }
+  return route;
+}
+
+function updateCloudRoute(route = traceCloudRoute()) {
+  if (cloudRouteLine) {
+    cloudGroup.remove(cloudRouteLine);
+    cloudRouteLine.geometry.dispose();
+    cloudRouteLine = null;
+  }
+  if (route.length === 0) return;
+  const points = [0, 0, 0];
+  for (const step of route) points.push(...step.position);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
+  cloudRouteLine = new THREE.Line(geo, cloudRouteMaterial);
+  cloudRouteLine.userData = { kind: 'selected-route', depth: route.length, san: route.map((s) => s.san).join(' ') };
+  cloudRouteLine.frustumCulled = false;
+  cloudGroup.add(cloudRouteLine);
+}
+
+function syncCloudMap() {
+  const first = columns[0];
+  const depthOne = layers.get(1);
+  if (!first || !depthOne?.pos || cloudFirstMoves.length === 0) {
+    cloudLabelsEl.replaceChildren();
+    updateCloudRoute([]);
+    return;
+  }
+
+  const ranks = [...Array(Math.min(CLOUD_LABELS_MAX, first.ranked.length)).keys()];
+  if (!ranks.includes(first.chosen)) ranks[ranks.length - 1] = first.chosen;
+  const labels = ranks.map((rank) => {
+    const move = first.ranked[rank];
+    const meta = cloudMoveMeta(move.after);
+    if (!meta) return '';
+    const selected = rank === first.chosen;
+    return `<button type="button" class="cloud-label cloud-move-label${selected ? ' is-selected' : ''}"`
+      + ` data-depth="1" data-index="${meta.index}" data-rank="${rank}" data-san="${esc(move.san)}"`
+      + ` aria-pressed="${selected}" style="--move-color:${cssColor(move.score, 1.25)}">`
+      + `<b>${esc(move.san)}</b><small>${scoreText(move.score)}</small></button>`;
+  }).join('');
+  const route = traceCloudRoute();
+  const breadcrumbs = route.slice(1).map((step) =>
+    `<div class="cloud-label cloud-path-label" data-depth="${step.depth}" data-index="${step.index}" data-san="${esc(step.san)}">`
+    + `<small>${step.depth}步</small><b>${esc(step.san)}</b></div>`
+  ).join('');
+  cloudLabelsEl.innerHTML =
+    `<div class="cloud-label cloud-root-label" data-depth="0" data-index="0">现在</div>${labels}${breadcrumbs}`;
+
+  const picked = columns.map((c) => c.ranked[c.chosen].san);
+  cloudChoiceEl.innerHTML = `当前选路：<b>${picked.map(esc).join(' → ')}</b>`;
+  updateCloudRoute(route);
+}
+
+const labelWorld = new THREE.Vector3();
+const labelProjected = new THREE.Vector3();
+const labelCameraSpace = new THREE.Vector3();
+function positionCloudLabels() {
+  const full = document.body.classList.contains('cloud-full');
+  const w = skyBox.clientWidth, h = skyBox.clientHeight;
+  if (!layers.get(1)?.pos || !w || !h) return;
+  const skyRect = skyBox.getBoundingClientRect();
+  const exclusions = full
+    ? [document.getElementById('cloudMapHud'), document.getElementById('cloudClose'), document.getElementById('skyHint')]
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({
+        left: r.left - skyRect.left - 12, right: r.right - skyRect.left + 12,
+        top: r.top - skyRect.top - 12, bottom: r.bottom - skyRect.top + 12,
+      }))
+    : [];
+
+  camera.updateMatrixWorld();
+  const candidates = [];
+  const labels = [...cloudLabelsEl.querySelectorAll('.cloud-label')];
+  for (const el of labels) {
+    const depth = +el.dataset.depth;
+    const index = +el.dataset.index;
+    if (depth === 0) labelWorld.set(0, 0, 0);
+    else {
+      const pos = layers.get(depth)?.pos;
+      if (!pos) continue;
+      const o = index * 3;
+      labelWorld.set(pos[o], pos[o + 1], pos[o + 2]);
+    }
+    labelProjected.copy(labelWorld).project(camera);
+    labelCameraSpace.copy(labelWorld).applyMatrix4(camera.matrixWorldInverse);
+    const x = (labelProjected.x * 0.5 + 0.5) * w;
+    const y = (-labelProjected.y * 0.5 + 0.5) * h;
+    const inView =
+      labelProjected.z > -1 && labelProjected.z < 1
+      && x > 32 && x < w - 32 && y > 30 && y < h - 30
+      && !exclusions.some((r) => x > r.left && x < r.right && y > r.top && y < r.bottom);
+    el.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(-50%,-50%)`;
+    el.classList.remove('is-visible');
+    el.style.opacity = '0';
+    el.style.pointerEvents = 'none';
+    if (inView && (full || depth === 0)) {
+      candidates.push({
+        el, x, y, z: labelCameraSpace.z,
+        priority:
+          depth === 0 ? 10000
+          : el.classList.contains('is-selected') ? 9000
+          : el.classList.contains('cloud-path-label') ? 8600 - depth
+          : labelCameraSpace.z,
+      });
+    }
+  }
+
+  candidates.sort((a, b) => b.priority - a.priority);
+  const maxVisible = full ? (w <= 600 ? 5 : 7) : 1;
+  const accepted = [];
+  for (const item of candidates) {
+    const collides = accepted.some((a) => Math.hypot(a.x - item.x, a.y - item.y) < (w <= 600 ? 58 : 72));
+    if (collides || accepted.length >= maxVisible) continue;
+    accepted.push(item);
+    item.el.classList.add('is-visible');
+    item.el.style.opacity = item.el.dataset.depth === '0' ? '0.94' : '1';
+    item.el.style.pointerEvents = item.el.tagName === 'BUTTON' ? 'auto' : 'none';
+  }
+}
+
+function focusCloudMove(after) {
+  const meta = cloudMoveMeta(after), pos = layers.get(1)?.pos;
+  if (!meta || !pos) return;
+  const o = meta.index * 3;
+  cloudTargetGoal.set(
+    CLOUD_TARGET_X * 0.58 + pos[o] * 0.42,
+    pos[o + 1] * 0.42,
+    pos[o + 2] * 0.42,
+  );
+  view.auto = false;
+}
+
+cloudLabelsEl.addEventListener('click', (ev) => {
+  const label = ev.target.closest ? ev.target.closest('button.cloud-move-label') : null;
+  if (!label || !columns[0]) return;
+  ev.stopPropagation();
+  const rank = +label.dataset.rank;
+  const after = columns[0].ranked[rank]?.after;
+  if (chooseForkBranch(0, rank) && after) focusCloudMove(after);
+});
+
 // ─────────────────────────────────────────────── 星云小窗的视角
 const view = { yaw: 0.6, pitch: 0.28, dist: 34, auto: true };
+const cloudTargetGoal = new THREE.Vector3(CLOUD_TARGET_X, 0, 0);
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
   drag = { x: e.clientX, y: e.clientY, moved: false };
@@ -872,7 +1261,9 @@ canvas.addEventListener('pointermove', (e) => {
   drag = { x: e.clientX, y: e.clientY, moved: drag.moved };
 });
 canvas.addEventListener('pointerup', () => {
-  if (drag && !drag.moved) toggleCloudFull();      // 没拖动就是点击 → 开/收全屏
+  if (drag && !drag.moved && !document.body.classList.contains('cloud-full')) {
+    toggleCloudFull(true);                         // 小窗轻点才打开；全屏用明确的「收起」按钮
+  }
   drag = null;
 });
 canvas.addEventListener('pointercancel', () => { drag = null; });
@@ -881,12 +1272,20 @@ canvas.addEventListener('wheel', (e) => {
   view.dist = Math.max(6, Math.min(220, view.dist * (1 + Math.sign(e.deltaY) * 0.09)));
 }, { passive: false });
 
-function toggleCloudFull() {
-  document.body.classList.toggle('cloud-full');
+function toggleCloudFull(force) {
+  const next = typeof force === 'boolean'
+    ? force
+    : !document.body.classList.contains('cloud-full');
+  document.body.classList.toggle('cloud-full', next);
   const full = document.body.classList.contains('cloud-full');
-  document.getElementById('skyHint').textContent = full ? '点一下收回去' : '点开全屏';
+  const coarse = matchMedia('(pointer: coarse)').matches || innerWidth <= 760;
+  document.getElementById('skyHint').textContent = full
+    ? (coarse ? '拖动旋转 · 点标签选路' : '拖动旋转 · 滚轮缩放 · 点标签选路')
+    : '点开全景 · 拖动旋转';
   scheduleResize();
+  return full;
 }
+document.getElementById('cloudClose').onclick = () => toggleCloudFull(false);
 
 let forkViewportW = -1, forkViewportH = -1, resizeFrame = 0;
 function resize() {
@@ -913,16 +1312,18 @@ addEventListener('resize', scheduleResize);
 
 function frame() {
   if (view.auto) view.yaw += 0.0009;
+  cloudTarget.lerp(cloudTargetGoal, 0.055);
   const cp = Math.cos(view.pitch);
   // 竖屏全屏时保持近似相同的水平视野，避免星云被放大裁成一块“背景”。
-  const fitDist = view.dist / Math.min(1, Math.max(0.42, camera.aspect));
+  const fitDist = view.dist / Math.min(1, Math.max(0.55, camera.aspect));
   camera.position.set(
-    Math.sin(view.yaw) * cp * fitDist,
-    Math.sin(view.pitch) * fitDist,
-    Math.cos(view.yaw) * cp * fitDist,
+    cloudTarget.x + Math.sin(view.yaw) * cp * fitDist,
+    cloudTarget.y + Math.sin(view.pitch) * fitDist,
+    cloudTarget.z + Math.cos(view.yaw) * cp * fitDist,
   );
-  camera.lookAt(0, 0, 0);
+  camera.lookAt(cloudTarget);
   renderer.render(scene, camera);
+  positionCloudLabels();
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
@@ -958,10 +1359,63 @@ window.__forkStats = () => columns.map((c, i) => ({
   total: c.ranked.length,
   cards: forkEl.querySelectorAll(`g.card[data-col="${i}"]`).length,
   shown: c.shown,
+  baseShown: c.baseShown,
+  expanded: c.expanded,
+  selectedCards: forkEl.querySelectorAll(`g.card[data-col="${i}"][data-selected="true"]`).length,
+  selectedEdges: forkEl.querySelectorAll(`path.branch-edge[data-col="${i}"][data-selected="true"]`).length,
+  routeUnderlays: forkEl.querySelectorAll(`path.route-underlay[data-col="${i}"]`).length,
+  toggleText: forkEl.querySelector(`g.more[data-col="${i}"] text`)?.textContent || '',
   chosenSan: c.ranked[c.chosen].san,
+  chosenRank: c.chosen,
   topSans: c.ranked.slice(0, 3).map((m) => m.san),
   topScores: c.ranked.slice(0, 3).map((m) => m.score),
 }));
+
+function cloudMapSnapshot() {
+  const pointLayers = new Map();
+  let firstLinks = 0;
+  let routePoints = 0;
+  for (const obj of cloudGroup.children) {
+    const attr = obj.geometry?.getAttribute?.('position');
+    if (!attr) continue;
+    if (obj.userData.kind === 'cloud-points') {
+      const d = obj.userData.depth;
+      if (!pointLayers.has(d)) pointLayers.set(d, { count: 0, positions: [] });
+      const rec = pointLayers.get(d);
+      rec.count += attr.count;
+      if (d <= 1) rec.positions.push(...Array.from(attr.array));
+    } else if (obj.userData.kind === 'cloud-links' && obj.userData.depth === 1) {
+      firstLinks += attr.count / 2;
+    } else if (obj.userData.kind === 'selected-route') {
+      routePoints += attr.count;
+    }
+  }
+  const labelList = [...cloudLabelsEl.querySelectorAll('.cloud-label')].map((el) => {
+    const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    return {
+      text: el.textContent.trim(), san: el.dataset.san || '',
+      depth: +el.dataset.depth, index: +el.dataset.index,
+      selected: el.classList.contains('is-selected'),
+      visible:
+        cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0.5
+        && r.width > 0 && r.height > 0
+        && r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight,
+      x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2,
+      w: r.width, h: r.height,
+    };
+  });
+  const layerRows = [...pointLayers.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([depth, rec]) => ({ depth, count: rec.count, positions: rec.positions }));
+  return {
+    layers: layerRows,
+    firstLinks,
+    routePoints,
+    labels: labelList,
+    cameraMatrix: Array.from(camera.matrixWorld.elements),
+    target: cloudTarget.toArray(),
+  };
+}
 
 /**
  * 响应式布局现状。所有尺寸都从当前 DOM 盒子现读，验收不镜像 CSS 断点，
@@ -1007,7 +1461,7 @@ function layoutSnapshot() {
       scrollLeft: forkWrap.scrollLeft, scrollTop: forkWrap.scrollTop,
     },
     controls: {
-      buttons: [...document.querySelectorAll('button')].map(box),
+      buttons: [...document.querySelectorAll('button')].map(box).filter((r) => r.w > 0 && r.h > 0),
       firstCard: firstCard ? box(firstCard) : null,
     },
     cloudFull: body.classList.contains('cloud-full'),
@@ -1023,22 +1477,19 @@ window.__test = {
   }),
   ai: () => lastAi,
   layout: layoutSnapshot,
-  pickBranch: (col, idx) => {
-    if (!columns[col] || idx >= columns[col].ranked.length) return false;
-    branchPath = branchPath.slice(0, col);
-    branchPath[col] = idx;
-    expanded = expanded.slice(0, col + 1);
-    renderFork();
-    return true;
-  },
-  expandCol: (col) => { expanded[col] = true; renderFork(); return true; },
+  cloudMap: cloudMapSnapshot,
+  pickBranch: (col, idx) => chooseForkBranch(col, idx),
+  expandCol: (col) => setColumnExpanded(col, true),
+  collapseCol: (col) => setColumnExpanded(col, false),
+  toggleCol: toggleColumnExpanded,
   skyRect: () => {
     const r = canvas.getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   },
   toggleCloudFull,
   reset: () => {
-    game.reset(); selected = null; lastAi = null; thinking = false;
+    aiRequestId++;
+    game.reset(); selected = null; preview = null; lastAi = null; thinking = false;
     branchPath = []; expanded = [];
     renderBoard(); rebuildCloud(); renderFork();
   },
@@ -1050,7 +1501,7 @@ resize();
 renderBoard();
 rebuildCloud();
 renderFork();
-setStatus('你执白，点子走棋。右边每一列就是一步，先给你列最靠谱的几条。');
+setStatus('你执白。右侧从「现在」向右选路；星图点开后也能直接选择第一步。');
 </script>
 </body>
 </html>

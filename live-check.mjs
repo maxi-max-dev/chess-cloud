@@ -250,6 +250,45 @@ async function touchAt(x, y) {
   await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
+async function clickAt(x, y) {
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+  await send('Input.dispatchMouseEvent', {
+    type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1,
+  });
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1,
+  });
+  await sleep(100);
+}
+
+async function selectorCenter(selector) {
+  const quoted = JSON.stringify(selector);
+  await evalJs(`(() => {
+    const el = document.querySelector(${quoted});
+    if (el) el.scrollIntoView({ block: 'center', inline: 'center' });
+  })()`);
+  await settleLayout();
+  return evalJs(`(() => {
+    const el = document.querySelector(${quoted});
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {
+      x: (r.left + r.right) / 2,
+      y: (r.top + r.bottom) / 2,
+      w: r.width,
+      h: r.height,
+    };
+  })()`);
+}
+
+async function clickSelector(selector) {
+  const center = await selectorCenter(selector);
+  if (!center) return false;
+  await clickAt(center.x, center.y);
+  await settleLayout();
+  return true;
+}
+
 async function swipeTouch(from, to, steps = 8) {
   const pointAt = (i) => ({
     x: from.x + (to.x - from.x) * i / steps,
@@ -290,6 +329,125 @@ function layoutProblems(layout) {
     }
   }
   return issues;
+}
+
+async function forkColumnDom(col) {
+  return evalJs(`(() => {
+    const col = ${Number(col)};
+    const cards = [...document.querySelectorAll(\`#fork g.card[data-col="\${col}"]\`)];
+    const selected = cards.find((card) => card.dataset.selected === 'true') || null;
+    const toggle = document.querySelector(\`#fork g.more[data-col="\${col}"]\`);
+    return {
+      cards: cards.length,
+      indices: cards.map((card) => Number(card.dataset.idx)),
+      selectedRank: selected ? Number(selected.dataset.idx) : null,
+      selectedSan: selected?.dataset.san || '',
+      toggleText: toggle?.textContent.trim() || '',
+      toggleExpanded: toggle?.dataset.expanded || '',
+    };
+  })()`);
+}
+
+async function forkRouteDom() {
+  return evalJs(`(() => {
+    const cardCenter = (card) => {
+      const r = card?.querySelector('rect');
+      if (!r) return null;
+      const x = Number(r.getAttribute('x'));
+      const y = Number(r.getAttribute('y'));
+      const w = Number(r.getAttribute('width'));
+      const h = Number(r.getAttribute('height'));
+      return { left: x, right: x + w, y: y + h / 2 };
+    };
+    const pathEnds = (path) => {
+      if (!path) return null;
+      const length = path.getTotalLength();
+      const start = path.getPointAtLength(0);
+      const end = path.getPointAtLength(length);
+      return {
+        start: { x: start.x, y: start.y },
+        end: { x: end.x, y: end.y },
+      };
+    };
+    const root = document.querySelector('#fork circle[data-root="true"]');
+    const rootPoint = root
+      ? { x: Number(root.getAttribute('cx')), y: Number(root.getAttribute('cy')) }
+      : null;
+    const columns = [...new Set(
+      [...document.querySelectorAll('#fork g.card[data-col]')]
+        .map((card) => Number(card.dataset.col)),
+    )].sort((a, b) => a - b);
+    return columns.map((col, position) => {
+      const cards = [...document.querySelectorAll(\`#fork g.card[data-col="\${col}"]\`)];
+      const selectedCards = cards.filter((card) => card.dataset.selected === 'true');
+      const edges = [...document.querySelectorAll(\`#fork path.branch-edge[data-col="\${col}"][data-selected="true"]\`)];
+      const underlays = [...document.querySelectorAll(\`#fork path.route-underlay[data-col="\${col}"]\`)];
+      const card = selectedCards[0] || null;
+      const previous = position > 0
+        ? document.querySelector(\`#fork g.card[data-col="\${columns[position - 1]}"][data-selected="true"]\`)
+        : null;
+      const cardPoint = cardCenter(card);
+      const previousPoint = cardCenter(previous);
+      const edgePoints = pathEnds(edges[0]);
+      const underlayPoints = pathEnds(underlays[0]);
+      const expectedStart = position === 0 ? rootPoint : (
+        previousPoint ? { x: previousPoint.right, y: previousPoint.y } : null
+      );
+      const close = (a, b) => !!(a && b && Math.hypot(a.x - b.x, a.y - b.y) <= 1.6);
+      const expectedEnd = cardPoint ? { x: cardPoint.left, y: cardPoint.y } : null;
+      return {
+        col,
+        selectedCards: selectedCards.length,
+        selectedEdges: edges.length,
+        routeUnderlays: underlays.length,
+        cardIdx: card ? Number(card.dataset.idx) : null,
+        edgeIdx: edges[0] ? Number(edges[0].dataset.idx) : null,
+        strokeWidth: edges[0] ? Number(edges[0].getAttribute('stroke-width')) : 0,
+        continuous:
+          close(edgePoints?.start, expectedStart)
+          && close(edgePoints?.end, expectedEnd)
+          && close(underlayPoints?.start, expectedStart)
+          && close(underlayPoints?.end, expectedEnd),
+      };
+    });
+  })()`);
+}
+
+function analyzeCloudShape(map) {
+  const root = map.layers.find((layer) => layer.depth === 0);
+  const first = map.layers.find((layer) => layer.depth === 1);
+  const rootPosition = root?.positions?.slice(0, 3) || [];
+  const firstPositions = first?.positions || [];
+  const vectors = [];
+  for (let i = 0; i + 2 < firstPositions.length; i += 3) {
+    vectors.push([
+      firstPositions[i] - (rootPosition[0] || 0),
+      firstPositions[i + 1] - (rootPosition[1] || 0),
+      firstPositions[i + 2] - (rootPosition[2] || 0),
+    ]);
+  }
+  const mean = [0, 0, 0];
+  let meanRadius = 0;
+  for (const v of vectors) {
+    mean[0] += v[0]; mean[1] += v[1]; mean[2] += v[2];
+    meanRadius += Math.hypot(v[0], v[1], v[2]);
+  }
+  if (vectors.length) {
+    mean[0] /= vectors.length; mean[1] /= vectors.length; mean[2] /= vectors.length;
+    meanRadius /= vectors.length;
+  }
+  const meanLength = Math.hypot(mean[0], mean[1], mean[2]);
+  const coherence = meanRadius ? meanLength / meanRadius : 0;
+  const positive = meanLength
+    ? vectors.filter((v) => v[0] * mean[0] + v[1] * mean[1] + v[2] * mean[2] > 0).length
+    : 0;
+  return {
+    rootCount: root?.count || 0,
+    rootPosition,
+    firstCount: first?.count || 0,
+    coherence,
+    positiveRatio: vectors.length ? positive / vectors.length : 0,
+  };
 }
 
 async function runMobileChecks() {
@@ -442,14 +600,161 @@ async function runMobileChecks() {
     && full.cornersHit
     && Math.abs(fsc.pixelW - fsc.w * pxRatio) <= 2
     && Math.abs(fsc.pixelH - fsc.h * pxRatio) <= 2;
-  if (full.layout.cloudFull) {
-    await touchAt(full.layout.viewport.visualW / 2, full.layout.viewport.visualH / 2);
+
+  // 全屏标签直接读实际 DOM 盒子/computedStyle，合法性则由 Node 端 chess.js 独立判断。
+  await sleep(260);
+  await settleLayout();
+  const fullStateBeforeLabel = await evalJs('window.__test.state()');
+  const legalFullSans = new Set(new Chess(fullStateBeforeLabel.fen).moves());
+  const fullMap = await evalJs('window.__test.cloudMap()');
+  const forkAtFull = await evalJs('window.__forkStats()');
+  const visibleLabels = fullMap.labels.filter((label) => label.visible);
+  const visibleRoots = visibleLabels.filter((label) => label.depth === 0 && label.text.includes('现在'));
+  const firstLevelLabels = fullMap.labels.filter((label) => label.depth === 1 && label.san);
+  const visibleMoves = visibleLabels.filter((label) => label.depth === 1 && label.san);
+  const pathLabels = fullMap.labels.filter((label) => label.depth >= 2 && label.san);
+  const visibleSans = visibleLabels.filter((label) => label.depth >= 1 && label.san);
+  const pathLabelsLegal = pathLabels.every((label) => {
+    const parent = forkAtFull[label.depth - 1];
+    return !!parent
+      && new Chess(parent.fen).moves().includes(label.san)
+      && parent.chosenSan === label.san;
+  });
+  const labelsOk =
+    visibleRoots.length === 1
+    && visibleSans.length >= 3
+    && visibleLabels.length <= 5
+    && firstLevelLabels.every((label) => legalFullSans.has(label.san))
+    && new Set(firstLevelLabels.map((label) => label.san)).size === firstLevelLabels.length
+    && pathLabels.length === fullMap.routePoints - 2
+    && pathLabelsLegal
+    && fullMap.routePoints >= 3 && fullMap.routePoints <= 4;
+  record(
+    labelsOk,
+    '④ 手机全屏有「现在」和少量真实走法标签，主路径逐步合法',
+    `可见 ${visibleLabels.length} 个（现在 ${visibleRoots.length} + SAN ${visibleSans.length}）`
+      + `｜根走法 ${visibleMoves.map((label) => label.san).join('/')}`
+      + `｜后续路径 ${pathLabels.map((label) => `${label.depth}:${label.san}`).join('/')}`
+      + `｜selected-route position.count=${fullMap.routePoints}`);
+
+  // 真触摸一个当前可见、非默认的走法标签；它只换选路，不得偷偷落子。
+  const labelTarget = visibleMoves.find((label) => !label.selected) || null;
+  const forkBeforeLabel = (await evalJs('window.__forkStats()'))[0];
+  const historyBeforeLabel = fullStateBeforeLabel.history;
+  if (labelTarget) {
+    await touchAt(labelTarget.x, labelTarget.y);
+    await sleep(280);
     await settleLayout();
   }
-  const closed = await evalJs('window.__test.layout()');
-  const fullOk = fullGeometryOk && !closed.cloudFull;
-  record(fullOk, '④ 手机星云是真全屏，四角不漏背景也不被面板盖住',
-    `真实触摸开/关｜盒子 ${Math.round(fsb.x)},${Math.round(fsb.y)} ${Math.round(fsb.w)}×${Math.round(fsb.h)}｜画布 ${fsc.pixelW}×${fsc.pixelH}｜四角命中 ${full.cornersHit}`);
+  const stateAfterLabel = await evalJs('window.__test.state()');
+  const forkAfterLabel = (await evalJs('window.__forkStats()'))[0];
+  const mapAfterLabel = await evalJs('window.__test.cloudMap()');
+  const selectedLabelAfter = mapAfterLabel.labels.find((label) =>
+    label.depth === 1 && label.san === labelTarget?.san && label.selected);
+  const labelPickOk =
+    !!labelTarget
+    && legalFullSans.has(labelTarget.san)
+    && forkAfterLabel.chosenSan === labelTarget.san
+    && forkAfterLabel.chosenSan !== forkBeforeLabel.chosenSan
+    && stateAfterLabel.fen === fullStateBeforeLabel.fen
+    && JSON.stringify(stateAfterLabel.history) === JSON.stringify(historyBeforeLabel)
+    && !!selectedLabelAfter
+    && mapAfterLabel.routePoints >= 3 && mapAfterLabel.routePoints <= 4;
+  record(
+    labelPickOk,
+    '④ 真实触摸星图标签会同步第一列选路，但棋谱不动',
+    `点 ${labelTarget?.san || '无可点标签'}｜第一列 ${forkBeforeLabel.chosenSan}→${forkAfterLabel.chosenSan}`
+      + `｜history ${JSON.stringify(historyBeforeLabel)}→${JSON.stringify(stateAfterLabel.history)}`
+      + `｜路线点 ${mapAfterLabel.routePoints}`);
+
+  // 先让选中标签带来的镜头聚焦稳定下来，再从画布空白处发真实 touch drag。
+  await sleep(520);
+  await settleLayout();
+  const mapBeforeDrag = await evalJs('window.__test.cloudMap()');
+  const cloudDrag = await evalJs(`(() => {
+    const canvas = document.getElementById('sky');
+    const r = canvas.getBoundingClientRect();
+    const candidates = [];
+    for (const yf of [.78, .68, .58, .86]) {
+      for (const xf of [.82, .72, .62, .9]) {
+        const x = r.left + r.width * xf, y = r.top + r.height * yf;
+        if (document.elementFromPoint(x, y) === canvas) candidates.push({ x, y });
+      }
+    }
+    const from = candidates[0] || null;
+    if (!from) return null;
+    return {
+      from,
+      to: {
+        x: Math.max(r.left + 24, r.left + r.width * .18),
+        y: Math.min(r.bottom - 24, from.y + 34),
+      },
+    };
+  })()`);
+  if (cloudDrag) await swipeTouch(cloudDrag.from, cloudDrag.to, 12);
+  await sleep(260);
+  await settleLayout();
+  const mapAfterDrag = await evalJs('window.__test.cloudMap()');
+  const matrixDelta = mapBeforeDrag.cameraMatrix.reduce(
+    (max, value, i) => Math.max(max, Math.abs(value - mapAfterDrag.cameraMatrix[i])),
+    0,
+  );
+  const labelKey = (label) => `${label.depth}:${label.index}:${label.san}`;
+  const labelsBeforeByKey = new Map(mapBeforeDrag.labels.map((label) => [labelKey(label), label]));
+  let maxLabelMove = 0, visibilityChanged = false;
+  for (const label of mapAfterDrag.labels) {
+    const before = labelsBeforeByKey.get(labelKey(label));
+    if (!before) continue;
+    maxLabelMove = Math.max(maxLabelMove, Math.hypot(label.x - before.x, label.y - before.y));
+    if (label.visible !== before.visible) visibilityChanged = true;
+  }
+  const visibleAfterDrag = mapAfterDrag.labels.filter((label) => label.visible).length;
+  const hiddenAfterDrag = mapAfterDrag.labels.length - visibleAfterDrag;
+  const dragOk =
+    !!cloudDrag
+    && matrixDelta > 0.01
+    && maxLabelMove > 8
+    && visibleAfterDrag > 0
+    && hiddenAfterDrag > 0;
+  record(
+    dragOk,
+    '④ 真实拖动会转动相机并重排标签，画面同时有显有隐',
+    `拖动 ${cloudDrag ? `${Math.round(cloudDrag.from.x)},${Math.round(cloudDrag.from.y)}→${Math.round(cloudDrag.to.x)},${Math.round(cloudDrag.to.y)}` : '没找到画布空白'}`
+      + `｜camera Δ${matrixDelta.toFixed(3)}｜标签最大位移 ${maxLabelMove.toFixed(1)}px`
+      + `｜显/隐 ${visibleAfterDrag}/${hiddenAfterDrag}｜显隐集合变化=${visibilityChanged}`);
+
+  // 全屏只由明确的收起按钮退出；不再拿点画布中心冒充关闭。
+  const closeTap = await evalJs(`(() => {
+    const button = document.getElementById('cloudClose');
+    const r = button.getBoundingClientRect();
+    const cs = getComputedStyle(button);
+    return {
+      x: (r.left + r.right) / 2,
+      y: (r.top + r.bottom) / 2,
+      w: r.width,
+      h: r.height,
+      visible: cs.display !== 'none' && r.width > 0 && r.height > 0,
+    };
+  })()`);
+  if (closeTap.visible) {
+    await touchAt(closeTap.x, closeTap.y);
+    await sleep(180);
+    await settleLayout();
+  }
+  const closed = await evalJs(`(() => ({
+    layout: window.__test.layout(),
+    closeDisplay: getComputedStyle(document.getElementById('cloudClose')).display,
+  }))()`);
+  const fullOk =
+    fullGeometryOk
+    && closeTap.visible
+    && closeTap.w >= 47.9 && closeTap.h >= 43.9
+    && !closed.layout.cloudFull
+    && closed.closeDisplay === 'none';
+  record(fullOk, '④ 手机星云是真全屏，并可用明确按钮真实触摸收起',
+    `真实触摸开/按钮关｜盒子 ${Math.round(fsb.x)},${Math.round(fsb.y)} ${Math.round(fsb.w)}×${Math.round(fsb.h)}`
+      + `｜画布 ${fsc.pixelW}×${fsc.pixelH}｜四角命中 ${full.cornersHit}`
+      + `｜收起按钮 ${Math.round(closeTap.w)}×${Math.round(closeTap.h)}｜关闭后 full=${closed.layout.cloudFull}`);
 
   // 不走测试钩子，发真实 touch 事件点 e2 → e4。
   await evalJs(`(() => {
@@ -583,6 +888,27 @@ async function main() {
   console.log('初始星云: ' + JSON.stringify({ depth: s1.depth, nodes: s1.nodes, total: s1.totalNodes, ms: s1.ms, layers: s1.layers }));
   await checkNodesMatchCount(s1, '');
 
+  // 星图的「一个现在 → 向前分叉」也从 three.js 实际 geometry 对账。
+  // coherence 是首层平均方向长度 / 平均半径：球壳接近 0，向前张开的锥形会明显大于 0。
+  const cloudMap1 = await evalJs('window.__test.cloudMap()');
+  const cloudShape1 = analyzeCloudShape(cloudMap1);
+  const firstExpected = count(s1.fen, 1);
+  const rootAtOrigin =
+    cloudShape1.rootPosition.length === 3
+    && cloudShape1.rootPosition.every((value) => Number.isFinite(value) && Math.abs(value) <= 1e-7);
+  record(
+    cloudShape1.rootCount === 1 && rootAtOrigin,
+    '② 星图从一个真实根点「现在」出发',
+    `root position.count=${cloudShape1.rootCount}｜坐标 ${JSON.stringify(cloudShape1.rootPosition)}`);
+  record(
+    cloudShape1.firstCount === firstExpected && cloudMap1.firstLinks === firstExpected,
+    '② 第一层真实星点和根连线都等于合法走法数',
+    `geometry 星点 ${cloudShape1.firstCount}｜LineSegments ${cloudMap1.firstLinks}｜count(fen,1) ${firstExpected}`);
+  record(
+    cloudShape1.coherence >= 0.35 && cloudShape1.positiveRatio >= 0.8,
+    '② 第一层沿未来方向展开，不再围成球壳',
+    `方向一致性 ${cloudShape1.coherence.toFixed(3)}｜正向比例 ${cloudShape1.positiveRatio.toFixed(3)}`);
+
   // 1.5) 顺手看一眼评估分的实际分布，星色刻度是照这个定的，不是拍脑袋
   const dist = await evalJs(`(async () => {
     const m = await import('./engine.js');
@@ -616,6 +942,33 @@ async function main() {
   })()`);
   record(bad.r1 === false && bad.r2 === false && bad.r3 === false && bad.changed === false,
     '非法走子被拒', JSON.stringify(bad));
+
+  // 旧 AI 回包不能穿过 reset 污染新棋局：先触发一次搜索，马上重开，
+  // 等过完整桌面预算后再看真实棋谱/思考态/回包和页面错误。
+  const errorsBeforeResetRace = pageErrors.length;
+  const resetRaceStarted = await evalJs(`(() => {
+    const played = window.__test.tryMove('e2','e4');
+    window.__test.reset();
+    return played;
+  })()`);
+  await sleep(2200);
+  const resetRace = await evalJs(`({
+    state: window.__test.state(),
+    ai: window.__test.ai(),
+  })`);
+  const resetRaceOk =
+    resetRaceStarted === true
+    && resetRace.state.history.length === 0
+    && resetRace.state.thinking === false
+    && resetRace.ai === null
+    && pageErrors.length === errorsBeforeResetRace;
+  record(
+    resetRaceOk,
+    '重开会作废途中 AI 回包，不会把旧应手塞进新棋局',
+    `触发 e4=${resetRaceStarted}｜等 2200ms 后 history=${JSON.stringify(resetRace.state.history)}`
+      + `｜thinking=${resetRace.state.thinking}｜AI=${resetRace.ai ? resetRace.ai.san : 'null'}`
+      + `｜新增错误=${pageErrors.length - errorsBeforeResetRace}`);
+  await evalJs('window.__test.reset()');
 
   // 4) e4 → AI ≤3 秒应一步合法棋
   const t0 = Date.now();
@@ -673,24 +1026,100 @@ async function main() {
   record(sortOk, '③ 每列确实按「对行棋方好坏」排了序',
     cols.map((c) => `${c.topSans[0]}(${(c.topScores[0] / 100).toFixed(2)})>${c.topSans[1]}(${(c.topScores[1] / 100).toFixed(2)})`).join('　'));
 
-  // 点另一条分叉，右边的列必须跟着换
-  const sw = await evalJs(`(() => {
-    const before = window.__forkStats().map(c => c.chosenSan).join(' ');
-    window.__test.pickBranch(0, 2);
-    const after = window.__forkStats().map(c => c.chosenSan).join(' ');
-    return { before, after };
-  })()`);
-  record(sw.before !== sw.after, '③ 点第一列另一条，后面几列真的跟着改',
-    `${sw.before}  →  ${sw.after}`);
+  const initialRoute = await forkRouteDom();
+  const initialRouteOk =
+    initialRoute.length === cols.length
+    && initialRoute.every((c) =>
+      c.selectedCards === 1
+      && c.selectedEdges === 1
+      && c.routeUnderlays === 1
+      && c.cardIdx === c.edgeIdx
+      && c.strokeWidth > 2
+      && c.continuous);
+  record(
+    initialRouteOk,
+    '③ 每列各有一张选中卡、一条选中边和一条连续主干',
+    initialRoute.map((c) =>
+      `列${c.col} 卡/边/底=${c.selectedCards}/${c.selectedEdges}/${c.routeUnderlays}`
+      + ` idx=${c.cardIdx}/${c.edgeIdx} 连续=${c.continuous}`).join('　'));
 
-  // 点「还有 N 条」要把整列摊开，卡片数得等于总数
-  const ex = await evalJs(`(() => {
-    window.__test.expandCol(0);
-    const c = window.__forkStats()[0];
-    return { cards: c.cards, total: c.total };
+  // 用真实 CDP 点击另一张卡，右边的列必须跟着换。
+  const switchBefore = await evalJs('window.__forkStats().map(c => c.chosenSan).join(" ")');
+  const switchedByClick = await clickSelector('#fork g.card[data-col="0"][data-idx="2"]');
+  const switchAfter = await evalJs('window.__forkStats().map(c => c.chosenSan).join(" ")');
+  record(
+    switchedByClick && switchBefore !== switchAfter,
+    '③ 真实点击第一列另一条，后面几列真的跟着改',
+    `${switchBefore}  →  ${switchAfter}`);
+
+  // 展开与收起都走页面真实点击。卡片数取 SVG 现状，总数仍拿 Node count() 独立对撞。
+  const collapsedBefore = await forkColumnDom(0);
+  const firstColBeforeToggle = (await evalJs('window.__forkStats()'))[0];
+  const totalFirst = count(firstColBeforeToggle.fen, 1);
+  const selectedBeforeToggle = `${collapsedBefore.selectedRank}:${collapsedBefore.selectedSan}`;
+  const openedByClick = await clickSelector('#fork g.more[data-col="0"]');
+  const expandedDom = await forkColumnDom(0);
+  record(
+    openedByClick
+      && expandedDom.cards === totalFirst
+      && expandedDom.toggleExpanded === 'true'
+      && expandedDom.toggleText.includes('收起')
+      && `${expandedDom.selectedRank}:${expandedDom.selectedSan}` === selectedBeforeToggle,
+    '③ 真实点「展开」后整列摊开，选中项不变',
+    `卡片 ${collapsedBefore.cards}→${expandedDom.cards}/${totalFirst}`
+      + `｜文案「${expandedDom.toggleText}」｜选中 ${expandedDom.selectedSan} #${expandedDom.selectedRank + 1}`);
+
+  const closedByClick = await clickSelector('#fork g.more[data-col="0"]');
+  const collapsedAgain = await forkColumnDom(0);
+  record(
+    closedByClick
+      && collapsedAgain.cards === collapsedBefore.cards
+      && collapsedAgain.toggleExpanded === 'false'
+      && collapsedAgain.toggleText.includes('展开')
+      && `${collapsedAgain.selectedRank}:${collapsedAgain.selectedSan}` === selectedBeforeToggle,
+    '③ 再点「收起」回到推荐数量，选中项仍不变',
+    `卡片 ${expandedDom.cards}→${collapsedAgain.cards}/${collapsedBefore.cards}`
+      + `｜文案「${collapsedAgain.toggleText}」｜选中 ${collapsedAgain.selectedSan}`);
+
+  // 展开后选择推荐 N 条之外的第一张：列应自动收起，但这张已选卡必须留在 DOM，
+  // 且五列主干的 card / edge / underlay 仍一一接续。
+  const openedAgain = await clickSelector('#fork g.more[data-col="0"]');
+  const expandedStats = (await evalJs('window.__forkStats()'))[0];
+  const outsideRank = expandedStats.baseShown;
+  const outsideBefore = await evalJs(`(() => {
+    const card = document.querySelector('#fork g.card[data-col="0"][data-idx="${outsideRank}"]');
+    return card ? { san: card.dataset.san, rank: Number(card.dataset.idx) } : null;
   })()`);
-  record(ex.cards === ex.total, '③ 点开「还有 N 条」后整列摊开',
-    `SVG 里 ${ex.cards} 张 vs 总共 ${ex.total} 种`);
+  const historyBeforeOutside = await evalJs('window.__test.state().history');
+  const outsideClicked = outsideBefore
+    ? await clickSelector(`#fork g.card[data-col="0"][data-idx="${outsideRank}"]`)
+    : false;
+  const outsideAfter = await forkColumnDom(0);
+  const outsideStats = (await evalJs('window.__forkStats()'))[0];
+  const historyAfterOutside = await evalJs('window.__test.state().history');
+  const outsideRoute = await forkRouteDom();
+  const outsideRouteOk =
+    outsideRoute.length === cols.length
+    && outsideRoute.every((c) =>
+      c.selectedCards === 1
+      && c.selectedEdges === 1
+      && c.routeUnderlays === 1
+      && c.cardIdx === c.edgeIdx
+      && c.continuous);
+  record(
+    openedAgain
+      && outsideClicked
+      && outsideStats.expanded === false
+      && outsideAfter.indices.includes(outsideRank)
+      && outsideAfter.selectedRank === outsideRank
+      && outsideAfter.selectedSan === outsideBefore?.san
+      && outsideAfter.cards === outsideStats.baseShown + 1
+      && JSON.stringify(historyAfterOutside) === JSON.stringify(historyBeforeOutside)
+      && outsideRouteOk,
+    '③ 选推荐区外走法会自动收起，但已选卡与整条路径不断',
+    `选 #${outsideRank + 1} ${outsideBefore?.san || '无卡'}｜收起后卡片 ${outsideAfter.cards}`
+      + `｜仍在 DOM=${outsideAfter.indices.includes(outsideRank)}｜五列主干连续=${outsideRouteOk}`
+      + `｜棋谱未变=${JSON.stringify(historyAfterOutside) === JSON.stringify(historyBeforeOutside)}`);
 
   // 7) 再走一个回合，让分叉图换一批局面重算，再对一次
   await evalJs(`window.__test.tryMove('d2','d4')`);
