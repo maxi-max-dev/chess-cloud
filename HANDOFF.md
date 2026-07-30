@@ -138,7 +138,13 @@ AI 应手回来 → onAiMove() → 走棋 → 再来一遍 rebuildCloud + render
    - 同理不许预分配大 buffer 再用 `drawRange` —— 那等于自记计数器。
 
 2. **不许把 8902 / 197281 这类数字写死进页面代码。**
-   它们必须是算出来的。检查：`git ls-files | grep -v '^verify.mjs$' | xargs grep -n 197281` 必须无匹配。
+   它们必须是算出来的。检查（只查代码，文档里作为说明文字提到不算）：
+
+   ```bash
+   grep -n "197281\|8902" index.html engine.js worker.js
+   ```
+
+   必须无匹配。`verify.mjs` 里有 197281 是对的——它是裁判，断言值就该写在那儿。
 
 3. **不许改 `verify.mjs` 来让验收变绿。** 它是裁判，不是被告。
    （唯一允许的改动是**加**新断言，且加完必须自己先跑红一次证明它真的会红。）
