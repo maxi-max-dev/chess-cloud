@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#05060b" />
 <title>可能性分叉 · chess-cloud</title>
 <style>
   :root {
@@ -16,7 +17,26 @@
     --edge: rgba(150, 170, 220, 0.16);
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #05060b; }
+  html { margin: 0; min-height: 100%; background: #05060b; }
+  body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #05060b;
+    position: relative;
+    isolation: isolate;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse at 10% 8%, rgba(47,134,255,.11), transparent 42%),
+      radial-gradient(ellipse at 90% 92%, rgba(255,122,31,.08), transparent 44%),
+      linear-gradient(180deg, #070913 0%, #05060b 48%, #07070c 100%);
+  }
   body {
     font: 14px/1.55 -apple-system, "SF Pro SC", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
     color: var(--ink);
@@ -44,11 +64,43 @@
   #cloudPanel h1 { margin: 0 0 7px; font-size: 13px; font-weight: 650; letter-spacing: .02em; }
   #cloudPanel h1 span { color: var(--faint); font-weight: 400; font-size: 11.5px; margin-left: 6px; }
   #skyBox { position: relative; width: 402px; height: 158px; border-radius: 9px; overflow: hidden; background: #05060b; cursor: zoom-in; }
-  #sky { display: block; width: 100%; height: 100%; }
-  #skyHint { position: absolute; right: 8px; bottom: 6px; font-size: 10.5px; color: #7b8296; }
+  #sky { display: block; width: 100%; height: 100%; touch-action: none; overscroll-behavior: contain; }
+  #skyHint { position: absolute; right: 8px; bottom: 6px; font-size: 10.5px; color: #7b8296; pointer-events: none; }
+  body.cloud-full { overflow: hidden; overscroll-behavior: none; }
+  body.cloud-full #cloudPanel {
+    position: fixed;
+    z-index: 100;
+    inset: 0;
+    width: auto;
+    height: 100vh;
+    height: 100dvh;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: #05060b;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  body.cloud-full #cloudPanel > h1,
+  body.cloud-full #cloudStats { display: none; }
   body.cloud-full #skyBox {
-    position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 40;
-    border-radius: 0; cursor: zoom-out;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    border-radius: 0;
+    cursor: zoom-out;
+  }
+  body.cloud-full #skyHint {
+    right: max(14px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    padding: 6px 9px;
+    border: 1px solid rgba(150,170,220,.18);
+    border-radius: 999px;
+    color: #b5bed4;
+    background: rgba(5,6,11,.62);
   }
   #cloudStats { margin-top: 8px; font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
   #cloudStats b { color: var(--ink); font-weight: 600; }
@@ -56,7 +108,7 @@
 
   /* ── 左下：棋盘 */
   #boardPanel { left: 22px; bottom: 22px; width: 434px; padding: 15px 16px 12px; }
-  #board { display: block; width: 380px; height: 380px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+  #board { display: block; width: 380px; height: 380px; margin: 0 auto; border-radius: 8px; overflow: hidden; touch-action: manipulation; }
   #board text.glyph { pointer-events: none; user-select: none; }
   #status { margin-top: 10px; min-height: 34px; font-size: 13px; color: var(--dim); }
   #status b { color: var(--ink); font-weight: 600; }
@@ -70,12 +122,93 @@
   #moveLine { margin-top: 9px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--faint); }
   #moveLine b { color: #dfd2a2; font-weight: 600; }
   #moveLine .num { color: #4b5165; margin-right: 2px; }
-  #forkWrap { flex: 1; overflow: auto; }
+  #forkWrap { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; }
   #fork { display: block; }
   #fork g.card { cursor: pointer; }
   #fork g.more { cursor: pointer; }
   #forkFoot { padding: 10px 20px 13px; border-top: 1px solid var(--edge); font-size: 12px; color: var(--dim); min-height: 58px; }
   #forkFoot b { color: var(--ink); }
+
+  /* 中等宽度或矮视口：回到文档流，左栏和主舞台不再因 fixed 定位互相覆盖。 */
+  @media (max-width: 1100px), (max-height: 780px) {
+    html, body { height: auto; min-height: 100%; }
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      overflow-x: hidden;
+      overflow-y: auto;
+      display: grid;
+      grid-template-columns: minmax(320px, 434px) minmax(360px, 1fr);
+      grid-template-areas:
+        "cloud stage"
+        "board stage";
+      gap: 16px;
+      align-items: start;
+      padding:
+        max(16px, env(safe-area-inset-top))
+        max(16px, env(safe-area-inset-right))
+        max(16px, env(safe-area-inset-bottom))
+        max(16px, env(safe-area-inset-left));
+    }
+    #cloudPanel, #boardPanel, #stage {
+      position: relative;
+      inset: auto;
+      width: 100%;
+      min-width: 0;
+    }
+    #cloudPanel { grid-area: cloud; padding: 12px 15px 14px; }
+    #skyBox { width: 100%; height: auto; aspect-ratio: 402 / 158; }
+    #boardPanel { grid-area: board; padding: 14px 15px 12px; }
+    #board { width: min(100%, 380px); height: auto; aspect-ratio: 1; }
+    #stage { grid-area: stage; min-height: 720px; }
+    button { min-height: 44px; padding: 8px 13px; }
+  }
+
+  /* 手机竖屏：先下棋，再看分叉，最后保留完整星云入口。 */
+  @media (max-width: 760px) {
+    body {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        "board"
+        "stage"
+        "cloud";
+      gap: 12px;
+      padding:
+        max(12px, env(safe-area-inset-top))
+        max(12px, env(safe-area-inset-right))
+        max(12px, env(safe-area-inset-bottom))
+        max(12px, env(safe-area-inset-left));
+    }
+    #boardPanel, #cloudPanel { padding: 12px; }
+    #stage {
+      height: min(720px, 72dvh);
+      min-height: 600px;
+    }
+    #stageHead { padding: 13px 14px 10px; }
+    #stageHead .sub { line-height: 1.6; }
+    #moveLine { line-height: 1.7; }
+    #forkFoot { padding: 10px 14px 12px; min-height: 70px; }
+  }
+
+  /* 常见手机横屏：利用横向空间保留棋盘 + 分叉双栏，整页仍可纵向滚动。 */
+  @media (min-width: 560px) and (max-width: 760px) and (max-height: 520px) and (orientation: landscape) {
+    body {
+      grid-template-columns: minmax(276px, 44%) minmax(0, 1fr);
+      grid-template-areas:
+        "board stage"
+        "cloud stage";
+      gap: 8px;
+      padding:
+        max(8px, env(safe-area-inset-top))
+        max(8px, env(safe-area-inset-right))
+        max(8px, env(safe-area-inset-bottom))
+        max(8px, env(safe-area-inset-left));
+    }
+    #boardPanel, #cloudPanel { padding: 8px; }
+    #stage { height: auto; min-height: 620px; }
+    #stageHead .sub { display: none; }
+  }
+
 </style>
 </head>
 <body>
@@ -102,7 +235,7 @@
     <div id="moveLine"></div>
   </div>
   <div id="forkWrap"><svg id="fork" xmlns="http://www.w3.org/2000/svg"></svg></div>
-  <div id="forkFoot">鼠标停在任意一条上，左边棋盘会把那一步画出来。</div>
+  <div id="forkFoot">点按任意一条，棋盘会预览并沿它继续分叉；鼠标也可停留预览。</div>
 </div>
 
 <script type="module">
@@ -113,6 +246,7 @@ import { Chess, expand, rankMoves, MATE } from './engine.js';
 const SYNC_DEPTH = 3;      // 星云前几层主线程同步铺开
 const DEEP_DEPTH = 4;      // 这一层交给 Worker 渐进生长
 const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，应手有硬上限）
+const COMPACT_AI_BUDGET_MS = 1200; // 手机/矮视口给渲染与触控留余量，守住总应手 ≤3 秒
 const BATCH_PARENTS = 400; // Worker 每批处理多少个父节点
 
 const COLS = 5;                    // 分叉图往前排几步
@@ -388,7 +522,10 @@ function requestAi() {
   if (game.isGameOver()) { thinking = false; return; }
   thinking = true;
   aiClock = performance.now();
-  searchWorker.postMessage({ type: 'search', id: cloudState.gen, fen: game.fen(), timeBudgetMs: AI_BUDGET_MS });
+  const timeBudgetMs = matchMedia('(max-width: 1100px), (max-height: 780px)').matches
+    ? COMPACT_AI_BUDGET_MS
+    : AI_BUDGET_MS;
+  searchWorker.postMessage({ type: 'search', id: cloudState.gen, fen: game.fen(), timeBudgetMs });
 }
 
 function onAiMove(result) {
@@ -551,7 +688,7 @@ function updateHud() {
 // 其余折成一行「还有 N 条」。点哪条，右边就顺它接着分叉。
 const forkEl = document.getElementById('fork');
 const forkWrap = document.getElementById('forkWrap');
-const CARD_H = 38, CARD_GAP = 8, HEAD_H = 62;
+const CARD_H = 44, CARD_GAP = 8, HEAD_H = 62;
 let branchPath = [];     // 每列选中的是排序后的第几条
 let expanded = [];       // 哪些列被点开了「还有 N 条」
 let columns = [];
@@ -581,9 +718,11 @@ function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
 function renderFork() {
   columns = buildColumns();
-  const W = Math.max(560, forkWrap.clientWidth || 900);
+  const compact = matchMedia('(max-width: 1100px), (max-height: 780px)').matches;
+  const minColW = compact ? 150 : 112;
+  const W = Math.max(columns.length * minColW, forkWrap.clientWidth || 900);
   const colW = W / Math.max(1, columns.length || 1);
-  const cardW = Math.max(96, colW - 34);
+  const cardW = Math.max(compact ? 120 : 96, colW - 34);
 
   const rowsOf = (c) => c.shown + (c.shown < c.ranked.length ? 1 : 0);
   let maxRows = 1;
@@ -681,11 +820,23 @@ forkEl.addEventListener('click', (ev) => {
   const card = ev.target.closest ? ev.target.closest('g.card') : null;
   if (!card) return;
   const i = +card.dataset.col;
+  const chosen = columns[i] && columns[i].ranked[+card.dataset.idx];
   branchPath = branchPath.slice(0, i);
   branchPath[i] = +card.dataset.idx;
   expanded = expanded.slice(0, i + 1);
   renderFork();
+  if (chosen) showMoveDetails(columns[i], chosen, +card.dataset.idx);
 });
+
+function showMoveDetails(c, m, rank) {
+  preview = { from: m.from, to: m.to, color: cssColor(m.score, 1.35) };
+  renderBoard();
+  const replies = new Chess(m.after).moves().length;
+  document.getElementById('forkFoot').innerHTML =
+    `<b>${esc(m.san)}</b>　这一步在 ${c.ranked.length} 种里排第 <b>${rank + 1}</b>`
+    + `　·　走完之后对方有 <b>${replies}</b> 种回应`
+    + `　·　往前看两步的评估 <b>${scoreText(m.score)}</b>（正=白优）`;
+}
 
 forkEl.addEventListener('mouseover', (ev) => {
   const card = ev.target.closest ? ev.target.closest('g.card') : null;
@@ -693,17 +844,11 @@ forkEl.addEventListener('mouseover', (ev) => {
   const c = columns[+card.dataset.col];
   const m = c && c.ranked[+card.dataset.idx];
   if (!m) return;
-  preview = { from: m.from, to: m.to, color: cssColor(m.score, 1.35) };
-  renderBoard();
-  const replies = new Chess(m.after).moves().length;
-  document.getElementById('forkFoot').innerHTML =
-    `<b>${esc(m.san)}</b>　这一步在 ${c.ranked.length} 种里排第 <b>${+card.dataset.idx + 1}</b>`
-    + `　·　走完之后对方有 <b>${replies}</b> 种回应`
-    + `　·　往前看两步的评估 <b>${scoreText(m.score)}</b>（正=白优）`;
+  showMoveDetails(c, m, +card.dataset.idx);
 });
 forkEl.addEventListener('mouseleave', () => {
   preview = null; renderBoard();
-  document.getElementById('forkFoot').textContent = '鼠标停在任意一条上，左边棋盘会把那一步画出来。';
+  document.getElementById('forkFoot').textContent = '点按任意一条，棋盘会预览并沿它继续分叉；鼠标也可停留预览。';
 });
 
 document.getElementById('btnPlayLine').onclick = () => {
@@ -730,6 +875,7 @@ canvas.addEventListener('pointerup', () => {
   if (drag && !drag.moved) toggleCloudFull();      // 没拖动就是点击 → 开/收全屏
   drag = null;
 });
+canvas.addEventListener('pointercancel', () => { drag = null; });
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
   view.dist = Math.max(6, Math.min(220, view.dist * (1 + Math.sign(e.deltaY) * 0.09)));
@@ -739,25 +885,41 @@ function toggleCloudFull() {
   document.body.classList.toggle('cloud-full');
   const full = document.body.classList.contains('cloud-full');
   document.getElementById('skyHint').textContent = full ? '点一下收回去' : '点开全屏';
-  requestAnimationFrame(resize);
+  scheduleResize();
 }
 
+let forkViewportW = -1, forkViewportH = -1, resizeFrame = 0;
 function resize() {
   const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  renderFork();
+  const fw = forkWrap.clientWidth, fh = forkWrap.clientHeight;
+  if (fw !== forkViewportW || fh !== forkViewportH) {
+    forkViewportW = fw;
+    forkViewportH = fh;
+    renderFork();
+  }
 }
-addEventListener('resize', resize);
+function scheduleResize() {
+  if (resizeFrame) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0;
+    resize();
+  });
+}
+addEventListener('resize', scheduleResize);
 
 function frame() {
   if (view.auto) view.yaw += 0.0009;
   const cp = Math.cos(view.pitch);
+  // 竖屏全屏时保持近似相同的水平视野，避免星云被放大裁成一块“背景”。
+  const fitDist = view.dist / Math.min(1, Math.max(0.42, camera.aspect));
   camera.position.set(
-    Math.sin(view.yaw) * cp * view.dist,
-    Math.sin(view.pitch) * view.dist,
-    Math.cos(view.yaw) * cp * view.dist,
+    Math.sin(view.yaw) * cp * fitDist,
+    Math.sin(view.pitch) * fitDist,
+    Math.cos(view.yaw) * cp * fitDist,
   );
   camera.lookAt(0, 0, 0);
   renderer.render(scene, camera);
@@ -801,6 +963,57 @@ window.__forkStats = () => columns.map((c, i) => ({
   topScores: c.ranked.slice(0, 3).map((m) => m.score),
 }));
 
+/**
+ * 响应式布局现状。所有尺寸都从当前 DOM 盒子现读，验收不镜像 CSS 断点，
+ * 因而面板被裁掉、互相覆盖或把根页面撑宽时都藏不住。
+ */
+function layoutSnapshot() {
+  const root = document.documentElement;
+  const body = document.body;
+  const box = (el) => {
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.x, y: r.y, w: r.width, h: r.height,
+      right: r.right, bottom: r.bottom,
+      docX: r.x + window.scrollX, docY: r.y + window.scrollY,
+      docRight: r.right + window.scrollX, docBottom: r.bottom + window.scrollY,
+    };
+  };
+  const forkWrapBox = box(forkWrap);
+  const firstCard = forkEl.querySelector('g.card rect');
+  return {
+    viewport: {
+      w: window.innerWidth,
+      h: window.innerHeight,
+      visualW: window.visualViewport ? window.visualViewport.width : window.innerWidth,
+      visualH: window.visualViewport ? window.visualViewport.height : window.innerHeight,
+      dpr: window.devicePixelRatio || 1,
+    },
+    root: {
+      clientW: root.clientWidth, clientH: root.clientHeight,
+      scrollW: root.scrollWidth, scrollH: root.scrollHeight,
+    },
+    body: { scrollW: body.scrollWidth, scrollH: body.scrollHeight },
+    panels: Object.fromEntries(
+      ['cloudPanel', 'boardPanel', 'stage'].map((id) => [id, box(document.getElementById(id))]),
+    ),
+    board: box(boardEl),
+    skyBox: box(skyBox),
+    skyCanvas: { ...box(canvas), pixelW: canvas.width, pixelH: canvas.height },
+    forkWrap: {
+      ...forkWrapBox,
+      clientW: forkWrap.clientWidth, clientH: forkWrap.clientHeight,
+      scrollW: forkWrap.scrollWidth, scrollH: forkWrap.scrollHeight,
+      scrollLeft: forkWrap.scrollLeft, scrollTop: forkWrap.scrollTop,
+    },
+    controls: {
+      buttons: [...document.querySelectorAll('button')].map(box),
+      firstCard: firstCard ? box(firstCard) : null,
+    },
+    cloudFull: body.classList.contains('cloud-full'),
+  };
+}
+
 // 验收用的钩子：走的是和点棋盘完全同一条路
 window.__test = {
   tryMove,
@@ -809,6 +1022,7 @@ window.__test = {
     history: game.history(), over: game.isGameOver(), thinking,
   }),
   ai: () => lastAi,
+  layout: layoutSnapshot,
   pickBranch: (col, idx) => {
     if (!columns[col] || idx >= columns[col].ranked.length) return false;
     branchPath = branchPath.slice(0, col);

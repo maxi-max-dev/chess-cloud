@@ -21,7 +21,7 @@ let URL_ = arg('--url', null);
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
 
-let server = null;
+let server = null, chromeProcess = null;
 async function serveLocal() {
   server = http.createServer((req, res) => {
     const rel = decodeURIComponent(req.url.split('?')[0]);
@@ -177,6 +177,28 @@ function shotStats(file, rect) {
   };
 }
 
+function edgeStats(file, cssW, cssH) {
+  const { w, h, ch, px } = decodePng(fs.readFileSync(file));
+  const scale = Math.min(w / cssW, h / cssH);
+  const band = Math.max(2, Math.round(7 * scale));
+  let total = 0, dark = 0, light = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (x >= band && x < w - band && y >= band && y < h - band) continue;
+      const o = (y * w + x) * ch;
+      const sum = px[o] + px[o + 1] + px[o + 2];
+      total++;
+      if (sum < 240) dark++;
+      if (sum > 660) light++;
+    }
+  }
+  return {
+    w, h, band, total, dark, light,
+    darkRatio: +(dark / Math.max(1, total)).toFixed(4),
+    lightRatio: +(light / Math.max(1, total)).toFixed(4),
+  };
+}
+
 // ─────────────────────────── 验收
 const results = [];
 function record(ok, label, detail) {
@@ -208,10 +230,338 @@ async function checkNodesMatchCount(stats, tag) {
   }
 }
 
+async function settleLayout() {
+  await evalJs('new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))', true);
+}
+
+async function setViewport(width, height, orientation) {
+  await send('Emulation.setDeviceMetricsOverride', {
+    width, height, deviceScaleFactor: 2, mobile: true,
+    screenWidth: width, screenHeight: height,
+    screenOrientation: { type: orientation, angle: orientation === 'portraitPrimary' ? 0 : 90 },
+  });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
+  await settleLayout();
+}
+
+async function touchAt(x, y) {
+  const point = { x, y, radiusX: 1, radiusY: 1, force: 1, id: 1 };
+  await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
+  await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+}
+
+async function swipeTouch(from, to, steps = 8) {
+  const pointAt = (i) => ({
+    x: from.x + (to.x - from.x) * i / steps,
+    y: from.y + (to.y - from.y) * i / steps,
+    radiusX: 1, radiusY: 1, force: 1, id: 1,
+  });
+  await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [pointAt(0)] });
+  for (let i = 1; i <= steps; i++) {
+    await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [pointAt(i)] });
+    await sleep(16);
+  }
+  await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await sleep(120);
+}
+
+function layoutProblems(layout) {
+  const issues = [];
+  const panels = Object.entries(layout.panels);
+  if (Math.max(layout.root.scrollW, layout.body.scrollW) > layout.root.clientW + 1) {
+    issues.push(`根页面横向溢出 ${Math.max(layout.root.scrollW, layout.body.scrollW)}>${layout.root.clientW}`);
+  }
+  for (const [id, r] of panels) {
+    if (r.docX < -1 || r.docRight > layout.viewport.w + 1) {
+      issues.push(`${id} 横向 ${Math.round(r.docX)}..${Math.round(r.docRight)}`);
+    }
+    if (r.docY < -1 || r.docBottom > layout.root.scrollH + 1) {
+      issues.push(`${id} 纵向 ${Math.round(r.docY)}..${Math.round(r.docBottom)} / 文档 ${layout.root.scrollH}`);
+    }
+  }
+  for (let i = 0; i < panels.length; i++) {
+    for (let j = i + 1; j < panels.length; j++) {
+      const [aId, a] = panels[i], [bId, b] = panels[j];
+      const overlapW = Math.min(a.docRight, b.docRight) - Math.max(a.docX, b.docX);
+      const overlapH = Math.min(a.docBottom, b.docBottom) - Math.max(a.docY, b.docY);
+      if (overlapW > 1 && overlapH > 1) {
+        issues.push(`${aId}/${bId} 重叠 ${Math.round(overlapW)}×${Math.round(overlapH)}`);
+      }
+    }
+  }
+  return issues;
+}
+
+async function runMobileChecks() {
+  const shotBase = SHOT.replace(/\.png$/i, '');
+  try {
+
+  // 390×844 竖屏：页面本身只纵向滚，棋盘 → 分叉 → 星云都能到达。
+  await setViewport(390, 844, 'portraitPrimary');
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+  const portrait = await evalJs('window.__test.layout()');
+  const portraitProblems = layoutProblems(portrait);
+  const orderOk =
+    portrait.panels.boardPanel.docY < portrait.panels.stage.docY
+    && portrait.panels.stage.docY < portrait.panels.cloudPanel.docY;
+  await swipeTouch(
+    { x: 4, y: portrait.viewport.h - 80 },
+    { x: 4, y: 80 },
+  );
+  const portraitScrollY = await evalJs('window.scrollY');
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+  const portraitViewportOk =
+    Math.abs(portrait.viewport.w - 390) <= 1
+    && Math.abs(portrait.viewport.h - 844) <= 1
+    && Math.abs(portrait.viewport.visualW - 390) <= 1;
+  record(portraitProblems.length === 0 && orderOk && portraitScrollY > 20 && portraitViewportOk,
+    '④ 手机竖屏三块面板完整可达、互不覆盖',
+    portraitProblems.length
+      ? portraitProblems.join('; ')
+      : `viewport ${portrait.viewport.w}×${portrait.viewport.h}｜真实滑动到 y=${Math.round(portraitScrollY)}｜顺序 棋盘→分叉→星云`);
+
+  const boardOk =
+    Math.abs(portrait.board.w - portrait.board.h) <= 1
+    && portrait.board.w / 8 >= 36
+    && portrait.board.docX >= -1
+    && portrait.board.docRight <= portrait.viewport.w + 1;
+  const targets = [...portrait.controls.buttons, portrait.controls.firstCard].filter(Boolean);
+  const targetsOk = targets.length > 0 && targets.every((r) => r.h >= 43);
+  const minTarget = targets.length ? Math.min(...targets.map((r) => r.h)) : 0;
+  record(boardOk && targetsOk,
+    '④ 手机棋盘保持正方形，触控目标不小于 44px',
+    `棋盘 ${Math.round(portrait.board.w)}×${Math.round(portrait.board.h)}｜单格 ${(portrait.board.w / 8).toFixed(1)}px｜最小目标 ${minTarget.toFixed(1)}px`);
+
+  const forkGesture = await evalJs(`(() => {
+    const wrap = document.getElementById('forkWrap');
+    wrap.scrollLeft = 0;
+    const r = wrap.getBoundingClientRect();
+    return {
+      from: { x: r.right - 24, y: r.top + Math.min(r.height - 24, 180) },
+      to: { x: r.left + 24, y: r.top + Math.min(r.height - 24, 180) },
+    };
+  })()`);
+  await swipeTouch(forkGesture.from, forkGesture.to);
+  const gestureScrollLeft = await evalJs('document.getElementById("forkWrap").scrollLeft');
+
+  const forkReach = await evalJs(`(() => {
+    const wrap = document.getElementById('forkWrap');
+    const cards = [...document.querySelectorAll('#fork g.card')];
+    if (cards.length === 0) {
+      return {
+        cards: 0, clientW: wrap.clientWidth, scrollW: wrap.scrollWidth,
+        visible: false, target: null,
+        rootScrollW: document.documentElement.scrollWidth,
+        rootClientW: document.documentElement.clientWidth,
+      };
+    }
+    wrap.scrollLeft = wrap.scrollWidth;
+    const wr = wrap.getBoundingClientRect();
+    const lastCol = Math.max(...cards.map((card) => Number(card.dataset.col)));
+    const target = cards.find((card) => Number(card.dataset.col) === lastCol && Number(card.dataset.idx) === 1)
+      || cards.find((card) => Number(card.dataset.col) === lastCol);
+    const r = target.getBoundingClientRect();
+    return {
+      cards: cards.length, clientW: wrap.clientWidth, scrollW: wrap.scrollWidth,
+      visible: r.right > wr.left && r.left < wr.right,
+      target: {
+        x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2,
+        col: lastCol, san: target.querySelector('text').textContent,
+      },
+      rootScrollW: document.documentElement.scrollWidth,
+      rootClientW: document.documentElement.clientWidth,
+    };
+  })()`);
+  if (forkReach.target) {
+    await touchAt(forkReach.target.x, forkReach.target.y);
+    await sleep(120);
+  }
+  const touchedBranch = forkReach.target
+    ? await evalJs(`window.__forkStats()[${forkReach.target.col}].chosenSan`)
+    : null;
+  record(
+    forkReach.cards > 0
+      && gestureScrollLeft > 10
+      && forkReach.scrollW > forkReach.clientW
+      && forkReach.visible
+      && touchedBranch === forkReach.target?.san
+      && forkReach.rootScrollW <= forkReach.rootClientW + 1,
+    '④ 分叉可真实横滑，最后一列可触摸选择',
+    `手势滑到 ${Math.round(gestureScrollLeft)}px｜末列点 ${forkReach.target?.san || '无卡片'}→${touchedBranch || '未选'}｜根页面 ${forkReach.rootClientW}/${forkReach.rootScrollW}px`);
+
+  // 背景不是只铺首屏：页面顶部和滚到底后的四周都直接数截图像素。
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+  const topFile = `${shotBase}-mobile-top.png`;
+  const topShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(topFile, Buffer.from(topShot.data, 'base64'));
+  await evalJs('window.scrollTo(0, document.documentElement.scrollHeight)');
+  await settleLayout();
+  const bottomPosition = await evalJs(`({
+    y: window.scrollY,
+    max: document.documentElement.scrollHeight - window.innerHeight,
+  })`);
+  const bottomFile = `${shotBase}-mobile-bottom.png`;
+  const bottomShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(bottomFile, Buffer.from(bottomShot.data, 'base64'));
+  const topEdge = edgeStats(topFile, portrait.viewport.w, portrait.viewport.h);
+  const bottomEdge = edgeStats(bottomFile, portrait.viewport.w, portrait.viewport.h);
+  record(
+    topEdge.darkRatio > 0.98
+      && bottomEdge.darkRatio > 0.98
+      && bottomPosition.y >= bottomPosition.max - 1,
+    '④ 手机背景从页面顶部铺到底部，无白边或透明断层',
+    `顶部深色 ${topEdge.darkRatio}｜底部深色 ${bottomEdge.darkRatio}｜滚动 ${Math.round(bottomPosition.y)}/${Math.round(bottomPosition.max)}`);
+
+  // 全屏要真占满 viewport，四角的命中层也必须属于星云，而不是后面的面板。
+  const skyTap = await evalJs(`(() => {
+    const r = document.getElementById('sky').getBoundingClientRect();
+    return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
+  })()`);
+  await touchAt(skyTap.x, skyTap.y);
+  await settleLayout();
+  const full = await evalJs(`(() => {
+    const l = window.__test.layout();
+    const w = l.viewport.visualW, h = l.viewport.visualH;
+    const points = [[1,1],[w-2,1],[1,h-2],[w-2,h-2]];
+    const cornersHit = points.every(([x,y]) => {
+      const el = document.elementFromPoint(x,y);
+      return !!(el && el.closest('#cloudPanel'));
+    });
+    return { layout: l, cornersHit };
+  })()`);
+  const fsb = full.layout.skyBox, fsc = full.layout.skyCanvas;
+  const pxRatio = Math.min(full.layout.viewport.dpr, 2);
+  const fullGeometryOk =
+    full.layout.cloudFull
+    && Math.abs(fsb.x) <= 1 && Math.abs(fsb.y) <= 1
+    && Math.abs(fsb.w - full.layout.viewport.visualW) <= 1
+    && Math.abs(fsb.h - full.layout.viewport.visualH) <= 1
+    && full.cornersHit
+    && Math.abs(fsc.pixelW - fsc.w * pxRatio) <= 2
+    && Math.abs(fsc.pixelH - fsc.h * pxRatio) <= 2;
+  if (full.layout.cloudFull) {
+    await touchAt(full.layout.viewport.visualW / 2, full.layout.viewport.visualH / 2);
+    await settleLayout();
+  }
+  const closed = await evalJs('window.__test.layout()');
+  const fullOk = fullGeometryOk && !closed.cloudFull;
+  record(fullOk, '④ 手机星云是真全屏，四角不漏背景也不被面板盖住',
+    `真实触摸开/关｜盒子 ${Math.round(fsb.x)},${Math.round(fsb.y)} ${Math.round(fsb.w)}×${Math.round(fsb.h)}｜画布 ${fsc.pixelW}×${fsc.pixelH}｜四角命中 ${full.cornersHit}`);
+
+  // 不走测试钩子，发真实 touch 事件点 e2 → e4。
+  await evalJs(`(() => {
+    window.__test.reset();
+    document.getElementById('board').scrollIntoView({ block: 'center' });
+  })()`);
+  await settleLayout();
+  const tapBoard = await evalJs(`(() => {
+    const r = document.getElementById('board').getBoundingClientRect();
+    const at = (file, rank) => ({
+      x: r.left + (file + .5) * r.width / 8,
+      y: r.top + (8 - rank + .5) * r.height / 8,
+    });
+    return { e2: at(4, 2), e4: at(4, 4) };
+  })()`);
+  await touchAt(tapBoard.e2.x, tapBoard.e2.y);
+  const mobileAiStart = Date.now();
+  await touchAt(tapBoard.e4.x, tapBoard.e4.y);
+  let mobileAi = null, touched = [];
+  while (Date.now() - mobileAiStart < 5000) {
+    const mobileState = await evalJs('({ state: window.__test.state(), ai: window.__test.ai() })');
+    touched = mobileState.state.history;
+    mobileAi = mobileState.ai;
+    if (mobileAi && touched.length >= 2 && !mobileState.state.thinking) break;
+    await sleep(50);
+  }
+  const mobileAiWall = Date.now() - mobileAiStart;
+  record(
+    touched[0] === 'e4' && touched.length === 2 && !!mobileAi && mobileAiWall <= 3000,
+    '④ 手机真实触摸能走 e4，AI 仍在 3 秒内合法应手',
+    `外部秒表 ${mobileAiWall}ms｜棋谱 ${JSON.stringify(touched)}｜${mobileAi ? `搜到 ${mobileAi.depth} 层` : 'AI 未返回'}`);
+
+  // 844×390 短横屏：允许页面纵滚，但不能再把棋盘裁到屏外或压住星云。
+  await setViewport(844, 390, 'landscapePrimary');
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+  const landscape = await evalJs('window.__test.layout()');
+  const landscapeProblems = layoutProblems(landscape);
+  await swipeTouch(
+    { x: 4, y: landscape.viewport.h - 55 },
+    { x: 4, y: 55 },
+  );
+  const landscapeScrollY = await evalJs('window.scrollY');
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+  const landscapeTopFile = `${shotBase}-mobile-landscape-top.png`;
+  const landscapeTopShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(landscapeTopFile, Buffer.from(landscapeTopShot.data, 'base64'));
+  await evalJs('window.scrollTo(0, document.documentElement.scrollHeight)');
+  await settleLayout();
+  const landscapeBottomFile = `${shotBase}-mobile-landscape-bottom.png`;
+  const landscapeBottomShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(landscapeBottomFile, Buffer.from(landscapeBottomShot.data, 'base64'));
+  const landscapeTopEdge = edgeStats(landscapeTopFile, landscape.viewport.w, landscape.viewport.h);
+  const landscapeBottomEdge = edgeStats(landscapeBottomFile, landscape.viewport.w, landscape.viewport.h);
+  const landscapeViewportOk =
+    Math.abs(landscape.viewport.w - 844) <= 1
+    && Math.abs(landscape.viewport.h - 390) <= 1
+    && Math.abs(landscape.viewport.visualW - 844) <= 1;
+  record(
+    landscapeProblems.length === 0
+      && landscapeViewportOk
+      && landscapeScrollY > 20
+      && landscapeTopEdge.lightRatio < 0.08
+      && landscapeBottomEdge.lightRatio < 0.08,
+    '④ 手机短横屏面板完整可达、互不覆盖',
+    landscapeProblems.length
+      ? landscapeProblems.join('; ')
+      : `viewport ${landscape.viewport.w}×${landscape.viewport.h}｜真实滑动到 y=${Math.round(landscapeScrollY)}｜背景亮边 ${landscapeTopEdge.lightRatio}/${landscapeBottomEdge.lightRatio}`);
+
+  const landscapeTargets = [...landscape.controls.buttons, landscape.controls.firstCard].filter(Boolean);
+  const landscapeTargetsOk = landscapeTargets.length > 0 && landscapeTargets.every((r) => r.h >= 43);
+
+  await setViewport(667, 375, 'landscapePrimary');
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+  const smallLandscape = await evalJs('window.__test.layout()');
+  const smallProblems = layoutProblems(smallLandscape);
+  const smallTargets = [...smallLandscape.controls.buttons, smallLandscape.controls.firstCard].filter(Boolean);
+
+  await setViewport(1024, 768, 'landscapePrimary');
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+  const tablet = await evalJs('window.__test.layout()');
+  const tabletProblems = layoutProblems(tablet);
+  const tabletTargets = [...tablet.controls.buttons, tablet.controls.firstCard].filter(Boolean);
+  record(
+    Math.abs(landscape.board.w - landscape.board.h) <= 1
+      && landscape.board.docX >= -1
+      && landscape.board.docRight <= landscape.viewport.w + 1
+      && landscapeTargetsOk
+      && smallProblems.length === 0
+      && smallTargets.length > 0 && smallTargets.every((r) => r.h >= 43)
+      && tabletProblems.length === 0
+      && tabletTargets.length > 0 && tabletTargets.every((r) => r.h >= 43),
+    '④ 常见手机横屏与平板均完整，触控目标不小于 44px',
+    `844 棋盘 ${Math.round(landscape.board.w)}px｜667 面板 ${smallProblems.length ? smallProblems.join('; ') : '无重叠'}｜1024 面板 ${tabletProblems.length ? tabletProblems.join('; ') : '无重叠'}`);
+
+  } finally {
+    try {
+      const full = await evalJs('document.body.classList.contains("cloud-full")');
+      if (full) await evalJs('window.__test.toggleCloudFull()');
+    } catch {}
+    try { await send('Emulation.clearDeviceMetricsOverride'); } catch {}
+    try { await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 }); } catch {}
+  }
+}
+
 async function main() {
   if (!URL_) URL_ = await serveLocal();
   console.log(`验收目标: ${URL_}\n`);
-  const chrome = await launchChrome();
+  chromeProcess = await launchChrome();
   await attach();
 
   await send('Page.navigate', { url: URL_ });
@@ -353,6 +703,8 @@ async function main() {
   fs.writeFileSync(SHOT2, Buffer.from(shot2.data, 'base64'));
   console.log(`走过两回合的截图: ${SHOT2}`);
 
+  await runMobileChecks();
+
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
 
   console.log('');
@@ -362,7 +714,7 @@ async function main() {
     : `有红：${failed.length}/${results.length} 项失败 → ${failed.map((r) => r.label).join('; ')}`);
 
   try { ws.close(); } catch {}
-  try { chrome.kill('SIGKILL'); } catch {}
+  try { chromeProcess && chromeProcess.kill('SIGKILL'); } catch {}
   if (server) server.close();
   process.exit(failed.length === 0 ? 0 : 1);
 }
@@ -371,5 +723,7 @@ main().catch((e) => {
   console.error('验收脚本自己崩了:', e);
   console.error('页面报错记录:', pageErrors);
   try { ws && ws.close(); } catch {}
+  try { chromeProcess && chromeProcess.kill('SIGKILL'); } catch {}
+  try { server && server.close(); } catch {}
   process.exit(2);
 });
