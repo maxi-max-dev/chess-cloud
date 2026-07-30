@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>可能性星云 · chess-cloud</title>
+<style>
+  :root {
+    --ink: #e8ecf6;
+    --dim: #8c93a8;
+    --warm: #ff7a1f;
+    --cold: #2f86ff;
+    --glass: rgba(14, 17, 27, 0.72);
+    --edge: rgba(150, 170, 220, 0.16);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #05060b; }
+  body {
+    font: 14px/1.55 -apple-system, "SF Pro SC", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  #sky { position: fixed; inset: 0; display: block; }
+  #vignette {
+    position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 45%, rgba(0,0,0,0) 38%, rgba(0,0,0,.55) 100%);
+  }
+
+  .panel {
+    position: fixed;
+    background: var(--glass);
+    border: 1px solid var(--edge);
+    border-radius: 16px;
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow: 0 18px 50px rgba(0,0,0,.45);
+  }
+
+  /* 棋盘 */
+  #boardPanel { left: 22px; bottom: 22px; padding: 14px 14px 12px; width: 316px; }
+  #board { display: block; width: 288px; height: 288px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+  #board text.glyph { pointer-events: none; user-select: none; }
+  #status { margin-top: 10px; min-height: 34px; font-size: 12.5px; color: var(--dim); }
+  #status b { color: var(--ink); font-weight: 600; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  button {
+    font: inherit; font-size: 12px; color: var(--ink);
+    background: rgba(120,150,220,.14); border: 1px solid var(--edge);
+    border-radius: 9px; padding: 5px 11px; cursor: pointer;
+  }
+  button:hover { background: rgba(120,150,220,.26); }
+
+  /* 右上抬头 */
+  #hud { right: 22px; top: 22px; padding: 13px 15px; width: 258px; }
+  #hud h1 { margin: 0 0 2px; font-size: 15px; font-weight: 650; letter-spacing: .02em; }
+  #hud .sub { color: var(--dim); font-size: 11.5px; margin-bottom: 10px; }
+  table.kv { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  table.kv td { padding: 2px 0; }
+  table.kv td:first-child { color: var(--dim); }
+  table.kv td:last-child { text-align: right; }
+  .grow { color: #7ee0a8; }
+  .legend { margin-top: 11px; }
+  .bar { height: 7px; border-radius: 4px; background: linear-gradient(90deg, var(--cold), #767a96, var(--warm)); }
+  .ends { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--dim); margin-top: 3px; }
+  #tip { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); font-size: 11.5px; color: #5d6478; }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+<div id="vignette"></div>
+
+<div class="panel" id="hud">
+  <h1>可能性星云</h1>
+  <div class="sub">你落一步，之后所有未来炸开成星</div>
+  <table class="kv">
+    <tr><td>已铺层数</td><td id="kDepth">—</td></tr>
+    <tr><td>星数（本层）</td><td id="kNodes">—</td></tr>
+    <tr><td>星数（全云）</td><td id="kTotal">—</td></tr>
+    <tr><td>成云耗时</td><td id="kMs">—</td></tr>
+    <tr><td>AI 应手</td><td id="kAi">—</td></tr>
+  </table>
+  <div class="legend">
+    <div class="bar"></div>
+    <div class="ends"><span>黑优</span><span>均势</span><span>白优</span></div>
+  </div>
+</div>
+
+<div class="panel" id="boardPanel">
+  <svg id="board" viewBox="0 0 288 288" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div id="status">正在生成星云…</div>
+  <div class="row">
+    <button id="btnReset">重开</button>
+    <button id="btnCenter">回正视角</button>
+  </div>
+</div>
+
+<div id="tip">拖动旋转 · 滚轮缩放 · 你执白先走</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import { Chess, expand, MATE } from './engine.js';
+
+// ─────────────────────────────────────────────── 常量
+const SYNC_DEPTH = 3;      // 前几层主线程同步铺开
+const DEEP_DEPTH = 4;      // 这一层交给 Worker 渐进生长
+const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，所以应手有硬上限）
+const BATCH_PARENTS = 400;  // Worker 每批处理多少个父节点
+
+// 每层往外推多远 / 散开的锥半角 / 星点大小 / 不透明度，下标 = 层号
+// 锥角收窄 + 步长快速衰减，20 条主枝才分得开，看着才像放射决策树而不是一个毛球
+const STEP    = [0, 9.2, 5.0, 2.9, 1.6];
+const SPREAD  = [0, 0, 0.50, 0.34, 0.26];
+const PT_SIZE = [3.4, 2.0, 1.20, 0.62, 0.36];
+// 加性混合下 20 万个点会叠爆成白，所以越深的层越淡，颜色才留得住
+const PT_OPAC = [1.0, 0.95, 0.72, 0.46, 0.21];
+
+const GOLDEN = 2.39996322972865332;
+
+// ─────────────────────────────────────────────── three.js 场景
+const canvas = document.getElementById('sky');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+renderer.setClearColor(0x05060b, 1);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 4000);
+const cloudGroup = new THREE.Group();
+scene.add(cloudGroup);
+
+const starTex = makeStarTexture();
+function makeStarTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.22, 'rgba(255,255,255,0.62)');
+  grd.addColorStop(0.55, 'rgba(255,255,255,0.14)');
+  grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  const t = new THREE.CanvasTexture(c);
+  t.needsUpdate = true;
+  return t;
+}
+
+const pointMaterials = PT_SIZE.map((size, d) => new THREE.PointsMaterial({
+  size,
+  map: starTex,
+  vertexColors: true,
+  transparent: true,
+  opacity: PT_OPAC[d],
+  depthWrite: false,
+  blending: THREE.AdditiveBlending,
+  sizeAttenuation: true,
+}));
+const lineMaterial = new THREE.LineBasicMaterial({
+  vertexColors: true, transparent: true, opacity: 0.13,
+  depthWrite: false, blending: THREE.AdditiveBlending,
+});
+
+// ─────────────────────────────────────────────── 星色：分数 → 颜色
+// 分数正 = 白优（暖），负 = 黑优（冷）。分数来自 engine.js 里那一份 evaluate()。
+const WARM = [1.00, 0.44, 0.08];
+const COLD = [0.10, 0.46, 1.00];
+// 均势必须是真中性灰：之前调成偏蓝的，结果「黑优」和「均势」在画面上根本分不开
+const EVEN = [0.55, 0.53, 0.55];
+const COLOR_FULL = 120;            // 多少百分兵算「一边倒」（≈一个兵），到顶就是纯暖/纯冷
+
+function writeColor(out, o, score) {
+  let t = score / COLOR_FULL;
+  if (t > 1) t = 1; else if (t < -1) t = -1;
+  const k = Math.sign(t) * Math.pow(Math.abs(t), 0.55);   // 提一下小分差的辨识度
+  const target = k >= 0 ? WARM : COLD;
+  const a = Math.abs(k);
+  out[o]     = EVEN[0] + (target[0] - EVEN[0]) * a;
+  out[o + 1] = EVEN[1] + (target[1] - EVEN[1]) * a;
+  out[o + 2] = EVEN[2] + (target[2] - EVEN[2]) * a;
+}
+
+// ─────────────────────────────────────────────── 星云的层账本
+// layers: depth -> { objects: [THREE.Points], pos: Float32Array, dir: Float32Array }
+// 铁律：星数一律从 objects 里的几何体 position.count 现读，绝不自己记数。
+const layers = new Map();
+let cloudState = { fen: '', depth: 0, ms: 0, t0: 0, growing: false, gen: 0 };
+
+function nodesAt(depth) {
+  const rec = layers.get(depth);
+  if (!rec) return 0;
+  let n = 0;
+  for (const obj of rec.objects) n += obj.geometry.attributes.position.count;
+  return n;
+}
+function builtDepths() {
+  return [...layers.keys()].sort((a, b) => a - b);
+}
+
+function clearCloud() {
+  for (const rec of layers.values()) {
+    for (const obj of rec.objects) {
+      cloudGroup.remove(obj);
+      obj.geometry.dispose();
+    }
+    if (rec.lines) { cloudGroup.remove(rec.lines); rec.lines.geometry.dispose(); }
+  }
+  layers.clear();
+}
+
+function hash01(n) {
+  const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+/** 第 0 层：根局面本身，摆在正中央 */
+function addRoot(score) {
+  const pos = new Float32Array([0, 0, 0]);
+  const col = new Float32Array(3);
+  writeColor(col, 0, score);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const obj = new THREE.Points(geo, pointMaterials[0]);
+  obj.frustumCulled = false;
+  cloudGroup.add(obj);
+  layers.set(0, { objects: [obj], pos, dir: new Float32Array([0, 1, 0]) });
+}
+
+/**
+ * 往第 depth 层追加一批星。
+ * parents[i] = 这颗星的父节点在上一层里的下标；scores[i] = 它的评估分。
+ * 每一批都单独开一个「刚好这么大」的 BufferGeometry：
+ * 不预分配、不用 drawRange，这样 position.count 天然就是真实星数。
+ */
+function appendLayer(depth, parents, scores) {
+  const n = parents.length;
+  if (n === 0) {
+    if (!layers.has(depth)) layers.set(depth, { objects: [], pos: null, dir: null });
+    return;
+  }
+  const parent = layers.get(depth - 1);
+  const ppos = parent.pos, pdir = parent.dir;
+  const step = STEP[depth], spread = SPREAD[depth];
+
+  const pos = new Float32Array(n * 3);
+  const dir = new Float32Array(n * 3);
+  const col = new Float32Array(n * 3);
+
+  let i = 0;
+  while (i < n) {
+    const p = parents[i];
+    let k = 1;
+    while (i + k < n && parents[i + k] === p) k++;   // 同一个父亲的孩子是连续一段
+
+    const px = ppos[p * 3], py = ppos[p * 3 + 1], pz = ppos[p * 3 + 2];
+    let ax = pdir[p * 3], ay = pdir[p * 3 + 1], az = pdir[p * 3 + 2];
+
+    // 父方向的正交基，孩子在以父方向为轴的锥面上铺开
+    let hx = 0, hy = 0, hz = 0;
+    if (Math.abs(ax) < 0.9) hx = 1; else hy = 1;
+    let ux = ay * hz - az * hy, uy = az * hx - ax * hz, uz = ax * hy - ay * hx;
+    let ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+    const vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux;
+    const phi0 = hash01(p + depth * 131.7) * 6.28318530718;
+
+    for (let j = 0; j < k; j++) {
+      let cx, cy, cz;
+      if (depth === 1) {
+        // 第一层直接铺满整个球面（斐波那契球），星云才有「四面炸开」的样子
+        const z = 1 - 2 * (j + 0.5) / k;
+        const r = Math.sqrt(Math.max(0, 1 - z * z));
+        const th = j * GOLDEN;
+        cx = r * Math.cos(th); cy = z; cz = r * Math.sin(th);
+      } else {
+        const a = spread * Math.sqrt((j + 0.5) / k);
+        const ph = phi0 + j * GOLDEN;
+        const sa = Math.sin(a), ca = Math.cos(a);
+        const wx = ux * Math.cos(ph) + vx * Math.sin(ph);
+        const wy = uy * Math.cos(ph) + vy * Math.sin(ph);
+        const wz = uz * Math.cos(ph) + vz * Math.sin(ph);
+        cx = ax * ca + wx * sa; cy = ay * ca + wy * sa; cz = az * ca + wz * sa;
+        const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
+      }
+      // 径向抖动：孩子不要全落在同一个半径上，不然每层都是一层壳，整朵云糊成毛球
+      const jr = depth >= 2 ? 0.45 + 1.15 * hash01(p * 3.7 + j * 11.31 + depth * 57.3) : 1;
+      const o = (i + j) * 3;
+      dir[o] = cx; dir[o + 1] = cy; dir[o + 2] = cz;
+      pos[o] = px + cx * step * jr; pos[o + 1] = py + cy * step * jr; pos[o + 2] = pz + cz * step * jr;
+      writeColor(col, o, scores[i + j]);
+    }
+    i += k;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  const obj = new THREE.Points(geo, pointMaterials[Math.min(depth, PT_SIZE.length - 1)]);
+  obj.frustumCulled = false;
+  cloudGroup.add(obj);
+
+  let rec = layers.get(depth);
+  if (!rec) { rec = { objects: [], pos: null, dir: null }; layers.set(depth, rec); }
+  rec.objects.push(obj);
+  // 只有还要长孩子的层才需要留住坐标（第 4 层是末层，不留）
+  if (depth < DEEP_DEPTH) { rec.pos = pos; rec.dir = dir; }
+
+  // 前两层画出连线，放射决策树的骨架才看得出来
+  if (depth <= 2) {
+    const lp = new Float32Array(n * 6), lc = new Float32Array(n * 6);
+    for (let t = 0; t < n; t++) {
+      const p = parents[t];
+      lp[t * 6] = ppos[p * 3]; lp[t * 6 + 1] = ppos[p * 3 + 1]; lp[t * 6 + 2] = ppos[p * 3 + 2];
+      lp[t * 6 + 3] = pos[t * 3]; lp[t * 6 + 4] = pos[t * 3 + 1]; lp[t * 6 + 5] = pos[t * 3 + 2];
+      for (let c = 0; c < 3; c++) { lc[t * 6 + c] = 0.45; lc[t * 6 + 3 + c] = col[t * 3 + c]; }
+    }
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
+    lg.setAttribute('color', new THREE.BufferAttribute(lc, 3));
+    const lines = new THREE.LineSegments(lg, lineMaterial);
+    lines.frustumCulled = false;
+    cloudGroup.add(lines);
+    rec.lines = lines;
+  }
+}
+
+// ─────────────────────────────────────────────── 棋局 + Worker
+const game = new Chess();
+let selected = null;
+let thinking = false;
+let lastAi = null;
+let aiClock = 0;
+
+const searchWorker = new Worker('./worker.js', { type: 'module' });
+searchWorker.postMessage({ type: 'ping' });   // 预热：先把 CDN 模块拉进 Worker
+searchWorker.onmessage = (ev) => {
+  const m = ev.data;
+  if (m.type === 'searchDone') onAiMove(m.result);
+  else if (m.type === 'searchError') { thinking = false; setStatus(`AI 出错：${m.message}`); }
+};
+
+let cloudWorker = null;
+
+function rebuildCloud() {
+  const gen = ++cloudState.gen;
+  if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }  // 真的掐掉上一朵云
+  clearCloud();
+
+  const fen = game.fen();
+  const t0 = performance.now();
+  addRoot(0);
+
+  let parentFens = [fen];
+  for (let d = 1; d <= SYNC_DEPTH; d++) {
+    const { parents, scores, fens } = expand(parentFens, { keepFens: true });
+    appendLayer(d, parents, scores);
+    parentFens = fens;
+  }
+  const syncMs = performance.now() - t0;
+  cloudState = { fen, depth: SYNC_DEPTH, ms: syncMs, t0, growing: parentFens.length > 0, gen };
+  updateHud();
+
+  if (parentFens.length === 0) { cloudState.growing = false; updateHud(); return; }
+
+  // 第 4 层：交给 Worker，一批一批长
+  cloudWorker = new Worker('./worker.js', { type: 'module' });
+  cloudWorker.onmessage = (ev) => {
+    const m = ev.data;
+    if (m.id !== gen) return;                       // 过期的云，丢掉
+    if (m.type === 'cloudBatch') {
+      appendLayer(m.depth, m.parents, m.scores);
+      updateHud();
+    } else if (m.type === 'cloudDone') {
+      cloudState.depth = DEEP_DEPTH;
+      cloudState.ms = performance.now() - cloudState.t0;
+      cloudState.growing = false;
+      updateHud();
+    } else if (m.type === 'cloudError') {
+      cloudState.growing = false;
+      setStatus(`星云出错：${m.message}`);
+    }
+  };
+  cloudWorker.postMessage({
+    type: 'cloud', id: gen, depth: DEEP_DEPTH,
+    parentFens, batchParents: BATCH_PARENTS,
+  });
+}
+
+function requestAi() {
+  if (game.isGameOver()) { thinking = false; return; }
+  thinking = true;
+  aiClock = performance.now();
+  searchWorker.postMessage({ type: 'search', id: cloudState.gen, fen: game.fen(), timeBudgetMs: AI_BUDGET_MS });
+}
+
+function onAiMove(result) {
+  thinking = false;
+  if (!result) { renderBoard(); setStatus(describeEnd()); return; }
+  const mv = game.move(result.move);
+  lastAi = {
+    san: mv ? mv.san : result.san,
+    depth: result.depth,
+    nodes: result.nodes,
+    searchMs: Math.round(result.ms),
+    totalMs: Math.round(performance.now() - aiClock),
+  };
+  selected = null;
+  renderBoard();
+  rebuildCloud();
+  setStatus(game.isGameOver()
+    ? describeEnd()
+    : `黑走 <b>${lastAi.san}</b>（想了 ${lastAi.totalMs}ms，搜到 ${lastAi.depth} 层）。轮到你。`);
+}
+
+/** 落子入口。棋盘点击和测试钩子走的是同一条路，合法性一律由 chess.js 判。 */
+function tryMove(from, to, promotion) {
+  if (thinking || game.isGameOver() || game.turn() !== 'w') return false;
+  let mv = null;
+  try {
+    mv = game.move({ from, to, promotion: promotion || 'q' });
+  } catch (e) {
+    mv = null;      // chess.js 对非法走子直接抛错，这里就是「被拒」
+  }
+  if (!mv) return false;
+  selected = null;
+  renderBoard();
+  requestAi();       // 先派活给 AI 的 Worker，让它和主线程铺云并行跑
+  rebuildCloud();
+  setStatus(game.isGameOver() ? describeEnd() : `你走 <b>${mv.san}</b>，黑方在想…`);
+  return true;
+}
+
+function describeEnd() {
+  if (game.isCheckmate()) return game.turn() === 'w' ? '将死，黑方胜。' : '将死，你赢了。';
+  if (game.isStalemate()) return '困毙，和棋。';
+  if (game.isInsufficientMaterial()) return '子力不足，和棋。';
+  if (game.isThreefoldRepetition()) return '三次重复局面，和棋。';
+  if (game.isDraw()) return '和棋。';
+  return '';
+}
+
+// ─────────────────────────────────────────────── 棋盘（自绘 SVG，不引棋盘库）
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const boardEl = document.getElementById('board');
+const CELL = 36;
+const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+
+function squareAt(file, rank) { return FILES[file] + (8 - rank); }
+
+function renderBoard() {
+  while (boardEl.firstChild) boardEl.removeChild(boardEl.firstChild);
+  const legal = selected
+    ? game.moves({ square: selected, verbose: true }).map((m) => m.to)
+    : [];
+  const board = game.board();
+  const last = game.history({ verbose: true }).slice(-1)[0];
+
+  for (let r = 0; r < 8; r++) {
+    for (let f = 0; f < 8; f++) {
+      const sq = squareAt(f, r);
+      const dark = (r + f) % 2 === 1;
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', f * CELL); rect.setAttribute('y', r * CELL);
+      rect.setAttribute('width', CELL); rect.setAttribute('height', CELL);
+      let fill = dark ? '#3b4560' : '#8b97b4';
+      if (last && (sq === last.from || sq === last.to)) fill = dark ? '#5c6132' : '#b3b06a';
+      if (sq === selected) fill = '#c9a24a';
+      rect.setAttribute('fill', fill);
+      rect.dataset.sq = sq;
+      boardEl.appendChild(rect);
+
+      if (legal.includes(sq)) {
+        const dot = document.createElementNS(SVG_NS, 'circle');
+        dot.setAttribute('cx', f * CELL + CELL / 2);
+        dot.setAttribute('cy', r * CELL + CELL / 2);
+        dot.setAttribute('r', board[r][f] ? 15 : 5.5);
+        dot.setAttribute('fill', 'none');
+        dot.setAttribute('stroke', 'rgba(255,240,190,.85)');
+        dot.setAttribute('stroke-width', board[r][f] ? 2 : 11);
+        dot.dataset.sq = sq;
+        boardEl.appendChild(dot);
+      }
+
+      const pc = board[r][f];
+      if (pc) {
+        const t = document.createElementNS(SVG_NS, 'text');
+        t.setAttribute('x', f * CELL + CELL / 2);
+        t.setAttribute('y', r * CELL + CELL / 2 + 1);
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('dominant-baseline', 'central');
+        t.setAttribute('font-size', 27);
+        t.setAttribute('class', 'glyph');
+        t.setAttribute('fill', pc.color === 'w' ? '#f6f3ea' : '#14161f');
+        t.setAttribute('stroke', pc.color === 'w' ? '#1b1d26' : '#9aa3bb');
+        t.setAttribute('stroke-width', 0.9);
+        t.setAttribute('paint-order', 'stroke');
+        t.textContent = GLYPH[pc.type];
+        boardEl.appendChild(t);
+      }
+    }
+  }
+}
+
+boardEl.addEventListener('click', (ev) => {
+  const sq = ev.target && ev.target.dataset ? ev.target.dataset.sq : null;
+  if (!sq) return;
+  if (selected) {
+    if (sq === selected) { selected = null; renderBoard(); return; }
+    if (tryMove(selected, sq)) return;
+  }
+  const pc = game.get(sq);
+  selected = (pc && pc.color === 'w' && game.turn() === 'w' && !thinking) ? sq : null;
+  renderBoard();
+});
+
+function setStatus(html) { document.getElementById('status').innerHTML = html; }
+
+function updateHud() {
+  const n = nodesAt(cloudState.depth);
+  let total = 0;
+  for (const d of builtDepths()) total += nodesAt(d);
+  document.getElementById('kDepth').textContent =
+    cloudState.growing ? `${cloudState.depth} 层（第 ${DEEP_DEPTH} 层生长中）` : `${cloudState.depth} 层`;
+  document.getElementById('kNodes').textContent = n.toLocaleString('en-US');
+  document.getElementById('kTotal').innerHTML = cloudState.growing
+    ? `<span class="grow">${total.toLocaleString('en-US')}</span>`
+    : total.toLocaleString('en-US');
+  document.getElementById('kMs').textContent = `${Math.round(cloudState.ms)} ms`;
+  document.getElementById('kAi').textContent = lastAi
+    ? `${lastAi.san} · ${lastAi.totalMs}ms · ${lastAi.depth}层`
+    : '—';
+}
+
+// ─────────────────────────────────────────────── 视角（手搓 orbit，不引控件）
+const view = { yaw: 0.6, pitch: 0.28, dist: 54, auto: true };
+let drag = null;
+canvas.addEventListener('pointerdown', (e) => {
+  drag = { x: e.clientX, y: e.clientY };
+  view.auto = false;
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  view.yaw -= (e.clientX - drag.x) * 0.005;
+  view.pitch = Math.max(-1.45, Math.min(1.45, view.pitch + (e.clientY - drag.y) * 0.005));
+  drag = { x: e.clientX, y: e.clientY };
+});
+canvas.addEventListener('pointerup', () => { drag = null; });
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  view.dist = Math.max(6, Math.min(220, view.dist * (1 + Math.sign(e.deltaY) * 0.09)));
+}, { passive: false });
+
+function resize() {
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+resize();
+
+function frame() {
+  if (view.auto) view.yaw += 0.0009;
+  const cp = Math.cos(view.pitch);
+  camera.position.set(
+    Math.sin(view.yaw) * cp * view.dist,
+    Math.sin(view.pitch) * view.dist,
+    Math.cos(view.yaw) * cp * view.dist,
+  );
+  camera.lookAt(0, 0, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ─────────────────────────────────────────────── 对外的检查窗口
+/**
+ * 星云现状。nodes / layers[].nodes 全部从 three.js 几何体的 position.count 现读，
+ * 不是我自己记的账，所以少画一颗都藏不住。
+ */
+window.__cloudStats = () => {
+  const layerList = builtDepths().map((d) => ({ depth: d, nodes: nodesAt(d) }));
+  let total = 0;
+  for (const l of layerList) total += l.nodes;
+  return {
+    fen: cloudState.fen,
+    depth: cloudState.depth,                 // 已经长满的最深一层
+    nodes: nodesAt(cloudState.depth),        // 这一层的真实星数
+    ms: Math.round(cloudState.ms),
+    layers: layerList,                       // 每层各自的真实星数（第 0 层 = 根局面自己）
+    totalNodes: total,
+    growing: cloudState.growing,
+  };
+};
+
+// 验收用的钩子：走的是和点棋盘完全同一条路
+window.__test = {
+  tryMove,
+  state: () => ({
+    fen: game.fen(), turn: game.turn(),
+    history: game.history(), over: game.isGameOver(), thinking,
+  }),
+  ai: () => lastAi,
+  reset: () => { game.reset(); selected = null; lastAi = null; thinking = false; renderBoard(); rebuildCloud(); },
+};
+
+document.getElementById('btnReset').onclick = () => window.__test.reset();
+document.getElementById('btnCenter').onclick = () => {
+  view.yaw = 0.6; view.pitch = 0.28; view.dist = 54; view.auto = true;
+};
+
+renderBoard();
+rebuildCloud();
+setStatus('你执白，点子走棋。每落一步，之后的未来会重新炸开。');
+</script>
+</body>
+</html>
