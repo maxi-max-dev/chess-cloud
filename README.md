@@ -57,6 +57,9 @@
 - `engine.js` — 唯一的评估函数 + minimax 搜索 + 逐层展开
 - `worker.js` — Web Worker：AI 应手 / 第 4 层星云，页面各开一个实例
 - `verify.mjs` — Node 端验收：递归数全树，和 perft 标准值对撞
+- `live-check.mjs` — 无头 Chrome 真机验收：星数、分叉列数、AI 应手时间、截图像素
+- `HANDOFF.md` — **交接文档**：架构、红线、踩过的坑、实测基线、下一步候选
+- `BLOCKED.md` — 待裁决清单（18 条）
 
 不用打包、不用构建、没有后端。chess.js 和 three.js 直接从 CDN 引。
 
