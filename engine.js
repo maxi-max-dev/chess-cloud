@@ -1,7 +1,7 @@
 // engine.js —— 唯一的评估函数 + 搜索 + 树展开。
 //
 // 关键约定：整个项目只有这一份 evaluate()。
-// 星云的星色（主线程调）和 AI 的 minimax 叶子打分（Worker 调）读的是同一个函数、同一份表格。
+// 路径网的线色（主线程调）和 AI 的 minimax 叶子打分（Worker 调）读的是同一个函数、同一份表格。
 // 谁想再写第二份评估，就是把「星色」和「AI 眼里的好坏」割开，那就不是同一个世界了。
 
 import { Chess } from 'https://cdn.jsdelivr.net/npm/chess.js@1.4.0/+esm';
@@ -107,7 +107,7 @@ export function evaluate(fen) {
 }
 
 /**
- * 给云里的一颗星打分。走法对象的 san 以 '#' 结尾就是将死，直接给绝对分；
+ * 给路径网的一条子路径打分。走法对象的 san 以 '#' 结尾就是将死，直接给绝对分；
  * 其余一律走上面那个 evaluate()。返回值同样是「正 = 白优」。
  */
 export function scoreChild(move) {
@@ -178,7 +178,17 @@ export function rankMoves(fen, opts = {}) {
         score = best;
       }
     }
-    return { san: m.san, from: m.from, to: m.to, promotion: m.promotion, after: m.after, score };
+    return {
+      san: m.san,
+      from: m.from,
+      to: m.to,
+      promotion: m.promotion,
+      after: m.after,
+      score,
+      piece: m.piece,
+      captured: m.captured || '',
+      flags: m.flags,
+    };
   });
   out.sort((a, b) => (white ? b.score - a.score : a.score - b.score));
   return out;

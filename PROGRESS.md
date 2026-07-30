@@ -1,14 +1,14 @@
 # chess-cloud 进度
 
-线上入口：https://maxi-max-dev.github.io/chess-cloud/ ｜ 六项功能任务已完成；本轮最终本地复验
-`verify.mjs` 8/8、`live-check.mjs` 64/64，线上 `live-check.mjs` 64/64，全部全绿。
+线上入口：https://maxi-max-dev.github.io/chess-cloud/ ｜ 当前版本已加入真实线条路径网与落子教练；
+固定验收为 `verify.mjs` 8 项、`live-check.mjs` 70 项，最终本地/线上输出见文末与 `HANDOFF.md`。
 
 ## 我理解的目标（开工前写，≤10 行）
 1. 目标：网页版国际象棋，人执白落子后，把「这步之后所有可能未来」炸成三维星云；星色=局面评估（白优暖/黑优冷）；AI 执黑陪下。
 2. 让步顺序：算得对 > 看得震撼 > 功能全 > 加载快。数字对不上就是失败，宁可少画也不许假数。
 3. 顺序：任务 0 环境核对 → 1 棋核+verify.mjs（冻结）→ 2 星云+__cloudStats → 3 上线 Pages 并在线上重跑验收。
-4. 最大风险：__cloudStats().nodes 必须等于 count(fen,depth)，且必须读 three.js 几何体真实顶点数。
-   对策：每批星云用「精确大小」的独立 BufferGeometry，nodes = 所有几何体 position.count 求和，绝不自记计数器；
+4. 最大风险：__cloudStats().nodes 必须等于 count(fen,depth)，且必须读 three.js 几何体真实边数。
+   对策：每批路径用「精确大小」的非索引 LineSegments，nodes = 所有几何体 position.count / 2 求和，绝不自记计数器；
    预分配+drawRange 一律不用（那等于自记计数器）。
 5. 次风险：4 层 197,281 节点同步算会卡死 8 秒 → 必须真 Worker 分批流回；AI 用迭代加深+时间预算保证 ≤3s 应手。
 6. 第三风险：评估函数只允许一份 → 抽成 engine.js，页面分叉、cloud Worker 星色和 search Worker
@@ -22,6 +22,7 @@
 - [x] 任务 4 手机端适配 + 星云全屏背景修复
 - [x] 任务 5 分叉路径 + 可探索文字星图
 - [x] 任务 6 统一 3D 矢量棋子 + AI/重开竞态加固
+- [x] 任务 7 零光点路径网 + 棋子助手 + 人话评价
 
 ---
 
@@ -127,16 +128,29 @@ Worker/星云生命周期和旧分叉隔离等关键路径，完整验收准确�
 - 桌面截图白/黑棋中位亮度 195.7/57.4，逐类型最小差 122.9；最近两类轮廓差仍为 0.055，
   证明不是仅换 `data-*` 属性或六类共用同一轮廓。
 
+## 任务 7 零光点路径网 + 棋子助手 + 人话评价
+
+- 删除星点贴图和所有 `THREE.Points`；每个未来节点改为恰好一条父→子非索引 `LineSegments` 入边，
+  数量从真实 `position.count / 2` 现读。根用“过去→现在”短边，首层和后续收窄成向右生长的知识路径网。
+- 深层用 NormalBlending 和逐层透明度，L4 仍逐条绘制。新增“正常 / 隐藏全网 / 单独隐藏 L4”
+  PNG 对撞，证明最深层不是只耗内存却不可见；移动离屏还会从 scene 真正释放 L4。
+- 全屏保留真实 SAN、局势和当前路线文字；fog 与缩放上限对齐，标签进雾会隐藏，并增加“回到全景”。
+- 点白棋后只展示该棋子前三候选；黄线演示你的一步，蓝线演示 `rankMoves(after,{depth:1})`
+  的对手强回应。卡片主信息改为均衡/稍优/风险等人话，raw score 作为次要核对。
+- 实际 AI 回来后对照预测；fallback 展示真实原因。补齐黑方质量方向、默认升后、一步终局、
+  AI 后 120ms 分叉刷新竞态、旧动画清理和键盘入口。
+- `live-check.mjs` 固定扩为 70 项。反向验证临时隐藏真实 L1 并反转回应排序，两项裁判均准确报红；
+  删除临时破坏后才运行最终完整绿套件。`verify.mjs` 未修改。
+
 ## 完成条件核对
-- 架构条件 ✅ 六种分层 SVG 3D 棋子（非 WebGL mesh）；星云 L1–L4 全在 Worker；AI 先真实绘制再延迟
+- 架构条件 ✅ 六种分层 SVG 3D 棋子（非 WebGL mesh）；路径网 L1–L4 全在 Worker；AI 先真实绘制再延迟
   可视化；旧分叉 inert；移动端离屏释放 L4、回屏完整重建。
 - 裁判未改 ✅ `git diff verify.mjs` 零行；排除 verify.mjs 后全仓库 grep `197281` 无匹配，
   `8902` 在页面代码里也无匹配。
   （README.md 里有「197,281」这种带千位逗号的说明文字，是文档不是代码，grep 裸数字不命中。）
-- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 64/64；关键耗时见上。
-- 线上复验 ✅ `live-check.mjs` 64/64；三个运行文件与本地逐字节一致：
-  `index.html` `507520aa…`、`engine.js` `ca2328e5…`、`worker.js` `b863c89e…`。
-- 发布状态 ✅ `main` 已推送，GitHub Pages 已换到本轮运行文件。
+- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 70/70。
+- 线上复验：发布后更新为 `live-check.mjs` 70/70，并写入三个运行文件的新哈希。
+- 发布状态：待本轮提交后用三个运行文件的 SHA-256 确认 GitHub Pages 已换版。
 - BLOCKED.md 已提交，19 条待裁决。
 
 ## 期间为什么改过方向（如实记录）

@@ -194,7 +194,7 @@ function decodePng(buf) {
 
 function shotStats(file, rect) {
   const { w, h, ch, px } = decodePng(fs.readFileSync(file));
-  // 取样区不再靠猜布局：直接问页面要星云 canvas 的真实矩形（getBoundingClientRect），
+  // 取样区不再靠猜布局：直接问页面要路径网 canvas 的真实矩形（getBoundingClientRect），
   // 往里缩 4px 避开圆角描边。这样以后怎么改版式，量法都跟着走。
   const x0 = Math.max(0, Math.round(rect.x) + 4), x1 = Math.min(w, Math.round(rect.x + rect.w) - 4);
   const y0 = Math.max(0, Math.round(rect.y) + 4), y1 = Math.min(h, Math.round(rect.y + rect.h) - 4);
@@ -218,6 +218,53 @@ function shotStats(file, rect) {
     brightRatio: +(bright / total).toFixed(4),
     warmOfLit: +(warm / Math.max(1, lit)).toFixed(4),
     coldOfLit: +(cold / Math.max(1, lit)).toFixed(4),
+  };
+}
+
+// 用“正常路径网 - 隐藏 cloudGroup”取得真实 canvas 像素差。
+// DOM/geometry 断言能证明线段存在；这份差分继续证明用户真的看得见它们。
+function cloudPathPixelDiff(normalFile, hiddenFile, rect, minDelta = 18) {
+  const normal = decodePng(fs.readFileSync(normalFile));
+  const hidden = decodePng(fs.readFileSync(hiddenFile));
+  if (normal.w !== hidden.w || normal.h !== hidden.h || normal.ch !== hidden.ch) {
+    throw new Error('路径网像素对照图尺寸不一致');
+  }
+  const x0 = Math.max(0, Math.round(rect.x) + 4);
+  const x1 = Math.min(normal.w, Math.round(rect.x + rect.w) - 4);
+  const y0 = Math.max(0, Math.round(rect.y) + 4);
+  const y1 = Math.min(normal.h, Math.round(rect.y + rect.h) - 4);
+  let total = 0, changed = 0, warm = 0, cold = 0;
+  let minX = x1, maxX = x0 - 1, minY = y1, maxY = y0 - 1;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const o = (y * normal.w + x) * normal.ch;
+      const delta =
+        Math.abs(normal.px[o] - hidden.px[o])
+        + Math.abs(normal.px[o + 1] - hidden.px[o + 1])
+        + Math.abs(normal.px[o + 2] - hidden.px[o + 2]);
+      total++;
+      if (delta < minDelta) continue;
+      changed++;
+      const dr = normal.px[o] - hidden.px[o];
+      const db = normal.px[o + 2] - hidden.px[o + 2];
+      if (dr > db + 2) warm++;
+      else if (db > dr + 2) cold++;
+      minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+      minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+    }
+  }
+  const width = Math.max(1, x1 - x0);
+  const height = Math.max(1, y1 - y0);
+  return {
+    changed,
+    total,
+    changedRatio: +(changed / Math.max(1, total)).toFixed(5),
+    spanX: changed ? +((maxX - minX + 1) / width).toFixed(4) : 0,
+    spanY: changed ? +((maxY - minY + 1) / height).toFixed(4) : 0,
+    warm,
+    cold,
+    warmOfChanged: +(warm / Math.max(1, changed)).toFixed(4),
+    coldOfChanged: +(cold / Math.max(1, changed)).toFixed(4),
   };
 }
 
@@ -496,7 +543,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 64;
+const EXPECTED_RESULTS = 70;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -508,11 +555,11 @@ async function waitCloud(timeoutMs = 90000) {
   let last = null;
   while (Date.now() - t0 < timeoutMs) {
     last = await evalJs('typeof window.__cloudStats === "function" ? window.__cloudStats() : null');
-    if (last?.error) throw new Error(`星云 Worker 报错: ${last.error}`);
+    if (last?.error) throw new Error(`路径网 Worker 报错: ${last.error}`);
     if (last && last.growing === false && last.depth >= 4) return last;
     await sleep(400);
   }
-  throw new Error('等星云长满超时，最后状态: ' + JSON.stringify(last));
+  throw new Error('等路径网长满超时，最后状态: ' + JSON.stringify(last));
 }
 
 function hasExactCloudDepths(stats, maxDepth) {
@@ -526,7 +573,7 @@ async function checkNodesMatchCount(stats, tag) {
   const expectedDepths = Array.from({ length: stats.depth + 1 }, (_, depth) => depth);
   record(
     hasExactCloudDepths(stats, stats.depth),
-    `①${tag} 星云层集合完整且连续`,
+    `①${tag} 路径网层集合完整且连续`,
     `页面 ${JSON.stringify(actualDepths)} vs 应有 ${JSON.stringify(expectedDepths)}`);
   // ① __cloudStats().nodes 与 count(同 fen 同 depth) 完全相等
   const expect = count(stats.fen, stats.depth);
@@ -536,7 +583,7 @@ async function checkNodesMatchCount(stats, tag) {
   // 顺手把每一层都对一遍，比只对最深一层狠
   for (const l of stats.layers) {
     const e = count(stats.fen, l.depth);
-    record(l.nodes === e, `①${tag} 第 ${l.depth} 层星数`, `页面 ${l.nodes} vs count() ${e}`);
+    record(l.nodes === e, `①${tag} 第 ${l.depth} 层路径边数`, `页面 ${l.nodes} vs count() ${e}`);
   }
 }
 
@@ -595,6 +642,15 @@ async function clickSelector(selector) {
   const center = await selectorCenter(selector);
   if (!center) return false;
   await clickAt(center.x, center.y);
+  await settleLayout();
+  return true;
+}
+
+async function touchSelector(selector) {
+  const center = await selectorCenter(selector);
+  if (!center) return false;
+  await touchAt(center.x, center.y);
+  await sleep(100);
   await settleLayout();
   return true;
 }
@@ -760,11 +816,353 @@ function analyzeCloudShape(map) {
   };
 }
 
+async function runCoachChecks() {
+  // ⑥-1 真触摸棋子：先在 390px 手机上做，确认这不是只有测试钩子能触发的影子状态。
+  await evalJs('window.__test.reset()');
+  await setViewport(390, 844, 'portraitPrimary');
+  const coachStateBeforeTouch = await evalJs('window.__test.state()');
+  const touchedPiece = await touchSelector('#boardSquares rect[data-sq="e2"]');
+  await evalJs('document.getElementById("coachPanel").scrollIntoView({ block: "center" })');
+  await settleLayout();
+  const mobileCoach = await evalJs(`(() => {
+    const coach = window.__test.coach();
+    const panel = document.getElementById('coachPanel');
+    const r = panel.getBoundingClientRect();
+    const cards = [...panel.querySelectorAll('button.coach-card')].map((card) => {
+      const b = card.getBoundingClientRect();
+      return { w: b.width, h: b.height };
+    });
+    const root = document.documentElement;
+    return {
+      coach,
+      state: window.__test.state(),
+      panel: { left: r.left, right: r.right, top: r.top, bottom: r.bottom, w: r.width, h: r.height },
+      cardBoxes: cards,
+      viewport: { w: innerWidth, h: innerHeight },
+      rootW: { client: root.clientWidth, scroll: root.scrollWidth },
+    };
+  })()`);
+  const minMobileCoachCardH = mobileCoach.cardBoxes.length
+    ? Math.min(...mobileCoach.cardBoxes.map((box) => box.h))
+    : 0;
+  record(
+    touchedPiece
+      && mobileCoach.coach.selected === 'e2'
+      && mobileCoach.coach.state === 'ready'
+      && mobileCoach.coach.cardCount > 0
+      && mobileCoach.state.fen === coachStateBeforeTouch.fen
+      && JSON.stringify(mobileCoach.state.history) === JSON.stringify(coachStateBeforeTouch.history)
+      && mobileCoach.panel.left >= -1
+      && mobileCoach.panel.right <= mobileCoach.viewport.w + 1
+      && mobileCoach.panel.bottom > 0
+      && mobileCoach.panel.top < mobileCoach.viewport.h
+      && mobileCoach.cardBoxes.length === mobileCoach.coach.cardCount
+      && mobileCoach.cardBoxes.every((box) => box.h >= 43.9 && box.w > 0)
+      && mobileCoach.rootW.scroll <= mobileCoach.rootW.client + 1,
+    '⑥ 真实触摸白棋会打开手机可用的棋子助手，且不改变 FEN',
+    `selected=${mobileCoach.coach.selected}｜state=${mobileCoach.coach.state}`
+      + `｜候选 ${mobileCoach.coach.cardCount}｜panel x=${Math.round(mobileCoach.panel.left)}..${Math.round(mobileCoach.panel.right)}`
+      + `｜最小卡高 ${minMobileCoachCardH.toFixed(1)}`
+      + `｜history=${JSON.stringify(mobileCoach.state.history)}`);
+
+  await send('Emulation.clearDeviceMetricsOverride');
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await evalJs('window.scrollTo(0, 0)');
+  await settleLayout();
+
+  const coach = await evalJs('window.__test.coach()');
+  const legalMoves = new Chess(coach.fen).moves({ square: coach.selected, verbose: true });
+  const legalByKey = new Map(legalMoves.map((move) => [
+    `${move.from}:${move.to}:${move.promotion || ''}`,
+    move,
+  ]));
+  const candidateProblems = [];
+  for (const card of coach.cards) {
+    const legal = legalByKey.get(`${card.from}:${card.to}:${card.promotion || ''}`);
+    if (!legal) candidateProblems.push(`${card.san} 不是 ${coach.selected} 的合法走法`);
+    else {
+      if (legal.san !== card.san) candidateProblems.push(`${card.from}-${card.to} SAN ${card.san}≠${legal.san}`);
+      if (legal.after !== card.after) candidateProblems.push(`${card.san} after FEN 不符`);
+    }
+  }
+  record(
+    coach.selected === 'e2'
+      && coach.modelTotal === legalMoves.length
+      && coach.cardCount === Math.min(3, legalMoves.length)
+      && coach.cards.every((card) => card.from === coach.selected)
+      && candidateProblems.length === 0,
+    '⑥ 助手候选全部来自所选棋子，并与 chess.js 合法走法逐项一致',
+    candidateProblems.length
+      ? candidateProblems.join('; ')
+      : `e2 合法/声明/DOM=${legalMoves.length}/${coach.modelTotal}/${coach.cardCount}`
+        + `｜${coach.cards.map((card) => card.san).join('/')}`);
+
+  const replyInputs = coach.cards.map((card) => ({ after: card.after }));
+  const expectedReplies = await evalJs(`(async () => {
+    const { rankMoves } = await import('./engine.js');
+    const inputs = ${JSON.stringify(replyInputs)};
+    return inputs.map(({ after }) => {
+      const move = rankMoves(after, { depth: 1 })[0] || null;
+      return move ? {
+        san: move.san, from: move.from, to: move.to,
+        promotion: move.promotion || '', piece: move.piece, score: move.score,
+      } : null;
+    });
+  })()`, true);
+  const replyProblems = [];
+  coach.cards.forEach((card, index) => {
+    const expected = expectedReplies[index];
+    if (!expected) {
+      if (card.reply.san) replyProblems.push(`${card.san} 本应无回应却显示 ${card.reply.san}`);
+      return;
+    }
+    if (
+      card.reply.san !== expected.san
+      || card.reply.from !== expected.from
+      || card.reply.to !== expected.to
+      || card.reply.piece !== expected.piece
+      || card.reply.score !== expected.score
+    ) {
+      replyProblems.push(`${card.san} 显示 ${card.reply.san}/${card.reply.piece}，首选应为 ${expected.san}/${expected.piece}`);
+      return;
+    }
+    try {
+      const replay = new Chess(coach.fen);
+      replay.move(card.san);
+      const firstFen = replay.fen();
+      const reply = replay.move(card.reply.san);
+      if (firstFen !== card.after || reply.piece !== card.reply.piece) {
+        replyProblems.push(`${card.san} ${card.reply.san} 重放结果不符`);
+      }
+    } catch (error) {
+      replyProblems.push(`${card.san} ${card.reply.san} 无法重放：${error.message}`);
+    }
+  });
+  record(
+    coach.cards.length > 0 && replyProblems.length === 0,
+    '⑥ 对方回应可独立重放，且确为 rankMoves(after, depth=1) 的首选',
+    replyProblems.length
+      ? replyProblems.join('; ')
+      : coach.cards.map((card) => `${card.san}→${card.reply.piece} ${card.reply.san}`).join('　'));
+
+  const animationState = await evalJs('window.__test.state()');
+  const animationCoach = await evalJs('window.__test.coach()');
+  const activeCard = animationCoach.cards.find((card) => card.active) || null;
+  const youPath = animationCoach.paths.find((path) => path.step === 'you') || null;
+  const replyPath = animationCoach.paths.find((path) => path.step === 'reply') || null;
+  const animationLineIds = new Set(animationCoach.paths.map((path) => path.lineId).filter(Boolean));
+  const animatedPath = (path) =>
+    !!path
+    && path.pathLength === 1
+    && path.d.includes('Q')
+    && path.animationName !== 'none'
+    && parseFloat(path.animationDuration) > 0
+    && path.animationIterationCount === 'infinite';
+  record(
+    animationCoach.paths.length === 2
+      && animationLineIds.size === 1
+      && animatedPath(youPath)
+      && animatedPath(replyPath)
+      && !!activeCard
+      && youPath.san === activeCard.san
+      && youPath.from === activeCard.from
+      && youPath.to === activeCard.to
+      && replyPath.san === activeCard.reply.san
+      && replyPath.from === activeCard.reply.from
+      && replyPath.to === activeCard.reply.to
+      && animationState.fen === coach.fen
+      && animationCoach.fen === coach.fen
+      && animationState.history.length === 0,
+    '⑥ DOM 上有同一 lineId 的「你 → 回应」两段真实动画，预演不落子',
+    `lineId=${[...animationLineIds][0] || '无'}`
+      + `｜steps=${animationCoach.paths.map((path) => `${path.step}:${path.animationName}/${path.animationDuration}`).join('　')}`
+      + `｜FEN 未变=${animationState.fen === coach.fen}`);
+
+  const oldLineId = [...animationLineIds][0] || '';
+  const switchedPiece = await clickSelector('#boardSquares rect[data-sq="g1"]');
+  const switchedCoach = await evalJs('window.__test.coach()');
+  const switchedIds = new Set(switchedCoach.paths.map((path) => path.lineId).filter(Boolean));
+  const resetClicked = await clickSelector('#btnReset');
+  const resetCoach = await evalJs('window.__test.coach()');
+  const selectedAgain = await clickSelector('#boardSquares rect[data-sq="e2"]');
+  const movePreview = await evalJs('window.__test.coach()');
+  const moveLineId = movePreview.paths[0]?.lineId || '';
+  const realMoveClicked = await clickSelector('#boardSquares rect[data-sq="e4"]');
+  const afterRealMove = await evalJs('({ coach: window.__test.coach(), state: window.__test.state() })');
+  const finalResetClicked = await clickSelector('#btnReset');
+  record(
+    switchedPiece
+      && switchedCoach.selected === 'g1'
+      && switchedCoach.paths.length === 2
+      && switchedIds.size === 1
+      && !switchedIds.has(oldLineId)
+      && resetClicked
+      && resetCoach.selected === null
+      && resetCoach.paths.length === 0
+      && resetCoach.state === 'idle'
+      && selectedAgain
+      && moveLineId
+      && realMoveClicked
+      && afterRealMove.state.history.length >= 1
+      && afterRealMove.state.history[0] === 'e4'
+      && afterRealMove.coach.selected === null
+      && afterRealMove.coach.paths.every((path) => path.lineId !== moveLineId)
+      && finalResetClicked,
+    '⑥ 切换棋子、重开和真实落子都会取消旧助手动画',
+    `e2 ${oldLineId || '无'} → g1 ${[...switchedIds][0] || '无'}`
+      + `｜reset paths=${resetCoach.paths.length}`
+      + `｜落子后 history=${JSON.stringify(afterRealMove.state.history)}`
+      + `｜旧 lineId 残留=${afterRealMove.coach.paths.some((path) => path.lineId === moveLineId)}`);
+
+  await clickSelector('#boardSquares rect[data-sq="e2"]');
+  const scoreCoach = await evalJs('window.__test.coach()');
+  const fixedLanguage = await evalJs(`[
+    [100000, 'mate-win', '将死'],
+    [150, 'white-clear', '+1.50'],
+    [50, 'white-edge', '+0.50'],
+    [0, 'balanced', '+0.00'],
+    [-50, 'black-edge', '-0.50'],
+    [-150, 'black-clear', '-1.50'],
+    [-100000, 'mate-loss', '被将死'],
+  ].map(([score, expectedKey, expectedRaw]) => ({
+    score, expectedKey, expectedRaw,
+    actual: window.__test.scoreLanguage(score, 200),
+  }))`);
+  const engineScores = await evalJs(`(async () => {
+    const { rankMoves } = await import('./engine.js');
+    return rankMoves(window.__test.state().fen, { depth: 2 }).map((move, rank) => ({
+      rank, san: move.san, from: move.from, to: move.to,
+      promotion: move.promotion || '', score: move.score,
+    }));
+  })()`, true);
+  const scoreDom = await evalJs(`(() => {
+    return [...document.querySelectorAll('#coachMoves button.coach-card')].map((card) => ({
+      rank: Number(card.dataset.rank),
+      score: Number(card.dataset.score),
+      situation: card.dataset.situation || '',
+      quality: card.dataset.quality || '',
+      rawText: card.querySelector('.coach-raw')?.textContent.trim() || '',
+      situationText: card.querySelector('.coach-situation')?.textContent.trim() || '',
+    }));
+  })()`);
+  const actualLanguages = await evalJs(`(() => {
+    const cards = [...document.querySelectorAll('#coachMoves button.coach-card')];
+    const best = ${JSON.stringify(engineScores[0]?.score ?? 0)};
+    return cards.map((card) => window.__test.scoreLanguage(Number(card.dataset.score), best));
+  })()`);
+  const fixedOk = fixedLanguage.every((row) =>
+    row.actual.situation.key === row.expectedKey
+    && row.actual.raw === row.expectedRaw
+    && row.actual.situation.label
+    && row.actual.situation.label !== row.actual.raw);
+  const scoreProblems = [];
+  scoreCoach.cards.forEach((card, index) => {
+    const engine = engineScores[card.rank];
+    const dom = scoreDom[index];
+    const language = actualLanguages[index];
+    if (
+      !engine
+      || engine.san !== card.san
+      || engine.from !== card.from
+      || engine.to !== card.to
+      || engine.promotion !== card.promotion
+      || engine.score !== card.score
+    ) {
+      scoreProblems.push(`${card.san} raw score 与 engine 不符`);
+    } else if (
+      !dom
+      || dom.rank !== card.rank
+      || dom.score !== card.score
+      || dom.situation !== language?.situation?.key
+      || dom.quality !== language?.quality?.key
+      || dom.situationText !== language?.situation?.label
+      || !dom.rawText.includes(language?.raw || '\u0000')
+    ) {
+      scoreProblems.push(`${card.san} DOM 人话/原分不同源`);
+    }
+  });
+  const blackQuality = await evalJs(`({
+    best: window.__test.scoreLanguage(-30, -30, false).quality,
+    worse: window.__test.scoreLanguage(80, -30, false).quality,
+  })`);
+  const promotionAudit = await evalJs(`(() => {
+    const loaded = window.__test.loadFen('8/Pk6/8/8/8/8/8/K7 w - - 0 1');
+    const played = window.__test.tryMove('a7', 'a8');
+    const state = window.__test.state();
+    const coach = window.__test.coach();
+    window.__test.reset();
+    return { loaded, played, state, coach };
+  })()`);
+  const terminalAudit = await evalJs(`(() => {
+    const loaded = window.__test.loadFen('7k/5Q2/6K1/8/8/8/8/8 w - - 0 1');
+    const played = window.__test.tryMove('f7', 'g7');
+    const state = window.__test.state();
+    const coach = window.__test.coach();
+    window.__test.reset();
+    return { loaded, played, state, coach };
+  })()`);
+  const keyboardAudit = await evalJs(`(() => {
+    const square = document.querySelector('#boardSquares rect[data-sq="e2"]');
+    square.focus();
+    square.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const coach = window.__test.coach();
+    const pressed = document.querySelector('#coachMoves button.coach-card[aria-pressed="true"]');
+    window.__test.reset();
+    return {
+      selected: coach.selected,
+      state: coach.state,
+      paths: coach.paths.length,
+      activePressed: !!pressed,
+      squareTabIndex: square.getAttribute('tabindex'),
+    };
+  })()`);
+  const specialCoachOk =
+    blackQuality.best.key === 'best'
+    && blackQuality.worse.key === 'risky'
+    && promotionAudit.loaded
+    && promotionAudit.played
+    && promotionAudit.state.history[0]?.includes('=Q')
+    && promotionAudit.coach.prediction?.candidate?.promotion === 'q'
+    && promotionAudit.coach.prediction?.candidate?.san?.includes('=Q')
+    && terminalAudit.loaded
+    && terminalAudit.played
+    && terminalAudit.state.over
+    && terminalAudit.state.thinking === false
+    && terminalAudit.coach.state === 'outcome'
+    && terminalAudit.coach.paths.length === 1
+    && terminalAudit.coach.paths[0].step === 'you'
+    && terminalAudit.coach.prediction === null
+    && terminalAudit.coach.title.includes('棋局结束')
+    && keyboardAudit.selected === 'e2'
+    && keyboardAudit.state === 'ready'
+    && keyboardAudit.paths === 2
+    && keyboardAudit.activePressed
+    && keyboardAudit.squareTabIndex === '0';
+  record(
+    fixedOk
+      && scoreCoach.cards.length > 0
+      && scoreDom.length === scoreCoach.cards.length
+      && scoreProblems.length === 0
+      && specialCoachOk,
+    '⑥ 人话/原分同源，黑方方向、默认升后、一步终局和键盘入口均正确',
+    !fixedOk
+      ? fixedLanguage.map((row) => `${row.score}:${row.actual.situation.key}/${row.actual.raw}`).join('　')
+      : scoreProblems.length
+        ? scoreProblems.join('; ')
+        : `${fixedLanguage.map((row) => `${row.score}:${row.actual.situation.short}`).join('　')}`
+          + `｜候选 ${scoreCoach.cards.map((card) => `${card.san}:${card.score}/${card.situation}`).join('　')}`
+          + `｜黑方 quality=${blackQuality.best.key}/${blackQuality.worse.key}`
+          + `｜升变=${JSON.stringify(promotionAudit.state.history)}/${promotionAudit.coach.prediction?.candidate?.san || '无预测'}`
+          + `｜终局=${terminalAudit.coach.state}/${terminalAudit.coach.title}`
+          + `｜键盘=${keyboardAudit.selected}/${keyboardAudit.activePressed}`);
+  await clickSelector('#btnReset');
+}
+
 async function runMobileChecks() {
   const shotBase = SHOT.replace(/\.png$/i, '');
   try {
 
-  // 390×844 竖屏：页面本身只纵向滚，棋盘 → 分叉 → 星云都能到达。
+  // 390×844 竖屏：页面本身只纵向滚，棋盘 → 分叉 → 路径网都能到达。
   await setViewport(390, 844, 'portraitPrimary');
   await evalJs('window.scrollTo(0, 0)');
   await settleLayout();
@@ -856,7 +1254,7 @@ async function runMobileChecks() {
     '④ 手机竖屏三块面板完整可达、互不覆盖',
     portraitProblems.length
       ? portraitProblems.join('; ')
-      : `viewport ${portrait.viewport.w}×${portrait.viewport.h}｜真实滑动到 y=${Math.round(portraitScrollY)}｜顺序 棋盘→分叉→星云`);
+      : `viewport ${portrait.viewport.w}×${portrait.viewport.h}｜真实滑动到 y=${Math.round(portraitScrollY)}｜顺序 棋盘→分叉→路径网`);
 
   const boardOk =
     Math.abs(portrait.board.w - portrait.board.h) <= 1
@@ -870,6 +1268,10 @@ async function runMobileChecks() {
     '④ 手机棋盘保持正方形，按钮和走法卡触控目标不小于 44px',
     `棋盘 ${Math.round(portrait.board.w)}×${Math.round(portrait.board.h)}｜单格 ${(portrait.board.w / 8).toFixed(1)}px｜最小目标 ${minTarget.toFixed(1)}px`);
 
+  // 助手抬高了 stageHead；先把真实滚动容器带回视口，再从屏幕坐标发 touch 手势。
+  // 不能直接给 scrollLeft 赋目标值来冒充用户横滑。
+  await evalJs('document.getElementById("forkWrap").scrollIntoView({ block: "center", inline: "nearest" })');
+  await settleLayout();
   const forkGesture = await evalJs(`(() => {
     const wrap = document.getElementById('forkWrap');
     wrap.scrollLeft = 0;
@@ -994,7 +1396,7 @@ async function runMobileChecks() {
         offscreenCloud.sky.top >= portrait.viewport.h
         || offscreenCloud.sky.bottom <= 0
       ),
-    '④ 手机星图离屏会释放已长满的第四层，屏外重建也只铺真实三层',
+    '④ 手机路径网离屏会释放已长满的第四层，屏外重建也只铺真实三层',
     `已满云离屏 layers=${JSON.stringify(releasedFullCloud.layers.map((layer) => layer.depth))}`
       + `｜闲置 250ms 的 active ms ${releasedFullCloud.ms}→${releasedIdleCloud.ms}`
       + `｜重开后 sky y=${Math.round(offscreenCloud.sky.top)}..${Math.round(offscreenCloud.sky.bottom)}`
@@ -1027,7 +1429,7 @@ async function runMobileChecks() {
     `顶部深色 ${topEdge.darkRatio}｜底部深色 ${bottomEdge.darkRatio}｜滚动 ${Math.round(bottomPosition.y)}/${Math.round(bottomPosition.max)}`);
   const mobileEnteredCloud = await waitCloud(30000);
 
-  // 全屏要真占满 viewport，四角的命中层也必须属于星云，而不是后面的面板。
+  // 全屏要真占满 viewport，四角的命中层也必须属于路径网，而不是后面的面板。
   const skyTap = await evalJs(`(() => {
     const r = document.getElementById('sky').getBoundingClientRect();
     return { x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2 };
@@ -1116,7 +1518,7 @@ async function runMobileChecks() {
     && mapAfterLabel.routePoints >= 3 && mapAfterLabel.routePoints <= 4;
   record(
     labelPickOk,
-    '④ 真实触摸星图标签会同步第一列选路，但棋谱不动',
+    '④ 真实触摸路径网标签会同步第一列选路，但棋谱不动',
     `点 ${labelTarget?.san || '无可点标签'}｜第一列 ${forkBeforeLabel.chosenSan}→${forkAfterLabel.chosenSan}`
       + `｜history ${JSON.stringify(historyBeforeLabel)}→${JSON.stringify(stateAfterLabel.history)}`
       + `｜路线点 ${mapAfterLabel.routePoints}`);
@@ -1169,7 +1571,8 @@ async function runMobileChecks() {
     && matrixDelta > 0.01
     && maxLabelMove > 8
     && visibleAfterDrag > 0
-    && hiddenAfterDrag > 0;
+    && hiddenAfterDrag > 0
+    && visibilityChanged;
   record(
     dragOk,
     '④ 真实拖动会转动相机并重排标签，画面同时有显有隐',
@@ -1205,7 +1608,7 @@ async function runMobileChecks() {
     && closeTap.w >= 47.9 && closeTap.h >= 43.9
     && !closed.layout.cloudFull
     && closed.closeDisplay === 'none';
-  record(fullOk, '④ 手机星云是真全屏，并可用明确按钮真实触摸收起',
+  record(fullOk, '④ 手机路径网是真全屏，并可用明确按钮真实触摸收起',
     `真实触摸开/按钮关｜盒子 ${Math.round(fsb.x)},${Math.round(fsb.y)} ${Math.round(fsb.w)}×${Math.round(fsb.h)}`
       + `｜画布 ${fsc.pixelW}×${fsc.pixelH}｜四角命中 ${full.cornersHit}`
       + `｜收起按钮 ${Math.round(closeTap.w)}×${Math.round(closeTap.h)}｜关闭后 full=${closed.layout.cloudFull}`);
@@ -1222,6 +1625,7 @@ async function runMobileChecks() {
     ) break;
     await sleep(40);
   }
+  const mobileLeftMap = await evalJs('window.__test.cloudMap()');
   await evalJs('document.getElementById("skyBox").scrollIntoView({ block: "center" })');
   await settleLayout();
   const mobileReenteredCloud = await waitCloud(30000);
@@ -1235,14 +1639,17 @@ async function runMobileChecks() {
       && hasExactCloudDepths(mobileLeftCloud, 3)
       && mobileLeftCloud.deepPending === true
       && !mobileLeftCloud.layers.some((layer) => layer.depth === 4)
+      && !mobileLeftMap.layers.some((layer) => layer.depth === 4)
+      && mobileLeftMap.orphanRenderObjects === 0
       && mobileReenteredCloud.depth === 4
       && hasExactCloudDepths(mobileReenteredCloud, 4)
       && mobileReenteredCloud.layers.some((layer) => layer.depth === 4)
       && mobileReenteredCloud.nodes === count(mobileReenteredCloud.fen, 4),
-    '④ 手机星图进视口长满 L4、离屏释放、再进入会完整长回',
+    '④ 手机路径网进视口长满 L4、离屏释放、再进入会完整长回',
     `屏外 ${JSON.stringify(offscreenCloud.stats.layers.map((layer) => layer.depth))}`
       + ` → 进入 ${JSON.stringify(mobileEnteredCloud.layers.map((layer) => layer.depth))}/${mobileEnteredCloud.nodes}`
       + ` → 离屏 ${JSON.stringify(mobileLeftCloud.layers.map((layer) => layer.depth))}/pending=${mobileLeftCloud.deepPending}`
+      + `/scene=${JSON.stringify(mobileLeftMap.layers.map((layer) => layer.depth))}`
       + ` → 再入 ${JSON.stringify(mobileReenteredCloud.layers.map((layer) => layer.depth))}/${mobileReenteredCloud.nodes}`);
 
   // 不走测试钩子，发真实 touch 事件点 e2 → e4。
@@ -1280,7 +1687,7 @@ async function runMobileChecks() {
     '④ 手机真实触摸能走 e4，AI 仍在 3 秒内合法应手',
     `外部秒表 ${mobileAiWall}ms｜棋谱 ${JSON.stringify(touched)}｜${mobileAi ? `搜到 ${mobileAi.depth} 层` : 'AI 未返回'}`);
 
-  // 844×390 短横屏：允许页面纵滚，但不能再把棋盘裁到屏外或压住星云。
+  // 844×390 短横屏：允许页面纵滚，但不能再把棋盘裁到屏外或压住路径网。
   await setViewport(844, 390, 'landscapePrimary');
   await evalJs('window.scrollTo(0, 0)');
   await settleLayout();
@@ -1423,10 +1830,10 @@ async function main() {
 
   // 1) 初始局面：等第 4 层长满，对数
   const s1 = await waitCloud();
-  console.log('初始星云: ' + JSON.stringify({ depth: s1.depth, nodes: s1.nodes, total: s1.totalNodes, ms: s1.ms, layers: s1.layers }));
+  console.log('初始路径网: ' + JSON.stringify({ depth: s1.depth, nodes: s1.nodes, total: s1.totalNodes, ms: s1.ms, layers: s1.layers }));
   await checkNodesMatchCount(s1, '');
 
-  // 星图的「一个现在 → 向前分叉」也从 three.js 实际 geometry 对账。
+  // 路径网的「一个现在 → 向前分叉」也从 three.js 实际 LineSegments geometry 对账。
   // coherence 是首层平均方向长度 / 平均半径：球壳接近 0，向前张开的锥形会明显大于 0。
   const cloudMap1 = await evalJs('window.__test.cloudMap()');
   const cloudShape1 = analyzeCloudShape(cloudMap1);
@@ -1435,21 +1842,40 @@ async function main() {
     cloudShape1.rootPosition.length === 3
     && cloudShape1.rootPosition.every((value) => Number.isFinite(value) && Math.abs(value) <= 1e-7);
   record(
-    cloudShape1.rootCount === 1 && rootAtOrigin,
-    '② 星图从一个真实根点「现在」出发',
-    `root position.count=${cloudShape1.rootCount}｜坐标 ${JSON.stringify(cloudShape1.rootPosition)}`);
+    cloudMap1.pointObjects === 0
+      && cloudShape1.rootCount === 1
+      && rootAtOrigin,
+    '② 路径网零发光点，并从一条终点在原点的真实根路径出发',
+    `THREE.Points=${cloudMap1.pointObjects}`
+      + `｜root LineSegments=${cloudShape1.rootCount}`
+      + `｜终点 ${JSON.stringify(cloudShape1.rootPosition)}`);
   record(
     cloudShape1.firstCount === firstExpected && cloudMap1.firstLinks === firstExpected,
-    '② 第一层真实星点和根连线都等于合法走法数',
-    `geometry 星点 ${cloudShape1.firstCount}｜LineSegments ${cloudMap1.firstLinks}｜count(fen,1) ${firstExpected}`);
+    '② 第一层真实路径边数等于合法走法数',
+    `geometry 边 ${cloudShape1.firstCount}｜LineSegments ${cloudMap1.firstLinks}｜count(fen,1) ${firstExpected}`);
   record(
     cloudShape1.coherence >= 0.35 && cloudShape1.positiveRatio >= 0.8,
     '② 第一层沿未来方向展开，不再围成球壳',
     `方向一致性 ${cloudShape1.coherence.toFixed(3)}｜正向比例 ${cloudShape1.positiveRatio.toFixed(3)}`);
   record(
-    cloudMap1.layers.length === s1.layers.length && cloudMap1.layers.every((layer) => layer.finite),
-    '② 连续取消和重建后，所有星点坐标仍为有限数',
-    cloudMap1.layers.map((layer) => `L${layer.depth}:${layer.count}/${layer.finite ? 'finite' : 'NaN'}`).join('　'));
+    cloudMap1.layers.length === s1.layers.length
+      && cloudMap1.lineObjects > 0
+      && cloudMap1.groupVisible === true
+      && cloudMap1.hiddenLineObjects === 0
+      && cloudMap1.oddVertexObjects === 0
+      && cloudMap1.colorMismatchObjects === 0
+      && cloudMap1.partialDrawObjects === 0
+      && cloudMap1.nonLineSegmentObjects === 0
+      && cloudMap1.indexedLinkObjects === 0
+      && cloudMap1.orphanRenderObjects === 0
+      && cloudMap1.layers.every((layer) => layer.finite),
+    '② 所有路径都是真实非索引 LineSegments，顶点/颜色对齐且没有隐藏或 drawRange 假账',
+    cloudMap1.layers.map((layer) => `L${layer.depth}:${layer.count}/${layer.finite ? 'finite' : 'NaN'}`).join('　')
+      + `｜objects=${cloudMap1.lineObjects}`
+      + `｜hidden/odd/color/draw=${cloudMap1.hiddenLineObjects}/${cloudMap1.oddVertexObjects}`
+      + `/${cloudMap1.colorMismatchObjects}/${cloudMap1.partialDrawObjects}`
+      + `｜wrongType/index/orphan=${cloudMap1.nonLineSegmentObjects}`
+      + `/${cloudMap1.indexedLinkObjects}/${cloudMap1.orphanRenderObjects}`);
 
   const board1 = await evalJs('window.__test.board()');
   const boardAudit1 = auditBoardDom(board1);
@@ -1528,17 +1954,61 @@ async function main() {
   })()`, true);
   console.log('第 3 层评估分分布（百分兵）: ' + JSON.stringify(dist));
 
-  // 2) 截图（② 星云清晰）
+  // 2) 截图（② 路径网清晰）：正常画布与隐藏真实 cloudGroup 后的画面对撞，
+  // 避免背景、标签或 HUD 很亮时把“线其实没画出来”误判成绿。
+  await evalJs('window.__test.setCloudAuto(false)');
+  await settleLayout();
   const shot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(SHOT, Buffer.from(shot.data, 'base64'));
   const bytes = fs.statSync(SHOT).size;
   const skyRect = await evalJs('window.__test.skyRect()');
   const ss = shotStats(SHOT, skyRect);
-  // 阈值用「占比」不用「绝对个数」，换布局/换分辨率都不会被量法误伤
-  record(ss.litRatio > 0.05 && ss.brightRatio > 0.002,
-    '② 截图里星云确实成形', `${SHOT} ${bytes}B｜星云窗 ${Math.round(skyRect.w)}×${Math.round(skyRect.h)}｜亮像素 ${ss.lit}/${ss.total} (${ss.litRatio})，很亮的占比 ${ss.brightRatio}`);
-  record(ss.warmOfLit > 0.02 && ss.coldOfLit > 0.02,
-    '② 暖/冷两色都真的看得出来', `暖 ${ss.warm} (${ss.warmOfLit})｜冷 ${ss.cold} (${ss.coldOfLit})`);
+  const hiddenCloudFile = SHOT.replace(/\.png$/i, '-cloud-hidden.png');
+  const hiddenDeepFile = SHOT.replace(/\.png$/i, '-cloud-l4-hidden.png');
+  let cloudVisibilityRestored = false;
+  let deepVisibilityRestored = false;
+  let cloudAutoRestored = false;
+  try {
+    await evalJs('window.__test.setCloudVisible(false)');
+    await settleLayout();
+    const hiddenCloudShot = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(hiddenCloudFile, Buffer.from(hiddenCloudShot.data, 'base64'));
+  } finally {
+    cloudVisibilityRestored = await evalJs('window.__test.setCloudVisible(true)');
+    await settleLayout();
+  }
+  try {
+    await evalJs('window.__test.setCloudDepthVisible(4, false)');
+    await settleLayout();
+    const hiddenDeepShot = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(hiddenDeepFile, Buffer.from(hiddenDeepShot.data, 'base64'));
+  } finally {
+    deepVisibilityRestored = await evalJs('window.__test.setCloudDepthVisible(4, true)');
+    cloudAutoRestored = await evalJs('window.__test.setCloudAuto(true)');
+    await settleLayout();
+  }
+  const pathPixels = cloudPathPixelDiff(SHOT, hiddenCloudFile, skyRect);
+  const deepPixels = cloudPathPixelDiff(SHOT, hiddenDeepFile, skyRect, 2);
+  record(
+    cloudVisibilityRestored
+      && deepVisibilityRestored
+      && cloudAutoRestored
+      && pathPixels.changedRatio > 0.002
+      && pathPixels.spanX > 0.35
+      && pathPixels.spanY > 0.25
+      && deepPixels.changedRatio > 0.0002
+      && deepPixels.spanX > 0.12
+      && deepPixels.spanY > 0.12,
+    '② 正常路径网、隐藏全网与单独隐藏 L4 的截图都有真实像素差',
+    `${SHOT} ${bytes}B｜路径窗 ${Math.round(skyRect.w)}×${Math.round(skyRect.h)}`
+      + `｜差异像素 ${pathPixels.changed}/${pathPixels.total} (${pathPixels.changedRatio})`
+      + `｜横/纵跨度 ${pathPixels.spanX}/${pathPixels.spanY}`
+      + `｜L4差异 ${deepPixels.changed}/${deepPixels.total} (${deepPixels.changedRatio})`
+      + ` span=${deepPixels.spanX}/${deepPixels.spanY}`
+      + `｜已恢复=${cloudVisibilityRestored}/${deepVisibilityRestored}/${cloudAutoRestored}`);
+  record(pathPixels.warmOfChanged > 0.02 && pathPixels.coldOfChanged > 0.02,
+    '② 路径网真实线条差分中暖/冷两色都看得出来',
+    `暖 ${pathPixels.warm} (${pathPixels.warmOfChanged})｜冷 ${pathPixels.cold} (${pathPixels.coldOfChanged})`);
 
   const boardBlankFile = SHOT.replace(/\.png$/i, '-board-blank.png');
   await evalJs('document.getElementById("boardPieces").style.visibility = "hidden"');
@@ -1575,6 +2045,8 @@ async function main() {
       + `｜逐枚最小上半区覆盖 ${(boardPixels1.minUpperCoverage * 100).toFixed(1)}%`
       + `｜最小覆盖 ${(boardPixels1.minCoverage * 100).toFixed(1)}%`
       + `｜最小明暗跨度 ${boardPixels1.minToneRange.toFixed(1)}`);
+
+  await runCoachChecks();
 
   // 3) 非法走子被拒
   const bad = await evalJs(`(() => {
@@ -1883,7 +2355,7 @@ async function main() {
 
   // 5) AI 走完后的新局面，再对一次数（这次的 fen 不是起始局面，能证明不是对着写死的数字）
   const s2 = await waitCloud();
-  console.log('AI 应手后星云: ' + JSON.stringify({ depth: s2.depth, nodes: s2.nodes, total: s2.totalNodes, ms: s2.ms }));
+  console.log('AI 应手后路径网: ' + JSON.stringify({ depth: s2.depth, nodes: s2.nodes, total: s2.totalNodes, ms: s2.ms }));
   record(s2.fen !== s1.fen, '第二朵云的根局面确实换了', s2.fen);
   await checkNodesMatchCount(s2, '(局中)');
 

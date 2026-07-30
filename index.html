@@ -59,11 +59,17 @@
   button:hover { background: rgba(120,150,220,.26); }
   button:disabled { opacity: .38; cursor: default; }
 
-  /* ── 左上：星云小窗（想看震撼点开全屏，平时不抢戏） */
+  /* ── 左上：真实路径线网（点开后像知识图谱一样探索） */
   #cloudPanel { left: 22px; top: 22px; width: 434px; padding: 12px 16px 14px; }
   #cloudPanel h1 { margin: 0 0 7px; font-size: 13px; font-weight: 650; letter-spacing: .02em; }
   #cloudPanel h1 span { color: var(--faint); font-weight: 400; font-size: 11.5px; margin-left: 6px; }
-  #skyBox { position: relative; width: 402px; height: 158px; border-radius: 9px; overflow: hidden; background: #05060b; cursor: zoom-in; }
+  #skyBox {
+    position: relative; width: 402px; height: 158px; border-radius: 9px; overflow: hidden;
+    background:
+      radial-gradient(circle at 48% 50%, rgba(52,72,106,.12), transparent 48%),
+      #05060b;
+    cursor: zoom-in;
+  }
   #sky { display: block; width: 100%; height: 100%; touch-action: none; overscroll-behavior: contain; }
   #skyHint { position: absolute; right: 8px; bottom: 6px; font-size: 10.5px; color: #7b8296; pointer-events: none; }
   #cloudLabels {
@@ -87,9 +93,9 @@
     font-size: 11px; font-weight: 650;
   }
   .cloud-root-label::before {
-    content: ""; display: inline-block; width: 6px; height: 6px;
-    margin-right: 6px; border-radius: 50%; background: #7ee0a8;
-    box-shadow: 0 0 12px rgba(126,224,168,.9);
+    content: ""; display: inline-block; width: 11px; height: 2px;
+    margin: 0 6px 3px 0; border-radius: 2px; background: #7ee0a8;
+    box-shadow: 0 0 8px rgba(126,224,168,.58);
   }
   button.cloud-move-label {
     min-height: 44px; padding: 5px 10px;
@@ -100,7 +106,6 @@
     pointer-events: auto;
   }
   button.cloud-move-label:hover { background: rgba(24,30,46,.92); }
-  body:not(.cloud-full) button.cloud-move-label { display: none; }
   button.cloud-move-label.is-selected {
     border-color: #8fd8ff;
     background: rgba(38,70,104,.9);
@@ -138,6 +143,14 @@
     background: rgba(8,11,19,.78); backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
+  #cloudResetView {
+    display: none; position: absolute; z-index: 5;
+    top: max(14px, env(safe-area-inset-top));
+    right: max(76px, calc(env(safe-area-inset-right) + 76px));
+    min-height: 44px; pointer-events: auto;
+    background: rgba(8,11,19,.78); backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
   body.cloud-full { overflow: hidden; overscroll-behavior: none; }
   body.cloud-full #cloudPanel {
     position: fixed;
@@ -167,7 +180,8 @@
   }
   body.cloud-full #cloudLabels { opacity: 1; }
   body.cloud-full #cloudMapHud,
-  body.cloud-full #cloudClose { display: block; }
+  body.cloud-full #cloudClose,
+  body.cloud-full #cloudResetView { display: block; }
   body.cloud-full #skyHint {
     right: max(14px, env(safe-area-inset-right));
     bottom: max(12px, env(safe-area-inset-bottom));
@@ -236,6 +250,50 @@
     stroke: var(--piece-shine);
     stroke-width: .55;
   }
+  #board .coach-path {
+    fill: none; pointer-events: none; stroke-linecap: round;
+    stroke-dasharray: 1; stroke-dashoffset: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  #board .coach-path[data-step="you"] {
+    stroke: #ffd36a; stroke-width: 5;
+    filter: drop-shadow(0 0 5px rgba(255,211,106,.62));
+    animation: coach-you-flow 2.6s ease-in-out infinite;
+  }
+  #board .coach-path[data-step="reply"] {
+    stroke: #65b8ff; stroke-width: 4;
+    filter: drop-shadow(0 0 5px rgba(70,155,255,.58));
+    animation: coach-reply-flow 2.6s ease-in-out infinite;
+  }
+  #board .coach-target {
+    fill: none; pointer-events: none; vector-effect: non-scaling-stroke;
+    animation: coach-target-pulse 2.6s ease-in-out infinite;
+  }
+  #board .coach-target[data-step="you"] { stroke: #ffd36a; stroke-width: 3; }
+  #board .coach-target[data-step="reply"] { stroke: #65b8ff; stroke-width: 3; animation-delay: .82s; }
+  #board .coach-tag {
+    font-size: 10px; font-weight: 700; text-anchor: middle; pointer-events: none;
+    paint-order: stroke; stroke: rgba(5,6,11,.9); stroke-width: 4px; stroke-linejoin: round;
+  }
+  #board .coach-tag[data-step="you"] { fill: #ffe4a0; }
+  #board .coach-tag[data-step="reply"] { fill: #a9d8ff; }
+  @keyframes coach-you-flow {
+    0% { stroke-dashoffset: 1; opacity: 0; }
+    7% { opacity: 1; }
+    34% { stroke-dashoffset: 0; opacity: 1; }
+    54%, 100% { stroke-dashoffset: 0; opacity: .18; }
+  }
+  @keyframes coach-reply-flow {
+    0%, 34% { stroke-dashoffset: 1; opacity: 0; }
+    42% { opacity: 1; }
+    72% { stroke-dashoffset: 0; opacity: 1; }
+    90%, 100% { stroke-dashoffset: 0; opacity: .2; }
+  }
+  @keyframes coach-target-pulse {
+    0%, 18%, 100% { r: 7px; opacity: .18; }
+    34% { r: 12px; opacity: .9; }
+    55% { r: 8px; opacity: .28; }
+  }
   #status { margin-top: 10px; min-height: 34px; font-size: 13px; color: var(--dim); }
   #status b { color: var(--ink); font-weight: 600; }
   .row { display: flex; gap: 8px; align-items: center; margin-top: 9px; flex-wrap: wrap; }
@@ -245,6 +303,51 @@
   #stageHead { padding: 14px 20px 11px; border-bottom: 1px solid var(--edge); }
   #stageHead h2 { margin: 0 0 3px; font-size: 15px; font-weight: 650; }
   #stageHead .sub { font-size: 11.5px; color: var(--dim); }
+  #coachPanel {
+    margin-top: 10px; padding: 10px 11px;
+    border: 1px solid rgba(143,216,255,.16); border-radius: 12px;
+    background: linear-gradient(135deg, rgba(31,43,65,.62), rgba(13,17,28,.46));
+  }
+  #coachLead { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  #coachLead .coach-kicker {
+    flex: 0 0 auto; color: #9edcff; font-size: 10px; font-weight: 750;
+    letter-spacing: .08em; text-transform: uppercase;
+  }
+  #coachTitle { color: #edf3ff; font-size: 12.5px; font-weight: 650; }
+  #coachExplain { margin-left: auto; color: #747e96; font-size: 10.5px; text-align: right; }
+  #coachMoves {
+    display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px;
+    margin-top: 8px;
+  }
+  #coachMoves:empty { display: none; }
+  .coach-card {
+    min-width: 0; min-height: 74px; padding: 8px 9px; text-align: left;
+    border-color: rgba(150,170,220,.16); border-radius: 10px;
+    background: rgba(12,16,27,.72);
+  }
+  .coach-card:hover { background: rgba(29,39,59,.84); }
+  .coach-card.is-active {
+    border-color: #8fd8ff;
+    background: rgba(43,74,108,.72);
+    box-shadow: 0 0 0 1px rgba(143,216,255,.16), 0 8px 22px rgba(0,0,0,.18);
+  }
+  .coach-card-top { display: flex; align-items: baseline; gap: 7px; }
+  .coach-san { color: #fff; font-size: 15px; font-weight: 700; }
+  .coach-quality { color: #d8e4f4; font-size: 10px; }
+  .coach-situation { display: block; margin-top: 3px; color: var(--situation-color); font-size: 11.5px; font-weight: 650; }
+  .coach-reply { display: block; margin-top: 4px; overflow: hidden; color: #8e99b2; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
+  .coach-raw { display: block; color: #596176; font-size: 9.5px; font-variant-numeric: tabular-nums; }
+  #coachReplyStrip {
+    display: flex; gap: 6px; align-items: center; margin-top: 8px; overflow-x: auto;
+    color: #7e879d; font-size: 10px; scrollbar-width: none;
+  }
+  #coachReplyStrip:empty { display: none; }
+  .coach-reply-chip {
+    flex: 0 0 auto; padding: 3px 7px; border: 1px solid rgba(101,184,255,.18);
+    border-radius: 999px; color: #aacbe8; background: rgba(30,53,78,.38);
+  }
+  #coachPanel[data-state="thinking"] #coachTitle { color: #ffdf91; }
+  #coachPanel[data-state="outcome"] { border-color: rgba(126,224,168,.25); }
   #moveLine { margin-top: 9px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--faint); }
   #moveLine b { color: #dfd2a2; font-weight: 600; }
   #moveLine .num { color: #4b5165; margin-right: 2px; }
@@ -302,7 +405,7 @@
     button { min-height: 44px; padding: 8px 13px; }
   }
 
-  /* 手机竖屏：先下棋，再看分叉，最后保留完整星云入口。 */
+  /* 手机竖屏：先下棋，再看分叉，最后保留完整路径网入口。 */
   @media (max-width: 760px) {
     body {
       grid-template-columns: minmax(0, 1fr);
@@ -324,6 +427,13 @@
     }
     #stageHead { padding: 13px 14px 10px; }
     #stageHead .sub { line-height: 1.6; }
+    #coachLead { flex-wrap: wrap; }
+    #coachExplain { width: 100%; margin-left: 0; text-align: left; }
+    #coachMoves {
+      display: flex; overflow-x: auto; scroll-snap-type: x proximity;
+      padding-bottom: 2px; scrollbar-width: none;
+    }
+    .coach-card { flex: 0 0 min(78%, 250px); scroll-snap-align: start; }
     #moveLine { line-height: 1.7; }
     #forkFoot { padding: 10px 14px 12px; min-height: 70px; }
   }
@@ -345,6 +455,11 @@
     #boardPanel, #cloudPanel { padding: 8px; }
     #stage { height: auto; min-height: 620px; }
     #stageHead .sub { display: none; }
+    #coachPanel { padding: 8px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    #board .coach-path, #board .coach-target { animation: none !important; opacity: .82; stroke-dashoffset: 0; }
   }
 
 </style>
@@ -352,16 +467,17 @@
 <body>
 
 <div class="panel" id="cloudPanel">
-  <h1>全景星云<span id="cloudCount">正在铺开…</span></h1>
+  <h1>全景路径网<span id="cloudCount">正在展开…</span></h1>
   <div id="skyBox">
     <canvas id="sky"></canvas>
-    <div id="cloudLabels" aria-label="星图走法"></div>
+    <div id="cloudLabels" aria-label="路径网走法"></div>
     <div id="cloudMapHud">
-      <b>从一个局面，长出所有未来</b>
-      <div id="cloudLayerLegend">正在读取真实星数…</div>
+      <b>从一个局面，沿真实线条长出所有未来</b>
+      <div id="cloudLayerLegend">正在读取真实路径数…</div>
       <div id="cloudChoice">拖动观察；点走法标签，只选路线、不直接落子</div>
     </div>
-    <button id="cloudClose" type="button" aria-label="收起星图">收起</button>
+    <button id="cloudResetView" type="button">回到全景</button>
+    <button id="cloudClose" type="button" aria-label="收起路径网">收起</button>
     <div id="skyHint">点开全景 · 拖动旋转</div>
   </div>
   <div id="cloudStats">—</div>
@@ -479,8 +595,17 @@
 
 <div class="panel" id="stage">
   <div id="stageHead">
-    <h2>可能性分叉</h2>
-    <div class="sub">从左向右就是时间。亮蓝主干是<b>当前选中的路径</b>；点任意走法，后面的未来会从这里重新长出来。每列都能展开，也能收回。</div>
+    <h2>落子教练 · 可能性分叉</h2>
+    <div class="sub">先点棋盘上的一枚白棋，看你的候选和黑方强回应；下面的分叉继续展示更远的路径。</div>
+    <div id="coachPanel" data-state="idle" aria-live="polite">
+      <div id="coachLead">
+        <span class="coach-kicker">棋子助手</span>
+        <b id="coachTitle">先点一枚白棋</b>
+        <span id="coachExplain">会依次动画预演“你的一步 → 对手的强回应”，不直接落子</span>
+      </div>
+      <div id="coachMoves"></div>
+      <div id="coachReplyStrip"></div>
+    </div>
     <div id="moveLine"></div>
   </div>
   <div id="forkWrap"><svg id="fork" xmlns="http://www.w3.org/2000/svg"></svg></div>
@@ -493,24 +618,24 @@ import { Chess, rankMoves, MATE } from './engine.js';
 
 // ─────────────────────────────────────────────── 常量
 const SYNC_DEPTH = 3;      // 屏外最多预备到这一层；计算仍全部在 Worker
-const DEEP_DEPTH = 4;      // 星图可见时，Worker 渐进生长到这一层
+const DEEP_DEPTH = 4;      // 路径网可见时，Worker 渐进生长到这一层
 const AI_BUDGET_MS = 1500; // AI 思考预算（迭代加深，时间到就交卷，应手有硬上限）
 const COMPACT_AI_BUDGET_MS = 900;  // 手机/矮视口给渲染与触控留足余量，守住总应手 ≤3 秒
 const AI_WATCHDOG_MS = 2200; // Worker/JIT 再慢也在这里切到预存的合法保底步
 const BATCH_PARENTS = 400; // Worker 每批处理多少个父节点
-const ROOT_FAN = 0.62;      // 第一层只向「未来」方向张开，不再围成球壳
+const ROOT_FAN = 0.34;      // 第一层只向「未来」方向张开，不再围成球壳
 const CLOUD_TARGET_X = 8.2; // 镜头看树体中段，让「现在」留在画面左边
-const CLOUD_LABELS_MAX = 8; // 只标少量真实走法，不能给几十万颗星造 DOM
+const CLOUD_LABELS_MAX = 8; // 只标少量真实走法，不能给几十万条路径造 DOM
 
 const COLS = 5;                    // 分叉图往前排几步
 const SHOW = [7, 6, 5, 4, 4];      // 每列先列出几条（其余折起来）
 const RANK_DEPTH = 2;              // 排序往前看几步
 
-// 星云每层往外推多远 / 散开的锥半角 / 星点大小 / 不透明度，下标 = 层号
-const STEP    = [0, 9.2, 5.0, 2.9, 1.6];
-const SPREAD  = [0, 0, 0.50, 0.34, 0.26];
-const PT_SIZE = [1.45, 2.0, 1.20, 0.62, 0.36];
-const PT_OPAC = [1.0, 0.95, 0.72, 0.46, 0.21];
+// 路径网每层往外推多远 / 散开的锥半角 / 线条不透明度，下标 = 层号
+const STEP    = [0, 9.0, 5.6, 3.7, 2.25];
+const SPREAD  = [0, 0, 0.26, 0.17, 0.11];
+// 深层依然逐条真实绘制，但压低透明度，避免 20 万条线重新糊成一个发光球。
+const EDGE_OPAC = [0.92, 0.80, 0.18, 0.032, 0.004];
 
 const GOLDEN = 2.39996322972865332;
 
@@ -531,44 +656,20 @@ const cloudGroup = new THREE.Group();
 const cloudTarget = new THREE.Vector3(CLOUD_TARGET_X, 0, 0);
 scene.add(cloudGroup);
 
-const starTex = makeStarTexture();
-function makeStarTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 64;
-  const g = c.getContext('2d');
-  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grd.addColorStop(0.00, 'rgba(255,255,255,1)');
-  grd.addColorStop(0.22, 'rgba(255,255,255,0.62)');
-  grd.addColorStop(0.55, 'rgba(255,255,255,0.14)');
-  grd.addColorStop(1.00, 'rgba(255,255,255,0)');
-  g.fillStyle = grd;
-  g.fillRect(0, 0, 64, 64);
-  const t = new THREE.CanvasTexture(c);
-  t.needsUpdate = true;
-  return t;
-}
-
-const pointMaterials = PT_SIZE.map((size, d) => new THREE.PointsMaterial({
-  size,
-  map: starTex,
+const lineMaterials = EDGE_OPAC.map((opacity) => new THREE.LineBasicMaterial({
   vertexColors: true,
   transparent: true,
-  opacity: PT_OPAC[d],
+  opacity,
   depthWrite: false,
-  blending: THREE.AdditiveBlending,
-  sizeAttenuation: true,
+  blending: THREE.NormalBlending,
 }));
-const lineMaterial = new THREE.LineBasicMaterial({
-  vertexColors: true, transparent: true, opacity: 0.13,
-  depthWrite: false, blending: THREE.AdditiveBlending,
-});
 const cloudRouteMaterial = new THREE.LineBasicMaterial({
   color: 0x8fd8ff, transparent: true, opacity: 0.92,
-  depthWrite: false, blending: THREE.AdditiveBlending,
+  depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
 });
 
 // ─────────────────────────────────────────────── 颜色：分数 → 暖冷
-// 分数正 = 白优（暖），负 = 黑优（冷）。星云和分叉图共用这一个映射。
+// 分数正 = 白优（暖），负 = 黑优（冷）。路径网和分叉图共用这一个映射。
 const WARM = [1.00, 0.44, 0.08];
 const COLD = [0.10, 0.46, 1.00];
 const EVEN = [0.55, 0.53, 0.55];   // 均势得是真中性灰，不然「黑优」和「均势」分不开
@@ -586,9 +687,11 @@ function mixColor(score) {
     EVEN[2] + (target[2] - EVEN[2]) * a,
   ];
 }
-function writeColor(out, o, score) {
+function writeColorBytes(out, o, score, dim = 1) {
   const c = mixColor(score);
-  out[o] = c[0]; out[o + 1] = c[1]; out[o + 2] = c[2];
+  out[o] = Math.round(c[0] * dim * 255);
+  out[o + 1] = Math.round(c[1] * dim * 255);
+  out[o + 2] = Math.round(c[2] * dim * 255);
 }
 function cssColor(score, boost = 1) {
   const c = mixColor(score);
@@ -596,8 +699,8 @@ function cssColor(score, boost = 1) {
   return `rgb(${b(c[0])},${b(c[1])},${b(c[2])})`;
 }
 
-// ─────────────────────────────────────────────── 星云的层账本
-// 铁律：星数一律从几何体 position.count 现读，绝不自己记数。
+// ─────────────────────────────────────────────── 路径网的层账本
+// 铁律：路径数一律从几何体 position.count / 2 现读，绝不自己记数。
 const layers = new Map();
 let cloudState = {
   fen: '', depth: 0, ms: 0, workerMs: 0, mainMs: 0,
@@ -613,7 +716,8 @@ function nodesAt(depth) {
   const rec = layers.get(depth);
   if (!rec) return 0;
   let n = 0;
-  for (const obj of rec.objects) n += obj.geometry.attributes.position.count;
+  // 路径树里每个节点恰有一条入边；一条 LineSegments 边固定两个真实顶点。
+  for (const obj of rec.objects) n += obj.geometry.attributes.position.count / 2;
   return n;
 }
 function builtDepths() { return [...layers.keys()].sort((a, b) => a - b); }
@@ -621,7 +725,6 @@ function builtDepths() { return [...layers.keys()].sort((a, b) => a - b); }
 function clearCloud() {
   for (const rec of layers.values()) {
     for (const obj of rec.objects) { cloudGroup.remove(obj); obj.geometry.dispose(); }
-    if (rec.lines) { cloudGroup.remove(rec.lines); rec.lines.geometry.dispose(); }
   }
   if (cloudRouteLine) {
     cloudGroup.remove(cloudRouteLine);
@@ -643,11 +746,15 @@ function removeCloudLayer(depth) {
     cloudGroup.remove(obj);
     obj.geometry.dispose();
   }
-  if (rec.lines) {
-    cloudGroup.remove(rec.lines);
-    rec.lines.geometry.dispose();
-  }
   layers.delete(depth);
+}
+
+function discardPartialDeepLayer() {
+  if (!layers.has(DEEP_DEPTH)) return false;
+  removeCloudLayer(DEEP_DEPTH);
+  restoreCloudTiming(SYNC_DEPTH);
+  cloudState.depth = Math.min(cloudState.depth, SYNC_DEPTH);
+  return true;
 }
 
 function restoreCloudTiming(depth) {
@@ -664,22 +771,23 @@ function hash01(n) {
 }
 
 function addRoot(score) {
+  // 用一条很短的“过去 → 现在”线表示根；终点严格是原点，2 个顶点 = 1 个真实根节点。
   const pos = new Float32Array([0, 0, 0]);
-  // 根不是某一方占优的评估点，而是「现在」；用绿色和后续暖/冷走法区分。
-  const col = new Float32Array([0.49, 0.88, 0.66]);
+  const edgePos = new Float32Array([-0.55, 0, 0, 0, 0, 0]);
+  const edgeCol = new Uint8Array([45, 91, 73, 126, 224, 168]);
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const obj = new THREE.Points(geo, pointMaterials[0]);
-  obj.userData = { kind: 'cloud-points', depth: 0 };
+  geo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
+  geo.setAttribute('color', new THREE.Uint8BufferAttribute(edgeCol, 3, true));
+  const obj = new THREE.LineSegments(geo, lineMaterials[0]);
+  obj.userData = { kind: 'cloud-links', depth: 0 };
   obj.frustumCulled = false;
   cloudGroup.add(obj);
   layers.set(0, { objects: [obj], pos, dir: new Float32Array([1, 0, 0]) });
 }
 
 /**
- * 往第 depth 层追加一批星。每批都单独开一个「刚好这么大」的 BufferGeometry：
- * 不预分配、不用 drawRange，这样 position.count 天然就是真实星数。
+ * 往第 depth 层追加一批父→子路径。每批都单独开一个「刚好这么大」的 BufferGeometry：
+ * 不预分配、不用 drawRange；一条边两个顶点，position.count / 2 就是真实路径节点数。
  */
 function appendLayer(depth, parents, scores) {
   const n = parents.length;
@@ -693,7 +801,8 @@ function appendLayer(depth, parents, scores) {
 
   const pos = new Float32Array(n * 3);
   const dir = new Float32Array(n * 3);
-  const col = new Float32Array(n * 3);
+  const edgePos = new Float32Array(n * 6);
+  const edgeCol = new Uint8Array(n * 6);
 
   let i = 0;
   while (i < n) {
@@ -724,20 +833,24 @@ function appendLayer(depth, parents, scores) {
       let cx = ax * ca + wx * sa, cy = ay * ca + wy * sa, cz = az * ca + wz * sa;
       const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
       // 径向抖动：孩子不落在同一个半径上，不然每层都是一层壳
-      const jr = depth >= 2 ? 0.45 + 1.15 * hash01(p * 3.7 + j * 11.31 + depth * 57.3) : 1;
+      const jr = depth >= 2 ? 0.72 + 0.58 * hash01(p * 3.7 + j * 11.31 + depth * 57.3) : 1;
       const o = (i + j) * 3;
       dir[o] = cx; dir[o + 1] = cy; dir[o + 2] = cz;
       pos[o] = px + cx * step * jr; pos[o + 1] = py + cy * step * jr; pos[o + 2] = pz + cz * step * jr;
-      writeColor(col, o, scores[i + j]);
+      const eo = (i + j) * 6;
+      edgePos[eo] = px; edgePos[eo + 1] = py; edgePos[eo + 2] = pz;
+      edgePos[eo + 3] = pos[o]; edgePos[eo + 4] = pos[o + 1]; edgePos[eo + 5] = pos[o + 2];
+      writeColorBytes(edgeCol, eo, scores[i + j], 0.34);
+      writeColorBytes(edgeCol, eo + 3, scores[i + j], 1);
     }
     i += k;
   }
 
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-  const obj = new THREE.Points(geo, pointMaterials[Math.min(depth, PT_SIZE.length - 1)]);
-  obj.userData = { kind: 'cloud-points', depth };
+  geo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
+  geo.setAttribute('color', new THREE.Uint8BufferAttribute(edgeCol, 3, true));
+  const obj = new THREE.LineSegments(geo, lineMaterials[Math.min(depth, lineMaterials.length - 1)]);
+  obj.userData = { kind: 'cloud-links', depth };
   obj.frustumCulled = false;
   cloudGroup.add(obj);
 
@@ -745,24 +858,6 @@ function appendLayer(depth, parents, scores) {
   if (!rec) { rec = { objects: [], pos: null, dir: null }; layers.set(depth, rec); }
   rec.objects.push(obj);
   if (depth < DEEP_DEPTH) { rec.pos = pos; rec.dir = dir; }
-
-  if (depth <= 2) {
-    const lp = new Float32Array(n * 6), lc = new Float32Array(n * 6);
-    for (let t = 0; t < n; t++) {
-      const p = parents[t];
-      lp[t * 6] = ppos[p * 3]; lp[t * 6 + 1] = ppos[p * 3 + 1]; lp[t * 6 + 2] = ppos[p * 3 + 2];
-      lp[t * 6 + 3] = pos[t * 3]; lp[t * 6 + 4] = pos[t * 3 + 1]; lp[t * 6 + 5] = pos[t * 3 + 2];
-      for (let c = 0; c < 3; c++) { lc[t * 6 + c] = 0.45; lc[t * 6 + 3 + c] = col[t * 3 + c]; }
-    }
-    const lg = new THREE.BufferGeometry();
-    lg.setAttribute('position', new THREE.BufferAttribute(lp, 3));
-    lg.setAttribute('color', new THREE.BufferAttribute(lc, 3));
-    const lines = new THREE.LineSegments(lg, lineMaterial);
-    lines.userData = { kind: 'cloud-links', depth };
-    lines.frustumCulled = false;
-    cloudGroup.add(lines);
-    rec.lines = lines;
-  }
 }
 
 // ─────────────────────────────────────────────── 棋局 + Worker
@@ -926,11 +1021,14 @@ function startCloudWorker({
       cloudWorkerTargetDepth = 0;
       maybeStartDeepCloud();
     } else if (m.type === 'cloudError') {
+      discardPartialDeepLayer();
       cloudState.growing = false;
       cloudState.deepPending = false;
       cloudState.error = m.message || '未知错误';
-      cloudState.workerMs = cloudWorkerBaseMs + (m.ms || 0);
-      cloudState.ms = cloudState.workerMs + cloudState.mainMs;
+      if (cloudState.depth < SYNC_DEPTH) {
+        cloudState.workerMs = cloudWorkerBaseMs + (m.ms || 0);
+        cloudState.ms = cloudState.workerMs + cloudState.mainMs;
+      }
       updateHud();
       worker.terminate();
       if (cloudWorker === worker) cloudWorker = null;
@@ -939,6 +1037,7 @@ function startCloudWorker({
   };
   worker.onerror = worker.onmessageerror = () => {
     if (worker !== cloudWorker) return;
+    discardPartialDeepLayer();
     cloudState.growing = false;
     cloudState.deepPending = false;
     cloudState.error = 'Worker 加载或通信失败';
@@ -1030,13 +1129,13 @@ function aiStatusHtml(ai) {
   if (game.isGameOver()) return describeEnd();
   return `黑走 <b>${ai.san}</b>（${
     ai.fallback
-      ? '硬时限内采用合法保底步'
+      ? `${esc(ai.reason || '搜索未完成')}，采用合法保底步`
       : `想了 ${ai.totalMs}ms，搜到 ${ai.depth} 层`
   }）。轮到你。`;
 }
 
 /**
- * AI 落子和状态先交给浏览器绘制；分叉排序与星云生长放到后续任务。
+ * AI 落子和状态先交给浏览器绘制；分叉排序与路径网生长放到后续任务。
  * 这样慢手机上用户看到的应手时间不会被非关键可视化工作偷偷拖长。
  */
 function finishAiPresentation(ai, fen, cloudGen) {
@@ -1048,6 +1147,8 @@ function finishAiPresentation(ai, fen, cloudGen) {
       ai.painted = true;
       setStatus(aiStatusHtml(ai));
       updateHud();
+      if (pendingCoachOutcome) presentCoachOutcome(pendingCoachOutcome);
+      else renderCoachIdle();
 
       // 留出一帧让最终状态文字也上屏，再计算新局面的分叉并启动云 Worker。
       setTimeout(() => {
@@ -1096,6 +1197,7 @@ function onAiMove(result) {
   lastAi = {
     san: mv ? mv.san : result.san,
     depth: result.depth, nodes: result.nodes,
+    score: result.score,
     searchMs: Math.round(result.ms),
     totalMs: Math.round(performance.now() - aiClock),
     painted: false,
@@ -1103,12 +1205,26 @@ function onAiMove(result) {
     reason: usedFallback ? result.reason : '',
   };
   selected = null;
-  preview = null;
+  forkPreview = null;
+  coachPreview = null;
   branchPath = [];
   expanded = [];
   resetForkTransient();
   renderBoard();
   const cloudGen = prepareCloud();
+  pendingCoachOutcome = pendingCoachPrediction ? {
+    prediction: pendingCoachPrediction,
+    actual: {
+      san: mv.san,
+      from: mv.from,
+      to: mv.to,
+      promotion: mv.promotion,
+      piece: mv.piece,
+    },
+    fallback: usedFallback,
+    reason: lastAi.reason,
+  } : null;
+  pendingCoachPrediction = null;
   const ai = lastAi;
   const fen = game.fen();
   setStatus(aiStatusHtml(ai));
@@ -1118,11 +1234,17 @@ function onAiMove(result) {
 /** 落子入口。棋盘点击、分叉图、测试钩子走的都是这一条路，合法性一律由 chess.js 判。 */
 function tryMove(from, to, promotion) {
   if (thinking || game.isGameOver() || game.turn() !== 'w') return false;
+  const prediction = captureCoachPrediction(from, to, promotion);
   let mv = null;
   try { mv = game.move({ from, to, promotion: promotion || 'q' }); } catch (e) { mv = null; }
   if (!mv) return false;
+  pendingCoachPrediction = prediction;
   selected = null;
-  preview = null;
+  forkPreview = null;
+  coachPreview = null;
+  coachOutcome = null;
+  setCoachThinking(mv);
+  coachReplyCache.clear();
   branchPath = [];
   expanded = [];
   lastAi = null;
@@ -1131,6 +1253,7 @@ function tryMove(from, to, promotion) {
   renderBoard();
   requestAi();       // 先派活给 AI 的 Worker，让它和主线程并行
   if (!thinking) {
+    presentCoachTerminal(mv, prediction);
     rebuildCloud();
     renderFork();
     setStatus(describeEnd());
@@ -1160,11 +1283,82 @@ const boardOverlayEl = document.getElementById('boardOverlay');
 const CELL = 50;
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const PIECE_NAME = { k: '王', q: '后', r: '车', b: '象', n: '马', p: '兵' };
-let preview = null;      // 鼠标停在分叉图某条上时，棋盘要画出来的那一步
+let forkPreview = null;   // 分叉 hover 的单步预览
+let coachPreview = null;  // 棋子助手的“你一步 → 对手一步”动画
+const coachPanelEl = document.getElementById('coachPanel');
+const coachTitleEl = document.getElementById('coachTitle');
+const coachExplainEl = document.getElementById('coachExplain');
+const coachMovesEl = document.getElementById('coachMoves');
+const coachReplyStripEl = document.getElementById('coachReplyStrip');
+const coachReplyCache = new Map();
+let coachModel = null;
+let coachActiveRank = null;
+let coachOutcome = null;
+let pendingCoachPrediction = null;
+let pendingCoachOutcome = null;
+let coachPreviewGen = 0;
 
 function squareXY(sq) {
   const f = FILES.indexOf(sq[0]), r = 8 - Number(sq[1]);
   return [f * CELL + CELL / 2, r * CELL + CELL / 2];
+}
+
+function appendForkPreview(move) {
+  const [x1, y1] = squareXY(move.from), [x2, y2] = squareXY(move.to);
+  const ring = svgElement('circle', {
+    cx: x1, cy: y1, r: 21, fill: 'none', stroke: move.color,
+    'stroke-width': 3, 'stroke-dasharray': '5 4', 'pointer-events': 'none',
+  });
+  boardOverlayEl.appendChild(ring);
+  const line = svgElement('line', {
+    x1, y1, x2, y2, stroke: move.color, 'stroke-width': 5,
+    'stroke-linecap': 'round', opacity: '.9', 'pointer-events': 'none',
+  });
+  boardOverlayEl.appendChild(line);
+  const dot = svgElement('circle', {
+    cx: x2, cy: y2, r: 9, fill: move.color, 'pointer-events': 'none',
+  });
+  boardOverlayEl.appendChild(dot);
+}
+
+function appendCoachStep(move, step, label, bend) {
+  if (!move?.from || !move?.to) return;
+  const [x1, y1] = squareXY(move.from), [x2, y2] = squareXY(move.to);
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.hypot(dx, dy) || 1;
+  const mx = (x1 + x2) / 2 - (dy / len) * bend;
+  const my = (y1 + y2) / 2 + (dx / len) * bend;
+  const path = svgElement('path', {
+    d: `M${x1} ${y1} Q${mx.toFixed(2)} ${my.toFixed(2)} ${x2} ${y2}`,
+    pathLength: 1,
+    class: 'coach-path',
+    'data-step': step,
+    'data-line-id': coachPreview?.id || '',
+    'data-from': move.from,
+    'data-to': move.to,
+    'data-san': move.san || '',
+  });
+  boardOverlayEl.appendChild(path);
+  const target = svgElement('circle', {
+    cx: x2, cy: y2, r: 8,
+    class: 'coach-target',
+    'data-step': step,
+    'data-line-id': coachPreview?.id || '',
+  });
+  boardOverlayEl.appendChild(target);
+  const tag = svgElement('text', {
+    x: mx, y: my - 7,
+    class: 'coach-tag',
+    'data-step': step,
+    'data-line-id': coachPreview?.id || '',
+  });
+  tag.textContent = label;
+  boardOverlayEl.appendChild(tag);
+}
+
+function appendCoachPreview(sequence) {
+  appendCoachStep(sequence.you, 'you', `你 ${sequence.you.san}`, -8);
+  appendCoachStep(sequence.reply, 'reply', `黑 ${sequence.reply?.san || ''}`, 9);
 }
 
 function svgElement(tag, attrs = {}) {
@@ -1212,6 +1406,8 @@ function renderBoard() {
         'stroke-width': .55,
         'data-sq': sq,
         role: 'gridcell',
+        tabindex: (board[r][f]?.color === 'w' || legal.includes(sq)) ? 0 : -1,
+        'aria-selected': sq === selected ? 'true' : 'false',
         'aria-label': sq,
       });
       let fill = dark ? '#3b4560' : '#8b97b4';
@@ -1250,39 +1446,50 @@ function renderBoard() {
     }
   }
 
-  if (preview) {
-    const [x1, y1] = squareXY(preview.from), [x2, y2] = squareXY(preview.to);
-    const ring = svgElement('circle', {
-      cx: x1, cy: y1, r: 21, fill: 'none', stroke: preview.color,
-      'stroke-width': 3, 'stroke-dasharray': '5 4', 'pointer-events': 'none',
-    });
-    boardOverlayEl.appendChild(ring);
-    const ln = svgElement('line', {
-      x1, y1, x2, y2, stroke: preview.color, 'stroke-width': 5,
-      'stroke-linecap': 'round', opacity: '.9', 'pointer-events': 'none',
-    });
-    boardOverlayEl.appendChild(ln);
-    const dot = svgElement('circle', {
-      cx: x2, cy: y2, r: 9, fill: preview.color, 'pointer-events': 'none',
-    });
-    boardOverlayEl.appendChild(dot);
-  }
+  if (forkPreview) appendForkPreview(forkPreview);
+  else if (coachPreview) appendCoachPreview(coachPreview);
   boardEl.setAttribute(
     'aria-label',
     `国际象棋棋盘，${game.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${boardPiecesEl.childElementCount} 枚棋子`,
   );
 }
 
-boardEl.addEventListener('click', (ev) => {
-  const sq = ev.target && ev.target.dataset ? ev.target.dataset.sq : null;
-  if (!sq) return;
+function activateBoardSquare(sq) {
+  if (!sq) return false;
   if (selected) {
-    if (sq === selected) { selected = null; renderBoard(); return; }
-    if (tryMove(selected, sq)) return;
+    if (sq === selected) {
+      selected = null;
+      coachPreview = null;
+      coachModel = null;
+      renderCoachIdle();
+      renderBoard();
+      return true;
+    }
+    if (tryMove(selected, sq)) return true;
   }
   const pc = game.get(sq);
   selected = (pc && pc.color === 'w' && game.turn() === 'w' && !thinking) ? sq : null;
+  coachOutcome = null;
+  coachPreview = null;
+  forkPreview = null;
+  coachActiveRank = null;
+  if (selected) updateMoveCoach();
+  else {
+    coachModel = null;
+    renderCoachIdle();
+  }
   renderBoard();
+  return !!selected;
+}
+
+boardEl.addEventListener('click', (ev) => {
+  const sq = ev.target && ev.target.dataset ? ev.target.dataset.sq : null;
+  activateBoardSquare(sq);
+});
+boardEl.addEventListener('keydown', (ev) => {
+  if (ev.key !== 'Enter' && ev.key !== ' ') return;
+  const sq = ev.target && ev.target.dataset ? ev.target.dataset.sq : null;
+  if (activateBoardSquare(sq)) ev.preventDefault();
 });
 
 function setStatus(html) { document.getElementById('status').innerHTML = html; }
@@ -1295,9 +1502,9 @@ function updateHud() {
   const deepest = nodesAt(cloudState.depth);
   if (cloudState.error) {
     document.getElementById('cloudStats').innerHTML =
-      `星云计算失败 · 已保留真实绘制到第 <b>${cloudState.depth}</b> 层`;
+      `路径网计算失败 · 已保留真实绘制到第 <b>${cloudState.depth}</b> 层`;
     document.getElementById('cloudCount').innerHTML =
-      `<span class="grow">计算中断：${esc(cloudState.error)}</span> · 已绘制 ${total.toLocaleString('en-US')} 个节点`;
+      `<span class="grow">计算中断：${esc(cloudState.error)}</span> · 已绘制 ${total.toLocaleString('en-US')} 条真实路径`;
     cloudLayerLegendEl.textContent = builtDepths()
       .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
       .join('　·　');
@@ -1307,8 +1514,8 @@ function updateHud() {
     `铺了 <b>${layerTxt}</b>　·　当前可见层 ${Math.round(cloudState.ms)} ms 计算`
     + (lastAi ? `　·　AI 应手 <b>${lastAi.totalMs} ms</b>（搜到 ${lastAi.depth} 层）` : '');
   document.getElementById('cloudCount').innerHTML = cloudState.growing
-    ? `已绘制 <span class="grow">${total.toLocaleString('en-US')}</span> 个路径节点，还在长`
-    : `${cloudState.depth} 步后 ${deepest.toLocaleString('en-US')} 条路径 · 共绘制 ${total.toLocaleString('en-US')} 个节点`;
+    ? `已绘制 <span class="grow">${total.toLocaleString('en-US')}</span> 条真实路径，还在长`
+    : `${cloudState.depth} 步后 ${deepest.toLocaleString('en-US')} 条路径 · 共绘制 ${total.toLocaleString('en-US')} 条`;
   cloudLayerLegendEl.textContent = builtDepths()
     .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
     .join('　·　');
@@ -1381,6 +1588,354 @@ function esc(s) {
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
   })[ch]);
 }
+
+/**
+ * 原始分仍保留给懂引擎的人核对，但主信息先翻译成人能直接做决定的话。
+ * 分数始终沿用 engine.js 的唯一口径：正 = 白方好，负 = 黑方好。
+ */
+function scoreSituation(score) {
+  if (score >= MATE) {
+    return { key: 'mate-win', short: '可将死', label: '你有强制将死', color: '#7ee0a8' };
+  }
+  if (score <= -MATE) {
+    return { key: 'mate-loss', short: '会被将死', label: '对手有强制将死', color: '#ff806f' };
+  }
+  if (score >= 150) {
+    return { key: 'white-clear', short: '你明显优', label: '你明显占优', color: '#7ee0a8' };
+  }
+  if (score >= 50) {
+    return { key: 'white-edge', short: '你稍优', label: '你稍优', color: '#b8e69d' };
+  }
+  if (score > -50) {
+    return { key: 'balanced', short: '接近均衡', label: '局面接近均衡', color: '#d5d0c7' };
+  }
+  if (score > -150) {
+    return { key: 'black-edge', short: '对手稍优', label: '对手稍优', color: '#9ec9f3' };
+  }
+  return { key: 'black-clear', short: '对手明显优', label: '对手明显占优', color: '#75aef0' };
+}
+
+function moveQuality(score, bestScore, white = true) {
+  const wins = white ? score >= MATE : score <= -MATE;
+  const loses = white ? score <= -MATE : score >= MATE;
+  const bestWins = white ? bestScore >= MATE : bestScore <= -MATE;
+  if (wins) return { key: 'wins', label: '直接取胜' };
+  if (loses) return { key: 'mated', label: '会被将死' };
+  if (bestWins) return { key: 'misses-mate', label: '会错过将杀' };
+  const loss = Math.max(0, white ? bestScore - score : score - bestScore);
+  if (loss <= 15) return { key: 'best', label: '首选' };
+  if (loss <= 50) return { key: 'steady', label: '稳健可下' };
+  if (loss <= 100) return { key: 'accurate', label: '需要准确' };
+  return { key: 'risky', label: '风险较高' };
+}
+
+function replyDescription(reply) {
+  if (!reply) return '对手没有合法回应';
+  let text = `对手优先防：${PIECE_NAME[reply.piece] || '棋子'}走 ${reply.san}`;
+  if (reply.captured) text += `，吃${PIECE_NAME[reply.captured] || '子'}`;
+  if (reply.san.endsWith('#')) text += '并将死';
+  else if (reply.san.endsWith('+')) text += '并将军';
+  return text;
+}
+
+function repliesFor(candidate) {
+  if (!candidate?.after) return [];
+  let replies = coachReplyCache.get(candidate.after);
+  if (!replies) {
+    replies = rankMoves(candidate.after, { depth: 1 });
+    coachReplyCache.set(candidate.after, replies);
+  }
+  return replies;
+}
+
+function coachCandidateFromMove(from, to, promotion) {
+  const first = columns[0];
+  if (!first || first.fen !== game.fen()) return null;
+  const wantedPromotion = promotion || 'q';
+  return first.ranked.find((move) =>
+    move.from === from
+    && move.to === to
+    && (!move.promotion || move.promotion === wantedPromotion)
+  ) || null;
+}
+
+function buildCoachModel(square) {
+  const first = columns[0];
+  if (!first || first.fen !== game.fen()) return null;
+  const allCandidates = first.ranked.filter((move) => move.from === square);
+  const candidates = allCandidates
+    .slice(0, 3)
+    .map((move) => ({
+      ...move,
+      rank: first.ranked.indexOf(move),
+      replies: repliesFor(move).slice(0, 3),
+      situation: scoreSituation(move.score),
+      quality: moveQuality(move.score, first.ranked[0].score),
+    }));
+  if (candidates.length === 0) return null;
+  return {
+    fen: game.fen(),
+    square,
+    piece: candidates[0].piece,
+    total: allCandidates.length,
+    candidates,
+  };
+}
+
+function setCoachPreview(candidate) {
+  if (!candidate) {
+    coachPreview = null;
+    renderBoard();
+    return false;
+  }
+  coachActiveRank = candidate.rank;
+  coachPreview = {
+    id: `coach-${++coachPreviewGen}`,
+    you: {
+      san: candidate.san,
+      from: candidate.from,
+      to: candidate.to,
+      promotion: candidate.promotion || '',
+    },
+    reply: candidate.replies[0] ? {
+      san: candidate.replies[0].san,
+      from: candidate.replies[0].from,
+      to: candidate.replies[0].to,
+      promotion: candidate.replies[0].promotion || '',
+      piece: candidate.replies[0].piece,
+    } : null,
+  };
+  return true;
+}
+
+function renderCoachIdle() {
+  coachPanelEl.dataset.state = 'idle';
+  coachTitleEl.textContent = thinking ? '黑方正在思考' : '先点一枚白棋';
+  coachExplainEl.textContent = thinking
+    ? '应手画出来后，会告诉你是否落在刚才预演的强回应里'
+    : '会依次动画预演“你的一步 → 对手的强回应”，不直接落子';
+  coachMovesEl.replaceChildren();
+  coachReplyStripEl.replaceChildren();
+}
+
+function coachCardHtml(candidate, active) {
+  const reply = candidate.replies[0];
+  return `<button type="button" class="coach-card${active ? ' is-active' : ''}"`
+    + ` aria-pressed="${active}"`
+    + ` data-rank="${candidate.rank}" data-san="${esc(candidate.san)}"`
+    + ` data-from="${candidate.from}" data-to="${candidate.to}"`
+    + ` data-promotion="${candidate.promotion || ''}" data-after="${esc(candidate.after)}"`
+    + ` data-score="${candidate.score}" data-situation="${candidate.situation.key}"`
+    + ` data-quality="${candidate.quality.key}"`
+    + ` data-reply-san="${esc(reply?.san || '')}" data-reply-from="${reply?.from || ''}"`
+    + ` data-reply-to="${reply?.to || ''}" data-reply-piece="${reply?.piece || ''}"`
+    + ` data-reply-score="${reply?.score ?? ''}">`
+    + `<span class="coach-card-top"><span class="coach-san">${esc(candidate.san)}</span>`
+    + `<span class="coach-quality">${candidate.quality.label}</span></span>`
+    + `<span class="coach-situation" style="--situation-color:${candidate.situation.color}">${candidate.situation.label}</span>`
+    + `<span class="coach-reply">${esc(replyDescription(reply))}</span>`
+    + `<span class="coach-raw">引擎原分 ${scoreText(candidate.score)}</span>`
+    + `</button>`;
+}
+
+function renderCoachCandidate(candidate, { rerenderBoard = true } = {}) {
+  if (!coachModel || !candidate) return false;
+  forkPreview = null;
+  setCoachPreview(candidate);
+  coachPanelEl.dataset.state = 'ready';
+  coachTitleEl.textContent = coachModel.total > 3
+    ? `${candidate.from.toUpperCase()} 的${PIECE_NAME[coachModel.piece]}共 ${coachModel.total} 种，先看前三`
+    : `${candidate.from.toUpperCase()} 的${PIECE_NAME[coachModel.piece]}：先看 ${candidate.san}`;
+  coachExplainEl.textContent = '黄线是你，蓝线是对手；回应按引擎强度排序，不是历史胜率';
+  coachMovesEl.innerHTML = coachModel.candidates
+    .map((move) => coachCardHtml(move, move.rank === candidate.rank))
+    .join('');
+  const chips = candidate.replies.map((reply, index) =>
+    `<span class="coach-reply-chip" data-rank="${index}" data-san="${esc(reply.san)}"`
+      + ` data-from="${reply.from}" data-to="${reply.to}" data-piece="${reply.piece}">`
+      + `${index + 1}. ${PIECE_NAME[reply.piece] || '棋子'} ${esc(reply.san)}</span>`
+  ).join('');
+  coachReplyStripEl.innerHTML =
+    `<span>优先防的强回应：</span>${chips}`
+    + `<button type="button" data-coach-action="play" data-rank="${candidate.rank}">就走 ${esc(candidate.san)}</button>`;
+  if (rerenderBoard) renderBoard();
+  return true;
+}
+
+function updateMoveCoach() {
+  if (!selected || thinking || game.turn() !== 'w') {
+    coachModel = null;
+    renderCoachIdle();
+    return false;
+  }
+  if (forkStale || columns[0]?.fen !== game.fen()) {
+    coachModel = null;
+    coachPanelEl.dataset.state = 'thinking';
+    coachTitleEl.textContent = '新局面的路径正在更新';
+    coachExplainEl.textContent = '棋盘已可见，候选会在下一帧接上';
+    coachMovesEl.replaceChildren();
+    coachReplyStripEl.replaceChildren();
+    return false;
+  }
+  coachOutcome = null;
+  coachModel = buildCoachModel(selected);
+  if (!coachModel) {
+    coachPreview = null;
+    coachPanelEl.dataset.state = 'idle';
+    coachTitleEl.textContent = `${selected.toUpperCase()} 暂无合法走法`;
+    coachExplainEl.textContent = '换一枚白棋试试';
+    coachMovesEl.replaceChildren();
+    coachReplyStripEl.replaceChildren();
+    return false;
+  }
+  const active = coachModel.candidates.find((move) => move.rank === coachActiveRank)
+    || coachModel.candidates[0];
+  return renderCoachCandidate(active, { rerenderBoard: false });
+}
+
+function captureCoachPrediction(from, to, promotion) {
+  const candidate = coachCandidateFromMove(from, to, promotion);
+  if (!candidate) return null;
+  return {
+    fen: game.fen(),
+    candidate: {
+      san: candidate.san,
+      from: candidate.from,
+      to: candidate.to,
+      promotion: candidate.promotion || '',
+      after: candidate.after,
+      score: candidate.score,
+    },
+    replies: repliesFor(candidate).slice(0, 3).map((reply) => ({
+      san: reply.san,
+      from: reply.from,
+      to: reply.to,
+      promotion: reply.promotion || '',
+      after: reply.after,
+      score: reply.score,
+      piece: reply.piece,
+      captured: reply.captured || '',
+    })),
+  };
+}
+
+function setCoachThinking(move) {
+  coachModel = null;
+  coachPanelEl.dataset.state = 'thinking';
+  coachTitleEl.textContent = `你走了 ${move.san}，正在等黑方`;
+  coachExplainEl.textContent = '预演不会冒充结果；实际应手画出来后再对照';
+  coachMovesEl.replaceChildren();
+  coachReplyStripEl.innerHTML = '<span class="coach-reply-chip">黑方思考中…</span>';
+}
+
+function presentCoachTerminal(move, prediction) {
+  pendingCoachPrediction = null;
+  pendingCoachOutcome = null;
+  coachModel = null;
+  const score = prediction?.candidate?.score ?? 0;
+  const situation = scoreSituation(score);
+  coachOutcome = {
+    terminal: true,
+    score,
+    situation,
+    fallback: false,
+    actualRank: -1,
+    forecastRank: -1,
+  };
+  coachPanelEl.dataset.state = 'outcome';
+  coachTitleEl.textContent = `你走了 ${move.san}，棋局结束`;
+  coachExplainEl.textContent = describeEnd();
+  coachMovesEl.innerHTML =
+    `<div class="coach-card is-active" data-outcome="true" data-score="${score}" data-situation="${situation.key}">`
+      + `<span class="coach-card-top"><span class="coach-san">${esc(move.san)}</span></span>`
+      + `<span class="coach-situation" style="--situation-color:${situation.color}">${situation.label}</span>`
+      + `<span class="coach-reply">对手没有下一步</span>`
+      + `<span class="coach-raw">引擎原分 ${scoreText(score)}</span>`
+      + `</div>`;
+  coachReplyStripEl.replaceChildren();
+  coachPreview = {
+    id: `coach-${++coachPreviewGen}`,
+    you: prediction?.candidate || {
+      san: move.san,
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion || '',
+    },
+    reply: null,
+  };
+  renderBoard();
+  return true;
+}
+
+function presentCoachOutcome(outcome) {
+  if (!outcome?.prediction) return false;
+  const { prediction, actual, fallback } = outcome;
+  const replies = rankMoves(prediction.candidate.after, { depth: 1 });
+  const actualRank = replies.findIndex((reply) =>
+    reply.from === actual.from
+    && reply.to === actual.to
+    && (reply.promotion || '') === (actual.promotion || '')
+  );
+  const actualReply = actualRank >= 0 ? replies[actualRank] : null;
+  const forecastRank = prediction.replies.findIndex((reply) =>
+    reply.from === actual.from
+    && reply.to === actual.to
+    && (reply.promotion || '') === (actual.promotion || '')
+  );
+  const situation = scoreSituation(actualReply?.score ?? prediction.candidate.score);
+  coachOutcome = {
+    ...outcome,
+    actualRank,
+    forecastRank,
+    situation,
+    score: actualReply?.score ?? prediction.candidate.score,
+  };
+  coachPanelEl.dataset.state = 'outcome';
+  coachTitleEl.textContent = fallback
+    ? `黑方用合法保底步走了 ${actual.san}`
+    : `黑方实际走了 ${actual.san}`;
+  coachExplainEl.textContent = fallback
+    ? `${outcome.reason || '搜索未完成'}，因此采用合法保底步；不把它冒充成预测命中`
+    : forecastRank === 0
+      ? '命中预演的首要强回应'
+      : forecastRank > 0
+        ? `落在预演的前三条强回应里（第 ${forecastRank + 1} 条）`
+        : '没出现在这次浅层预演的前三条，实际结果已用蓝线标出';
+  coachMovesEl.innerHTML =
+    `<div class="coach-card is-active" data-outcome="true" data-score="${coachOutcome.score}"`
+      + ` data-situation="${situation.key}" data-actual-rank="${actualRank}">`
+      + `<span class="coach-card-top"><span class="coach-san">${esc(prediction.candidate.san)} → ${esc(actual.san)}</span></span>`
+      + `<span class="coach-situation" style="--situation-color:${situation.color}">${situation.label}</span>`
+      + `<span class="coach-reply">${fallback ? '合法保底应手' : `实际回应强度排序：${actualRank >= 0 ? `第 ${actualRank + 1}` : '未找到'}`}</span>`
+      + `<span class="coach-raw">引擎原分 ${scoreText(coachOutcome.score)}</span>`
+      + `</div>`;
+  coachReplyStripEl.innerHTML = prediction.replies.map((reply, index) =>
+    `<span class="coach-reply-chip" data-rank="${index}" data-san="${esc(reply.san)}">`
+      + `${reply.san === actual.san ? '✓ ' : ''}${index + 1}. ${PIECE_NAME[reply.piece] || '棋子'} ${esc(reply.san)}</span>`
+  ).join('');
+  coachPreview = {
+    id: `coach-${++coachPreviewGen}`,
+    you: prediction.candidate,
+    reply: actual,
+  };
+  pendingCoachOutcome = null;
+  renderBoard();
+  return true;
+}
+
+coachMovesEl.addEventListener('click', (ev) => {
+  const card = ev.target.closest('button.coach-card');
+  if (!card || !coachModel || thinking) return;
+  const candidate = coachModel.candidates.find((move) => move.rank === +card.dataset.rank);
+  if (candidate) renderCoachCandidate(candidate);
+});
+
+coachReplyStripEl.addEventListener('click', (ev) => {
+  const action = ev.target.closest('button[data-coach-action]');
+  if (!action || !coachModel || thinking) return;
+  const candidate = coachModel.candidates.find((move) => move.rank === +action.dataset.rank);
+  if (candidate) tryMove(candidate.from, candidate.to, candidate.promotion);
+});
 
 function renderFork(force = false) {
   if (forkStale && !force) return false;
@@ -1468,17 +2023,18 @@ function renderFork(force = false) {
     for (let row = 0; row < c.visibleIndices.length; row++) {
       const rank = c.visibleIndices[row];
       const m = c.ranked[rank];
+      const situation = scoreSituation(m.score);
       const y = yOf(c, row + cardOffset(c));
       const isPick = rank === c.chosen;
       const col = cssColor(m.score, 1.25);
-      svg += `<g class="card" role="button" tabindex="0" data-col="${i}" data-idx="${rank}" data-san="${esc(m.san)}" data-selected="${isPick}">`
+      svg += `<g class="card" role="button" tabindex="0" data-col="${i}" data-idx="${rank}" data-san="${esc(m.san)}" data-situation="${situation.key}" data-selected="${isPick}">`
         + `<rect x="${x}" y="${y}" width="${cardW}" height="${CARD_H}" rx="9"`
         + ` fill="${isPick ? 'rgba(60,96,140,.55)' : 'rgba(30,36,52,.62)'}"`
         + ` stroke="${isPick ? '#8fd8ff' : 'rgba(150,170,220,.18)'}" stroke-width="${isPick ? 1.8 : 1}"/>`
         + `<rect x="${x}" y="${y + 7}" width="4" height="${CARD_H - 14}" rx="2" fill="${col}"/>`
         + `<text x="${x + 15}" y="${y + CARD_H / 2 + 1}" font-size="15" font-weight="600" dominant-baseline="middle" fill="#f0f4ff">${esc(m.san)}</text>`
-        + `<text x="${x + cardW - 11}" y="${y + CARD_H / 2 + 1}" font-size="12" text-anchor="end" dominant-baseline="middle" fill="${col}" font-variant-numeric="tabular-nums">${scoreText(m.score)}</text>`
-        + `<text x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="${isPick ? '#9edcff' : '#6f768c'}">${isPick ? '✓ 已选' : `#${rank + 1}`}</text>`
+        + `<text x="${x + cardW - 11}" y="${y + CARD_H / 2 + 1}" font-size="10.5" text-anchor="end" dominant-baseline="middle" fill="${col}">${situation.short}</text>`
+        + `<text x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="${isPick ? '#9edcff' : '#6f768c'}">${isPick ? '✓ 已选' : `#${rank + 1}`} · ${scoreText(m.score)}</text>`
         + `</g>`;
     }
     if (hasToggle(c)) {
@@ -1513,6 +2069,10 @@ function renderFork(force = false) {
   document.getElementById('btnPlayLine').disabled =
     !(columns.length && game.turn() === 'w' && !thinking && !game.isGameOver());
   syncCloudMap();
+  if (selected && !thinking && (!coachModel || coachModel.fen !== game.fen())) {
+    updateMoveCoach();
+    renderBoard();
+  }
   return true;
 }
 
@@ -1572,13 +2132,16 @@ forkEl.addEventListener('keydown', (ev) => {
 });
 
 function showMoveDetails(c, m, rank) {
-  preview = { from: m.from, to: m.to, color: cssColor(m.score, 1.35) };
+  forkPreview = { from: m.from, to: m.to, color: cssColor(m.score, 1.35) };
   renderBoard();
   const replies = new Chess(m.after).moves().length;
+  const situation = scoreSituation(m.score);
+  const quality = moveQuality(m.score, c.ranked[0].score, c.white);
   document.getElementById('forkFoot').innerHTML =
     `<b>${esc(m.san)}</b>　这一步在 ${c.ranked.length} 种里排第 <b>${rank + 1}</b>`
     + `　·　走完之后对方有 <b>${replies}</b> 种回应`
-    + `　·　往前看两步的评估 <b>${scoreText(m.score)}</b>（正=白优）`;
+    + `　·　<b>${situation.label}</b>，${quality.label}`
+    + `　·　引擎原分 ${scoreText(m.score)}`;
 }
 
 forkEl.addEventListener('mouseover', (ev) => {
@@ -1592,7 +2155,7 @@ forkEl.addEventListener('mouseover', (ev) => {
 });
 forkEl.addEventListener('mouseleave', () => {
   if (thinking || forkStale) return;
-  preview = null; renderBoard();
+  forkPreview = null; renderBoard();
   document.getElementById('forkFoot').textContent = FORK_IDLE_TEXT;
 });
 
@@ -1603,7 +2166,7 @@ document.getElementById('btnPlayLine').onclick = () => {
   tryMove(m.from, m.to, m.promotion);
 };
 
-// ─────────────────────────────────────────────── 星图标签 + 与平面选路联动
+// ─────────────────────────────────────────────── 路径网标签 + 与平面选路联动
 function cloudMoveMeta(after) {
   return cloudFirstMoves.find((m) => m.after === after) || null;
 }
@@ -1645,6 +2208,7 @@ function updateCloudRoute(route = traceCloudRoute()) {
   cloudRouteLine = new THREE.Line(geo, cloudRouteMaterial);
   cloudRouteLine.userData = { kind: 'selected-route', depth: route.length, san: route.map((s) => s.san).join(' ') };
   cloudRouteLine.frustumCulled = false;
+  cloudRouteLine.renderOrder = 10;
   cloudGroup.add(cloudRouteLine);
 }
 
@@ -1666,8 +2230,9 @@ function syncCloudMap() {
     const selected = rank === first.chosen;
     return `<button type="button" class="cloud-label cloud-move-label${selected ? ' is-selected' : ''}"`
       + ` data-depth="1" data-index="${meta.index}" data-rank="${rank}" data-san="${esc(move.san)}"`
-      + ` aria-pressed="${selected}" style="--move-color:${cssColor(move.score, 1.25)}">`
-      + `<b>${esc(move.san)}</b><small>${scoreText(move.score)}</small></button>`;
+      + ` data-situation="${scoreSituation(move.score).key}" aria-pressed="${selected}"`
+      + ` title="引擎原分 ${scoreText(move.score)}" style="--move-color:${cssColor(move.score, 1.25)}">`
+      + `<b>${esc(move.san)}</b><small>${scoreSituation(move.score).short}</small></button>`;
   }).join('');
   const route = traceCloudRoute();
   const breadcrumbs = route.slice(1).map((step) =>
@@ -1691,7 +2256,12 @@ function positionCloudLabels() {
   if (!layers.get(1)?.pos || !w || !h) return;
   const skyRect = skyBox.getBoundingClientRect();
   const exclusions = full
-    ? [document.getElementById('cloudMapHud'), document.getElementById('cloudClose'), document.getElementById('skyHint')]
+    ? [
+        document.getElementById('cloudMapHud'),
+        document.getElementById('cloudResetView'),
+        document.getElementById('cloudClose'),
+        document.getElementById('skyHint'),
+      ]
       .map((el) => el.getBoundingClientRect())
       .filter((r) => r.width > 0 && r.height > 0)
       .map((r) => ({
@@ -1715,17 +2285,19 @@ function positionCloudLabels() {
     }
     labelProjected.copy(labelWorld).project(camera);
     labelCameraSpace.copy(labelWorld).applyMatrix4(camera.matrixWorldInverse);
+    const fogDistance = labelWorld.distanceTo(camera.position);
     const x = (labelProjected.x * 0.5 + 0.5) * w;
     const y = (-labelProjected.y * 0.5 + 0.5) * h;
     const inView =
       labelProjected.z > -1 && labelProjected.z < 1
+      && fogDistance < scene.fog.far - 1
       && x > 32 && x < w - 32 && y > 30 && y < h - 30
       && !exclusions.some((r) => x > r.left && x < r.right && y > r.top && y < r.bottom);
     el.style.transform = `translate3d(${x.toFixed(1)}px,${y.toFixed(1)}px,0) translate(-50%,-50%)`;
     el.classList.remove('is-visible');
     el.style.opacity = '0';
     el.style.pointerEvents = 'none';
-    if (inView && (full || depth === 0)) {
+    if (inView && (full || depth <= 1)) {
       candidates.push({
         el, x, y, z: labelCameraSpace.z,
         priority:
@@ -1738,7 +2310,7 @@ function positionCloudLabels() {
   }
 
   candidates.sort((a, b) => b.priority - a.priority);
-  const maxVisible = full ? (w <= 600 ? 5 : 7) : 1;
+  const maxVisible = full ? (w <= 600 ? 5 : 7) : 3;
   const accepted = [];
   for (const item of candidates) {
     const collides = accepted.some((a) => Math.hypot(a.x - item.x, a.y - item.y) < (w <= 600 ? 58 : 72));
@@ -1771,9 +2343,19 @@ cloudLabelsEl.addEventListener('click', (ev) => {
   if (chooseForkBranch(0, rank) && after) focusCloudMove(after);
 });
 
-// ─────────────────────────────────────────────── 星云小窗的视角
-const view = { yaw: 0.6, pitch: 0.28, dist: 34, auto: true };
+// ─────────────────────────────────────────────── 路径网视角
+const DEFAULT_VIEW = Object.freeze({ yaw: 0.08, pitch: 0.15, dist: 29 });
+const view = { ...DEFAULT_VIEW, auto: true };
 const cloudTargetGoal = new THREE.Vector3(CLOUD_TARGET_X, 0, 0);
+function resetCloudView() {
+  view.yaw = DEFAULT_VIEW.yaw;
+  view.pitch = DEFAULT_VIEW.pitch;
+  view.dist = DEFAULT_VIEW.dist;
+  view.auto = true;
+  cloudTarget.set(CLOUD_TARGET_X, 0, 0);
+  cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
+  return true;
+}
 let drag = null;
 canvas.addEventListener('pointerdown', (e) => {
   drag = { x: e.clientX, y: e.clientY, moved: false };
@@ -1795,7 +2377,7 @@ canvas.addEventListener('pointerup', () => {
 canvas.addEventListener('pointercancel', () => { drag = null; });
 canvas.addEventListener('wheel', (e) => {
   e.preventDefault();
-  view.dist = Math.max(6, Math.min(220, view.dist * (1 + Math.sign(e.deltaY) * 0.09)));
+  view.dist = Math.max(8, Math.min(58, view.dist * (1 + Math.sign(e.deltaY) * 0.09)));
 }, { passive: false });
 
 function toggleCloudFull(force) {
@@ -1813,6 +2395,7 @@ function toggleCloudFull(force) {
   return full;
 }
 document.getElementById('cloudClose').onclick = () => toggleCloudFull(false);
+document.getElementById('cloudResetView').onclick = resetCloudView;
 
 let forkViewportW = -1, forkViewportH = -1, resizeFrame = 0;
 function resize() {
@@ -1909,7 +2492,7 @@ function frame() {
     if (view.auto) view.yaw += 0.0009;
     cloudTarget.lerp(cloudTargetGoal, 0.055);
     const cp = Math.cos(view.pitch);
-    // 竖屏全屏时保持近似相同的水平视野，避免星云被放大裁成一块“背景”。
+    // 竖屏全屏时保持近似相同的水平视野，避免路径网被放大裁成一块“背景”。
     const fitDist = view.dist / Math.min(1, Math.max(0.55, camera.aspect));
     camera.position.set(
       cloudTarget.x + Math.sin(view.yaw) * cp * fitDist,
@@ -1926,8 +2509,8 @@ requestAnimationFrame(frame);
 
 // ─────────────────────────────────────────────── 对外的检查窗口
 /**
- * 星云现状。nodes / layers[].nodes 全部从 three.js 几何体的 position.count 现读，
- * 不是我自己记的账，所以少画一颗都藏不住。
+ * 路径网现状。nodes / layers[].nodes 全部从真实非索引 LineSegments 的 position.count / 2 现读，
+ * 不是我自己记的账，所以少画一条都藏不住。
  */
 window.__cloudStats = () => {
   const layerList = builtDepths().map((d) => ({ depth: d, nodes: nodesAt(d) }));
@@ -2019,27 +2602,52 @@ function boardSnapshot() {
 }
 
 function cloudMapSnapshot() {
-  const pointLayers = new Map();
+  const linkLayers = new Map();
   let firstLinks = 0;
   let routePoints = 0;
+  let pointObjects = 0;
+  let lineObjects = 0;
+  let hiddenLineObjects = 0;
+  let oddVertexObjects = 0;
+  let colorMismatchObjects = 0;
+  let partialDrawObjects = 0;
+  let nonLineSegmentObjects = 0;
+  let indexedLinkObjects = 0;
+  let orphanRenderObjects = 0;
   for (const obj of cloudGroup.children) {
     const attr = obj.geometry?.getAttribute?.('position');
     if (!attr) continue;
-    if (obj.userData.kind === 'cloud-points') {
+    if (obj.isPoints) pointObjects++;
+    if (obj.userData.kind === 'cloud-links') {
       const d = obj.userData.depth;
-      if (!pointLayers.has(d)) pointLayers.set(d, { count: 0, positions: [], finite: true });
-      const rec = pointLayers.get(d);
-      rec.count += attr.count;
+      if (!linkLayers.has(d)) linkLayers.set(d, { count: 0, positions: [], finite: true, objects: 0 });
+      const rec = linkLayers.get(d);
+      const edgeCount = attr.count / 2;
+      rec.count += edgeCount;
+      rec.objects++;
+      lineObjects++;
+      if (!obj.isLineSegments) nonLineSegmentObjects++;
+      if (obj.geometry.index !== null) indexedLinkObjects++;
+      if (!obj.visible || !obj.material?.visible || !(obj.material?.opacity > 0)) hiddenLineObjects++;
+      if (attr.count % 2 !== 0) oddVertexObjects++;
+      if (obj.geometry.getAttribute('color')?.count !== attr.count) colorMismatchObjects++;
+      const draw = obj.geometry.drawRange;
+      if (draw && (draw.start !== 0 || draw.count !== Infinity)) partialDrawObjects++;
       if (rec.finite) {
         for (let i = 0; i < attr.array.length; i++) {
           if (!Number.isFinite(attr.array[i])) { rec.finite = false; break; }
         }
       }
-      if (d <= 1) rec.positions.push(...Array.from(attr.array));
-    } else if (obj.userData.kind === 'cloud-links' && obj.userData.depth === 1) {
-      firstLinks += attr.count / 2;
+      if (d <= 1) {
+        for (let i = 3; i + 2 < attr.array.length; i += 6) {
+          rec.positions.push(attr.array[i], attr.array[i + 1], attr.array[i + 2]);
+        }
+      }
+      if (d === 1) firstLinks += edgeCount;
     } else if (obj.userData.kind === 'selected-route') {
       routePoints += attr.count;
+    } else if (obj.isLine || obj.isPoints) {
+      orphanRenderObjects++;
     }
   }
   const labelList = [...cloudLabelsEl.querySelectorAll('.cloud-label')].map((el) => {
@@ -2056,16 +2664,105 @@ function cloudMapSnapshot() {
       w: r.width, h: r.height,
     };
   });
-  const layerRows = [...pointLayers.entries()]
+  const layerRows = [...linkLayers.entries()]
     .sort((a, b) => a[0] - b[0])
-    .map(([depth, rec]) => ({ depth, count: rec.count, positions: rec.positions, finite: rec.finite }));
+    .map(([depth, rec]) => ({
+      depth,
+      count: rec.count,
+      positions: rec.positions,
+      finite: rec.finite,
+      objects: rec.objects,
+    }));
   return {
     layers: layerRows,
     firstLinks,
     routePoints,
+    pointObjects,
+    lineObjects,
+    hiddenLineObjects,
+    oddVertexObjects,
+    colorMismatchObjects,
+    partialDrawObjects,
+    nonLineSegmentObjects,
+    indexedLinkObjects,
+    orphanRenderObjects,
+    groupVisible: cloudGroup.visible,
     labels: labelList,
     cameraMatrix: Array.from(camera.matrixWorld.elements),
     target: cloudTarget.toArray(),
+  };
+}
+
+/**
+ * 棋子助手现状。候选数、回应和动画都从当前 DOM 现读，验收不会相信另一份影子状态。
+ */
+function coachSnapshot() {
+  const cards = [...coachMovesEl.querySelectorAll('.coach-card')].map((card) => ({
+    rank: Number(card.dataset.rank),
+    san: card.dataset.san || '',
+    from: card.dataset.from || '',
+    to: card.dataset.to || '',
+    promotion: card.dataset.promotion || '',
+    after: card.dataset.after || '',
+    score: card.dataset.score === undefined ? null : Number(card.dataset.score),
+    situation: card.dataset.situation || '',
+    quality: card.dataset.quality || '',
+    active: card.classList.contains('is-active'),
+    reply: {
+      san: card.dataset.replySan || '',
+      from: card.dataset.replyFrom || '',
+      to: card.dataset.replyTo || '',
+      piece: card.dataset.replyPiece || '',
+      score: card.dataset.replyScore === '' || card.dataset.replyScore === undefined
+        ? null
+        : Number(card.dataset.replyScore),
+    },
+  }));
+  const paths = [...boardOverlayEl.querySelectorAll('path.coach-path')].map((path) => {
+    const style = getComputedStyle(path);
+    return {
+      step: path.dataset.step || '',
+      lineId: path.dataset.lineId || '',
+      san: path.dataset.san || '',
+      from: path.dataset.from || '',
+      to: path.dataset.to || '',
+      d: path.getAttribute('d') || '',
+      pathLength: Number(path.getAttribute('pathLength')),
+      animationName: style.animationName,
+      animationDuration: style.animationDuration,
+      animationIterationCount: style.animationIterationCount,
+    };
+  });
+  return {
+    fen: game.fen(),
+    selected,
+    state: coachPanelEl.dataset.state,
+    title: coachTitleEl.textContent,
+    explain: coachExplainEl.textContent,
+    cardCount: cards.length,
+    cards,
+    replyChips: [...coachReplyStripEl.querySelectorAll('.coach-reply-chip')].map((chip) => ({
+      text: chip.textContent.trim(),
+      rank: Number(chip.dataset.rank),
+      san: chip.dataset.san || '',
+      from: chip.dataset.from || '',
+      to: chip.dataset.to || '',
+      piece: chip.dataset.piece || '',
+    })),
+    paths,
+    modelTotal: coachModel?.total || 0,
+    activeRank: coachActiveRank,
+    outcome: coachOutcome ? {
+      actualRank: coachOutcome.actualRank,
+      forecastRank: coachOutcome.forecastRank,
+      fallback: coachOutcome.fallback,
+      score: coachOutcome.score,
+      situation: coachOutcome.situation.key,
+    } : null,
+    prediction: pendingCoachPrediction ? {
+      candidate: { ...pendingCoachPrediction.candidate },
+      replies: pendingCoachPrediction.replies.map((reply) => ({ ...reply })),
+    } : null,
   };
 }
 
@@ -2130,8 +2827,16 @@ function resetGame(fen = null) {
   aiPending = null;
   restartSearchWorker();
   if (fen) game.load(fen); else game.reset();
+  resetCloudView();
   selected = null;
-  preview = null;
+  forkPreview = null;
+  coachPreview = null;
+  coachModel = null;
+  coachActiveRank = null;
+  coachOutcome = null;
+  pendingCoachPrediction = null;
+  pendingCoachOutcome = null;
+  coachReplyCache.clear();
   lastAi = null;
   thinking = false;
   branchPath = [];
@@ -2141,9 +2846,10 @@ function resetGame(fen = null) {
   renderBoard();
   rebuildCloud();
   renderFork();
+  renderCoachIdle();
   setStatusText(fen
     ? `${game.turn() === 'w' ? '白方' : '黑方'}行棋。`
-    : '你执白。右侧从「现在」向右选路；星图点开后也能直接选择第一步。');
+    : '你执白。点一枚白棋看预演；右侧从「现在」向右选路。');
   return true;
 }
 
@@ -2165,7 +2871,29 @@ window.__test = {
   },
   layout: layoutSnapshot,
   board: boardSnapshot,
+  coach: coachSnapshot,
+  scoreLanguage: (score, bestScore = score, white = true) => ({
+    raw: scoreText(score),
+    situation: scoreSituation(score),
+    quality: moveQuality(score, bestScore, white),
+  }),
   cloudMap: cloudMapSnapshot,
+  setCloudVisible: (visible) => {
+    cloudGroup.visible = !!visible;
+    renderer.render(scene, camera);
+    return cloudGroup.visible;
+  },
+  setCloudDepthVisible: (depth, visible) => {
+    const rec = layers.get(Number(depth));
+    if (!rec) return false;
+    for (const obj of rec.objects) obj.visible = !!visible;
+    renderer.render(scene, camera);
+    return rec.objects.every((obj) => obj.visible === !!visible);
+  },
+  setCloudAuto: (auto) => {
+    view.auto = !!auto;
+    return view.auto;
+  },
   pickBranch: (col, idx) => chooseForkBranch(col, idx),
   expandCol: (col) => setColumnExpanded(col, true),
   collapseCol: (col) => setColumnExpanded(col, false),
@@ -2185,7 +2913,8 @@ resize();
 renderBoard();
 rebuildCloud();
 renderFork();
-setStatus('你执白。右侧从「现在」向右选路；星图点开后也能直接选择第一步。');
+renderCoachIdle();
+setStatus('你执白。点一枚白棋看预演；右侧从「现在」向右选路。');
 </script>
 </body>
 </html>

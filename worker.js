@@ -1,5 +1,5 @@
-// worker.js —— 真 Worker。两件活：AI 应手（search）和整朵星云（cloud）。
-// 页面开两个实例，一个专管 AI，一个专管星云，互不排队。
+// worker.js —— 真 Worker。两件活：AI 应手（search）和整张路径网（cloud）。
+// 页面开两个实例，一个专管 AI，一个专管路径网，互不排队。
 //
 // 这里没有任何「主线程算完假装分批送」的把戏：第 1～4 层全在这个 Worker
 // 里展开。主线程只把真实结果做成 Three.js geometry，不再被棋局枚举堵住。
@@ -27,7 +27,7 @@ self.onmessage = (ev) => {
   }
 
   if (msg.type === 'cloud') {
-    // 常规从根局面长第 1 层；星图从屏外回到可见时，也可拿第 3 层局面续长第 4 层。
+    // 常规从根局面长第 1 层；路径网从屏外回到可见时，也可拿第 3 层局面续长第 4 层。
     let parentFens = msg.parentFens || [msg.fen];
     const startDepth = msg.startDepth || 1;
     const targetDepth = msg.targetDepth || msg.depth || 4;
