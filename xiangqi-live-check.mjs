@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 38;
+const EXPECTED_RESULTS = 43;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -553,6 +553,14 @@ async function playOneRound(beforeFen) {
       path,
       pathNumber: Number(document.getElementById('pathCount').textContent),
       searchFact: document.getElementById('searchFact').textContent,
+      lastMove: (() => {
+        const trace = document.querySelector('#lastMoveOverlay [data-last-move-trace]');
+        return trace ? {
+          from: trace.dataset.from,
+          to: trace.dataset.to,
+          role: trace.dataset.visualRole,
+        } : null;
+      })(),
     };
   })()`);
   const replay = auditPathNodes(beforeFen, state.path);
@@ -567,6 +575,17 @@ async function playOneRound(beforeFen) {
       && sameFen(replay.replayFen, state.fen),
     'e3-e4 后 Worker AI ≤3 秒且 Node 端逐手合法重放',
     `wall=${wallMs.toFixed(0)}ms｜path=${state.path.length}｜${replay.ok ? '重放合法' : replay.problems.join('；')}`,
+  );
+
+  const aiMove = legalTransition(state.path[0]?.fen || '', state.path[1]?.fen || '')[0]?.move;
+  record(
+    !!aiMove
+      && state.lastMove?.from === aiMove.from
+      && state.lastMove?.to === aiMove.to
+      && state.lastMove?.role === 'last-move',
+    '真实 Worker 应手落盘后，上一步轨迹与 Node 独立重放同源',
+    `Node=${aiMove ? `${aiMove.from}→${aiMove.to}` : '无'}`
+      + `｜DOM=${state.lastMove ? `${state.lastMove.from}→${state.lastMove.to}` : '无轨迹'}`,
   );
 
   const pvNodes = await evaluate(`([...document.querySelectorAll('#pvRow .pv-node')].map((node) => ({
@@ -916,6 +935,311 @@ async function threatAndZoomAudit() {
   await evaluate(`document.getElementById('zoomReset').click()`);
 }
 
+async function lastMoveAndThreatMotionAudit() {
+  const fixture = '3k5/9/9/4r4/9/4R4/9/9/9/5K3 b - - 0 1';
+  const before = parseFen(fixture);
+  const move = generateLegalMoves(before).find((candidate) =>
+    candidate.from === 'e6' && candidate.to === 'e5');
+  const expectedFen = move ? toFen(applyMove(before, move)) : '';
+  const expectedThreats = move ? getThreats(parseFen(expectedFen)) : [];
+  const expectedThreat = expectedThreats.find((detail) => detail.square === 'e4');
+
+  await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(fixture)})`);
+  const hadNoPreviousMove = await evaluate(
+    `!document.querySelector('#lastMoveOverlay [data-last-move-trace]')
+      && !document.querySelector('#board .last-from, #board .last-to')`,
+  );
+  await evaluate(`window.__xiangqiTest.tryMove('e6', 'e5')`);
+  await sleep(90);
+
+  const semantics = await evaluate(`(() => {
+    const visible = (element) => {
+      if (!element) return false;
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden'
+        && Number(style.opacity) > 0 && (rect.width > 0 || rect.height > 0);
+    };
+    const trace = document.querySelector('#lastMoveOverlay [data-last-move-trace]');
+    const origin = document.querySelector('#lastMoveOverlay [data-last-move-origin]');
+    const target = document.querySelector('#lastMoveOverlay [data-last-move-target]');
+    const label = document.querySelector('#lastMoveOverlay [data-last-move-label]');
+    const fromSquare = document.querySelector('#board .square.last-from');
+    const toSquare = document.querySelector('#board .square.last-to');
+    return {
+      fen: window.__xiangqiTest.fen,
+      trace: trace ? {
+        from: trace.dataset.from,
+        to: trace.dataset.to,
+        role: trace.dataset.visualRole,
+        visible: visible(trace),
+      } : null,
+      origin: origin ? {
+        from: origin.dataset.from,
+        to: origin.dataset.to,
+        visible: visible(origin),
+      } : null,
+      target: target ? {
+        from: target.dataset.from,
+        to: target.dataset.to,
+        visible: visible(target),
+      } : null,
+      label: label ? {
+        from: label.dataset.from,
+        to: label.dataset.to,
+        text: label.textContent,
+        visible: visible(label),
+      } : null,
+      fromClass: fromSquare?.dataset.square ?? null,
+      toClass: toSquare?.dataset.square ?? null,
+      sourceEmpty: !fromSquare?.querySelector('.piece'),
+      targetPiece: toSquare?.querySelector('.piece')?.dataset.piece ?? null,
+      fact: document.getElementById('lastMoveFact')?.textContent || '',
+    };
+  })()`);
+  record(
+    hadNoPreviousMove
+      && sameFen(semantics.fen, expectedFen)
+      && semantics.trace?.from === 'e6'
+      && semantics.trace?.to === 'e5'
+      && semantics.trace?.role === 'last-move'
+      && semantics.trace?.visible
+      && semantics.origin?.from === 'e6'
+      && semantics.origin?.to === 'e5'
+      && semantics.origin?.visible
+      && semantics.target?.from === 'e6'
+      && semantics.target?.to === 'e5'
+      && semantics.target?.visible
+      && semantics.label?.from === 'e6'
+      && semantics.label?.to === 'e5'
+      && semantics.label?.visible
+      && /上一步/.test(semantics.label?.text || '')
+      && semantics.fromClass === '31'
+      && semantics.toClass === '40'
+      && semantics.sourceEmpty
+      && semantics.targetPiece === 'r'
+      && /黑方/.test(semantics.fact)
+      && /e6/.test(semantics.fact)
+      && /e5/.test(semantics.fact),
+    '上一步的真实起点、终点、空起点标记、落点和持久文字逐项同源',
+    `FEN=${semantics.fen}｜轨迹=${semantics.trace ? `${semantics.trace.from}→${semantics.trace.to}` : '无'}`
+      + `｜起/终=${semantics.origin?.visible}/${semantics.target?.visible}`
+      + `｜label=${JSON.stringify(semantics.label)}｜class=${semantics.fromClass}/${semantics.toClass}`
+      + `｜空/子=${semantics.sourceEmpty}/${semantics.targetPiece}｜清空=${hadNoPreviousMove}`
+      + `｜文字=${semantics.fact || '无'}`,
+  );
+
+  const visualRoles = await evaluate(`(() => {
+    const last = document.querySelector('#lastMoveOverlay [data-last-move-trace]');
+    const threats = [...document.querySelectorAll('#threatOverlay [data-threat-arrow]')];
+    const active = threats.find((line) => line.dataset.activeThreat === 'true');
+    const source = document.querySelector('#threatOverlay [data-threat-source]');
+    const target = document.querySelector('#threatOverlay [data-threat-target]');
+    const flow = document.querySelector('#threatOverlay [data-threat-flow]');
+    const lastStyle = last ? getComputedStyle(last) : null;
+    const activeStyle = active ? getComputedStyle(active) : null;
+    return {
+      threatLines: threats.map((line) => line.dataset.from + '-' + line.dataset.to).sort(),
+      active: active ? {
+        from: active.dataset.from,
+        to: active.dataset.to,
+        role: active.dataset.visualRole,
+        opacity: Number(activeStyle.opacity),
+      } : null,
+      source: source ? {
+        square: source.dataset.threatSource,
+        text: source.textContent,
+      } : null,
+      target: target ? {
+        square: target.dataset.threatTarget,
+        text: target.textContent,
+      } : null,
+      flow: flow ? {
+        from: flow.dataset.flowFrom,
+        to: flow.dataset.flowTo,
+      } : null,
+      lastStroke: lastStyle?.stroke || '',
+      lastDash: lastStyle?.strokeDasharray || '',
+      threatStroke: activeStyle?.stroke || '',
+      attackerSwitches: document.querySelectorAll('#attackerChips [data-attacker-square]').length,
+    };
+  })()`);
+  const multiFixture = '3kr4/9/9/9/9/r3R4/9/9/9/5K3 w - - 0 1';
+  const multiExpected = getThreats(parseFen(multiFixture)).find((detail) => detail.square === 'e4');
+  await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(multiFixture)})`);
+  await evaluate(`document.querySelector('#board .piece[data-square="e4"]').closest('.square').click()`);
+  await sleep(760);
+  const beforeSwitch = await evaluate(`(() => {
+    const lines = [...document.querySelectorAll('#threatOverlay [data-threat-arrow]')];
+    const active = lines.find((line) => line.dataset.activeThreat === 'true');
+    const context = lines.filter((line) => line.dataset.activeThreat !== 'true');
+    return {
+      buttons: document.querySelectorAll('#attackerChips [data-attacker-square]').length,
+      activeFrom: active?.dataset.from || '',
+      activeCount: lines.filter((line) => line.dataset.activeThreat === 'true').length,
+      contextCount: context.length,
+      activeOpacity: active ? Number(getComputedStyle(active).opacity) : 0,
+      contextOpacity: context.length ? Math.max(...context.map((line) => Number(getComputedStyle(line).opacity))) : 0,
+    };
+  })()`);
+  await evaluate(`document.querySelectorAll('#attackerChips [data-attacker-square]')[1]?.click()`);
+  await sleep(760);
+  const afterSwitch = await evaluate(`(() => ({
+    activeFrom: document.querySelector('#threatOverlay [data-active-threat="true"]')?.dataset.from || '',
+    activeCount: document.querySelectorAll('#threatOverlay [data-active-threat="true"]').length,
+    allLines: [...document.querySelectorAll('#threatOverlay [data-threat-arrow]')]
+      .map((line) => line.dataset.from + '-' + line.dataset.to).sort(),
+    source: document.querySelector('#threatOverlay [data-threat-source]')?.dataset.threatSource || '',
+    headline: document.getElementById('threatHeadline')?.textContent || '',
+  }))()`);
+  record(
+    expectedThreats.length === 1
+      && expectedThreat?.attackers.join(',') === 'e5'
+      && visualRoles.threatLines.join(',') === 'e5-e4'
+      && visualRoles.active?.from === 'e5'
+      && visualRoles.active?.to === 'e4'
+      && visualRoles.active?.role === 'threat'
+      && visualRoles.active?.opacity > 0
+      && visualRoles.source?.square === 'e5'
+      && /攻/.test(visualRoles.source?.text || '')
+      && visualRoles.target?.square === 'e4'
+      && /危/.test(visualRoles.target?.text || '')
+      && visualRoles.flow?.from === 'e5'
+      && visualRoles.flow?.to === 'e4'
+      && visualRoles.lastStroke
+      && visualRoles.threatStroke
+      && visualRoles.lastStroke !== visualRoles.threatStroke
+      && visualRoles.attackerSwitches === expectedThreat.attackers.length
+      && multiExpected?.attackers.join(',') === 'a4,e9'
+      && beforeSwitch.buttons === multiExpected.attackers.length
+      && beforeSwitch.activeFrom === 'a4'
+      && beforeSwitch.activeCount === 1
+      && beforeSwitch.contextCount === 1
+      && beforeSwitch.activeOpacity >= beforeSwitch.contextOpacity * 3
+      && afterSwitch.activeFrom === 'e9'
+      && afterSwitch.activeCount === 1
+      && afterSwitch.allLines.join(',') === 'a4-e4,e9-e4'
+      && afterSwitch.source === 'e9'
+      && afterSwitch.headline.includes('2/2'),
+    '金色上一步与朱红攻击流同屏仍可辨，方向由“攻→危”和流光明确表达',
+    `上一步=${visualRoles.lastStroke}/${visualRoles.lastDash}｜攻击=${visualRoles.threatStroke}`
+      + `｜攻=${visualRoles.source?.square || '无'}｜危=${visualRoles.target?.square || '无'}`
+      + `｜单攻切换=${visualRoles.attackerSwitches}`
+      + `｜双攻=${beforeSwitch.activeFrom}(${beforeSwitch.activeOpacity})`
+      + `/${beforeSwitch.contextOpacity}→${afterSwitch.activeFrom}`,
+  );
+
+  await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(fixture)})`);
+  await evaluate(`window.__xiangqiTest.tryMove('e6', 'e5')`);
+  await sleep(90);
+  const moving = await evaluate(`(() => {
+    const elements = [...document.querySelectorAll('[data-motion-role]')];
+    return {
+      roles: elements.map((element) => element.dataset.motionRole),
+      names: elements.map((element) => getComputedStyle(element).animationName),
+      iterations: elements.map((element) => getComputedStyle(element).animationIterationCount),
+      objects: elements.reduce((total, element) => total + element.getAnimations().length, 0),
+    };
+  })()`);
+  await sleep(2500);
+  const settled = await evaluate(`(() => ({
+    running: [...document.querySelectorAll('.board-frame *')]
+      .flatMap((element) => element.getAnimations())
+      .filter((animation) => animation.playState === 'running').length,
+    trace: !!document.querySelector('#lastMoveOverlay [data-last-move-trace]'),
+    origin: !!document.querySelector('#lastMoveOverlay [data-last-move-origin]'),
+    target: !!document.querySelector('#lastMoveOverlay [data-last-move-target]'),
+    threat: !!document.querySelector('#threatOverlay [data-threat-arrow]'),
+    flow: !!document.querySelector('#threatOverlay [data-threat-flow]'),
+  }))()`);
+
+  await send('Emulation.setEmulatedMedia', {
+    media: '',
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(fixture)})`);
+  await evaluate(`window.__xiangqiTest.tryMove('e6', 'e5')`);
+  await sleep(60);
+  const reduced = await evaluate(`(() => {
+    const elements = [...document.querySelectorAll('[data-motion-role]')];
+    return {
+      count: elements.length,
+      names: elements.map((element) => getComputedStyle(element).animationName),
+      trace: !!document.querySelector('#lastMoveOverlay [data-last-move-trace]'),
+      origin: !!document.querySelector('#lastMoveOverlay [data-last-move-origin]'),
+      target: !!document.querySelector('#lastMoveOverlay [data-last-move-target]'),
+      source: document.querySelector('#threatOverlay [data-threat-source]')?.textContent || '',
+      threatTarget: document.querySelector('#threatOverlay [data-threat-target]')?.textContent || '',
+      fact: document.getElementById('lastMoveFact')?.textContent || '',
+    };
+  })()`);
+  record(
+    ['last-trace', 'piece-arrive', 'last-impact', 'threat-flow', 'threat-impact']
+      .every((role) => moving.roles.includes(role))
+      && moving.names.every((name) => name && name !== 'none')
+      && moving.iterations.every((count) => count !== 'infinite')
+      && moving.objects >= 5
+      && settled.running === 0
+      && settled.trace
+      && settled.origin
+      && settled.target
+      && settled.threat
+      && settled.flow
+      && reduced.count >= 5
+      && reduced.names.every((name) => name === 'none')
+      && reduced.trace
+      && reduced.origin
+      && reduced.target
+      && /攻/.test(reduced.source)
+      && /危/.test(reduced.threatTarget)
+      && /e6/.test(reduced.fact)
+      && /e5/.test(reduced.fact),
+    '落子与攻击动效均有限次停止；减少动态时保留全部静态语义',
+    `角色=${moving.roles.join(',')}｜动画=${moving.names.join(',')}｜对象=${moving.objects}`
+      + `｜2.5s运行=${settled.running}｜reduce=${reduced.count}/${reduced.names.join(',')}`,
+  );
+  await send('Emulation.setEmulatedMedia', {
+    media: '',
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
+
+  const reverse = await evaluate(`(() => {
+    const read = () => {
+      const last = document.querySelector('#lastMoveOverlay [data-last-move-trace]');
+      const threat = document.querySelector('#threatOverlay [data-active-threat="true"]');
+      return {
+        lastFrom: last?.dataset.from || '',
+        lastTo: last?.dataset.to || '',
+        threatFrom: threat?.dataset.from || '',
+        threatTo: threat?.dataset.to || '',
+      };
+    };
+    const last = document.querySelector('#lastMoveOverlay [data-last-move-trace]');
+    const threat = document.querySelector('#threatOverlay [data-active-threat="true"]');
+    const baseline = read();
+    if (last) last.dataset.from = 'a0';
+    const badLast = read();
+    if (last) last.dataset.from = baseline.lastFrom;
+    if (threat) threat.dataset.to = 'e5';
+    const badThreat = read();
+    if (threat) threat.dataset.to = baseline.threatTo;
+    return { baseline, badLast, badThreat };
+  })()`);
+  const matchesTruth = (snapshot) =>
+    snapshot.lastFrom === 'e6'
+    && snapshot.lastTo === 'e5'
+    && snapshot.threatFrom === 'e5'
+    && snapshot.threatTo === 'e4';
+  record(
+    matchesTruth(reverse.baseline)
+      && !matchesTruth(reverse.badLast)
+      && !matchesTruth(reverse.badThreat),
+    '反向污染任一轨迹坐标都会被同一条 Node 真值断言抓住',
+    `基线=${matchesTruth(reverse.baseline)}｜坏上一步=${matchesTruth(reverse.badLast)}`
+      + `｜坏攻击线=${matchesTruth(reverse.badThreat)}`,
+  );
+}
+
 async function boardReadabilityAudit() {
   await setViewport(390, 844);
   await evaluate(`window.__xiangqiTest.reset()`);
@@ -1170,6 +1494,7 @@ async function main() {
   const roundOneFen = await playOneRound(beforeMove);
   await playSecondRound(roundOneFen);
   await threatAndZoomAudit();
+  await lastMoveAndThreatMotionAudit();
   await boardReadabilityAudit();
   await workerIsolationAudit();
   for (const [width, height] of [[1440, 900], [390, 844], [667, 375]]) {

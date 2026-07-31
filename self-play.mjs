@@ -20,6 +20,7 @@ const SETTINGS = Object.freeze({
 });
 
 const ENGINE_CDN = 'https://cdn.jsdelivr.net/npm/chess.js@1.4.0/+esm';
+const UI_PAGE = 'chess.html';
 
 /**
  * Node 不支持 engine.js 使用的 https: ESM import。这里只在内存里把钉死的 CDN URL
@@ -45,7 +46,7 @@ function extractFunction(source, name) {
   const marker = `function ${name}(`;
   const start = source.indexOf(marker);
   if (start < 0 || source.indexOf(marker, start + marker.length) >= 0) {
-    throw new Error(`index.html 中 ${name}() 应恰好出现一次`);
+    throw new Error(`${UI_PAGE} 中 ${name}() 应恰好出现一次`);
   }
   const brace = source.indexOf('{', start);
   let depth = 0;
@@ -66,11 +67,11 @@ function extractFunction(source, name) {
     if (ch === '{') depth++;
     else if (ch === '}' && --depth === 0) return source.slice(start, i + 1);
   }
-  throw new Error(`index.html 中 ${name}() 没有完整结束`);
+  throw new Error(`${UI_PAGE} 中 ${name}() 没有完整结束`);
 }
 
 function loadScoreLanguage(MATE) {
-  const source = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8');
+  const source = fs.readFileSync(new URL(`./${UI_PAGE}`, import.meta.url), 'utf8');
   const factory = new Function(
     'MATE',
     `${extractFunction(source, 'scoreSituation')}
@@ -503,7 +504,7 @@ function printReport(reports, annotationSamples, wallMs) {
   console.log('--- aggregate ---');
   console.log(JSON.stringify(summary, null, 2));
 
-  console.log('--- annotation sample (index.html functions fed rankMoves scores) ---');
+  console.log(`--- annotation sample (${UI_PAGE} functions fed rankMoves scores) ---`);
   for (const sample of annotationSamples.slice(0, 18)) {
     console.log(
       `G${sample.game} ply=${sample.ply} turn=${sample.turn} ${sample.san}`
