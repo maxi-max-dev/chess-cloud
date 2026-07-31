@@ -263,6 +263,8 @@
     fill: none; stroke: #a93832; stroke-width: 1.55;
     stroke-linecap: round; vector-effect: non-scaling-stroke;
     opacity: var(--threat-opacity);
+  }
+  .threat-path.is-new {
     animation: threat-path-enter .68s ease-out 1 both;
   }
   .threat-path[data-active-threat="true"] {
@@ -293,12 +295,16 @@
     fill: none; stroke: #ffb09b; stroke-width: 3.7;
     stroke-linecap: round; stroke-dasharray: .075 .925;
     vector-effect: non-scaling-stroke;
+  }
+  .threat-flow.is-new {
     animation: threat-flow-scan .54s linear 2 both;
   }
   .threat-impact {
     fill: none; stroke: rgba(255, 105, 88, .94); stroke-width: 1.6;
     vector-effect: non-scaling-stroke;
     transform-box: fill-box; transform-origin: center;
+  }
+  .threat-impact.is-new {
     animation: threat-target-impact .48s ease-out 2 both;
   }
   @keyframes threat-ring-pulse {
@@ -1044,6 +1050,7 @@ function renderBoard() {
   const moveDy = animatedFrom >= 0 && animatedTo >= 0
     ? (Math.floor(animatedFrom / 9) - Math.floor(animatedTo / 9)) * boardRect.height / 9
     : 0;
+  let consumeStaticMoveAnimation = false;
   for (const squareEl of els.board.children) {
     const square = Number(squareEl.dataset.square);
     const piece = board[square];
@@ -1115,11 +1122,22 @@ function renderBoard() {
       && moveFrom(lastMove) === animatedFrom
       && moveTo(lastMove) === animatedTo;
     if (shouldAnimateMove) {
-      renderedDisk.classList.add('just-moved');
       renderedDisk.dataset.motionRole = 'piece-arrive';
-      renderedDisk.style.setProperty('--move-dx', `${moveDx}px`);
-      renderedDisk.style.setProperty('--move-dy', `${moveDy}px`);
-    } else if (renderedDisk?.classList.contains('just-moved')) {
+      if (reduceMotion) {
+        renderedDisk.classList.remove('just-moved');
+        renderedDisk.style.removeProperty('--move-dx');
+        renderedDisk.style.removeProperty('--move-dy');
+        consumeStaticMoveAnimation = true;
+      } else {
+        renderedDisk.classList.add('just-moved');
+        renderedDisk.style.setProperty('--move-dx', `${moveDx}px`);
+        renderedDisk.style.setProperty('--move-dy', `${moveDy}px`);
+      }
+    } else if (renderedDisk
+      && !(reduceMotion
+        && renderedDisk.dataset.motionRole === 'piece-arrive'
+        && lastMove
+        && square === moveTo(lastMove))) {
       renderedDisk.classList.remove('just-moved');
       delete renderedDisk.dataset.motionRole;
       renderedDisk.style.removeProperty('--move-dx');
@@ -1139,6 +1157,7 @@ function renderBoard() {
       || (!piece && !legalTargets.has(square))
       || (piece && !sideOwns(piece, fenSide(currentFen)) && !legalTargets.has(square));
   }
+  if (consumeStaticMoveAnimation) pendingMoveAnimation = null;
 }
 
 function renderLastMoveOverlay() {
@@ -1234,6 +1253,7 @@ function renderLastMoveOverlay() {
 
 function renderThreatOverlay() {
   const detail = focusedThreat();
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (detail && !detail.attackers.includes(activeThreatAttacker)) {
     activeThreatAttacker = detail.attackers[0] ?? -1;
   } else if (!detail) {
@@ -1282,6 +1302,7 @@ function renderThreatOverlay() {
     };
     const line = document.createElementNS(namespace, 'line');
     line.classList.add('threat-path');
+    if (!reduceMotion) line.classList.add('is-new');
     line.setAttribute('x1', String(geometry.x1));
     line.setAttribute('y1', String(geometry.y1));
     line.setAttribute('x2', String(geometry.x2));
@@ -1302,6 +1323,7 @@ function renderThreatOverlay() {
   const activeTo = coord(detail.square);
   const flow = document.createElementNS(namespace, 'line');
   flow.classList.add('threat-flow');
+  if (!reduceMotion) flow.classList.add('is-new');
   flow.setAttribute('x1', String(activeGeometry.x1));
   flow.setAttribute('y1', String(activeGeometry.y1));
   flow.setAttribute('x2', String(activeGeometry.x2));
@@ -1336,6 +1358,7 @@ function renderThreatOverlay() {
 
   const impact = document.createElementNS(namespace, 'circle');
   impact.classList.add('threat-impact');
+  if (!reduceMotion) impact.classList.add('is-new');
   impact.setAttribute('cx', String(target.x));
   impact.setAttribute('cy', String(target.y));
   impact.setAttribute('r', '6.45');

@@ -1173,6 +1173,20 @@ async function lastMoveAndThreatMotionAudit() {
       fact: document.getElementById('lastMoveFact')?.textContent || '',
     };
   })()`);
+  await send('Emulation.setEmulatedMedia', {
+    media: '',
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
+  await sleep(120);
+  const lateMotion = await evaluate(`(() => {
+    const elements = [...document.querySelectorAll('[data-motion-role]')];
+    return {
+      names: elements.map((element) => getComputedStyle(element).animationName),
+      running: [...document.querySelectorAll('.board-frame *')]
+        .flatMap((element) => element.getAnimations())
+        .filter((animation) => animation.playState === 'running').length,
+    };
+  })()`);
   record(
     ['last-trace', 'piece-arrive', 'last-impact', 'threat-flow', 'threat-impact']
       .every((role) => moving.roles.includes(role))
@@ -1193,15 +1207,14 @@ async function lastMoveAndThreatMotionAudit() {
       && /攻/.test(reduced.source)
       && /危/.test(reduced.threatTarget)
       && /e6/.test(reduced.fact)
-      && /e5/.test(reduced.fact),
-    '落子与攻击动效均有限次停止；减少动态时保留全部静态语义',
+      && /e5/.test(reduced.fact)
+      && lateMotion.names.every((name) => name === 'none')
+      && lateMotion.running === 0,
+    '落子与攻击动效均有限次停止；减少动态及随后恢复时不补播旧动画',
     `角色=${moving.roles.join(',')}｜动画=${moving.names.join(',')}｜对象=${moving.objects}`
-      + `｜2.5s运行=${settled.running}｜reduce=${reduced.count}/${reduced.names.join(',')}`,
+      + `｜2.5s运行=${settled.running}｜reduce=${reduced.count}/${reduced.names.join(',')}`
+      + `｜恢复后=${lateMotion.running}/${lateMotion.names.join(',')}`,
   );
-  await send('Emulation.setEmulatedMedia', {
-    media: '',
-    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
-  });
 
   const reverse = await evaluate(`(() => {
     const read = () => {
