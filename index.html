@@ -544,6 +544,13 @@
   }
   #board .coach-tag[data-step="you"] { fill: #ffe4a0; }
   #board .coach-tag[data-step="reply"] { fill: #a9d8ff; }
+  #board .board-threat-ring {
+    fill: none; stroke: rgba(255,184,93,.9); stroke-width: 3;
+    stroke-dasharray: 4 4; pointer-events: none;
+  }
+  #board .board-threat-ring[data-defended="true"] {
+    stroke: rgba(255,203,123,.66); stroke-width: 2.2;
+  }
   @keyframes coach-you-flow {
     0% { stroke-dashoffset: 1; opacity: 0; }
     7% { opacity: 1; }
@@ -582,6 +589,29 @@
   }
   #coachTitle { color: #edf3ff; font-size: 12.5px; font-weight: 650; }
   #coachExplain { margin-left: auto; color: #747e96; font-size: 10.5px; text-align: right; }
+  #coachThreatStrip {
+    display: flex; gap: 6px; align-items: center; margin-top: 7px; overflow-x: auto;
+    color: #80899d; font-size: 10px; scrollbar-width: none;
+  }
+  #coachThreatStrip:empty { display: none; }
+  .coach-threat-note, .coach-current-threat, .coach-active-threat {
+    flex: 0 0 auto; padding: 3px 7px; border: 1px solid rgba(255,189,97,.18);
+    border-radius: 999px; background: rgba(90,58,23,.2);
+  }
+  .coach-threat-note { color: #aeb5c4; border-color: rgba(160,174,204,.14); background: rgba(35,42,57,.38); }
+  .coach-current-threat { color: #efc178; }
+  .coach-active-threat[data-kind="high"] {
+    color: #ffaaa0; border-color: rgba(255,112,99,.34); background: rgba(112,34,31,.3);
+  }
+  .coach-active-threat[data-kind="watch"] {
+    color: #f1cb80; border-color: rgba(239,178,74,.28); background: rgba(92,62,20,.26);
+  }
+  .coach-active-threat[data-kind="trade"] {
+    color: #acd0ef; border-color: rgba(112,186,244,.24); background: rgba(29,61,88,.28);
+  }
+  .coach-active-threat[data-kind="quiet"] {
+    color: #91b49e; border-color: rgba(118,195,147,.2); background: rgba(32,75,49,.23);
+  }
   #coachMoves {
     display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px;
     margin-top: 8px;
@@ -602,6 +632,14 @@
   .coach-san { color: #fff; font-size: 15px; font-weight: 700; }
   .coach-quality { color: #d8e4f4; font-size: 10px; }
   .coach-situation { display: block; margin-top: 3px; color: var(--situation-color); font-size: 11.5px; font-weight: 650; }
+  .coach-threat {
+    display: block; margin-top: 4px; overflow: hidden; font-size: 10.5px;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .coach-threat[data-kind="high"] { color: #ff9d92; }
+  .coach-threat[data-kind="watch"] { color: #efc77d; }
+  .coach-threat[data-kind="trade"] { color: #a9cbe8; }
+  .coach-threat[data-kind="quiet"] { color: #7fa68a; }
   .coach-reply { display: block; margin-top: 4px; overflow: hidden; color: #8e99b2; font-size: 10.5px; text-overflow: ellipsis; white-space: nowrap; }
   .coach-raw { display: block; color: #596176; font-size: 9.5px; font-variant-numeric: tabular-nums; }
   #coachReplyStrip {
@@ -999,6 +1037,7 @@
         <b id="coachTitle">先点一枚白棋</b>
         <span id="coachExplain">会依次动画预演“你的一步 → 对手的强回应”，不直接落子</span>
       </div>
+      <div id="coachThreatStrip" aria-label="一步威胁提示"></div>
       <div id="coachMoves"></div>
       <div id="coachReplyStrip"></div>
     </div>
@@ -1010,7 +1049,10 @@
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
-import { Chess, rankMoves, MATE } from './engine.js';
+import {
+  Chess, rankMoves, MATE,
+  currentAttacks, analyzeCandidateThreat,
+} from './engine.js';
 
 // ─────────────────────────────────────────────── 常量
 const SYNC_DEPTH = 3;      // 缩略态只预备到这一层；计算仍全部在 Worker
@@ -1797,6 +1839,7 @@ let coachPreview = null;  // 棋子助手的“你一步 → 对手一步”动�
 const coachPanelEl = document.getElementById('coachPanel');
 const coachTitleEl = document.getElementById('coachTitle');
 const coachExplainEl = document.getElementById('coachExplain');
+const coachThreatStripEl = document.getElementById('coachThreatStrip');
 const coachMovesEl = document.getElementById('coachMoves');
 const coachReplyStripEl = document.getElementById('coachReplyStrip');
 const coachReplyCache = new Map();
@@ -1898,6 +1941,21 @@ function appendPieceModel(pc, sq, f, r, target = boardPiecesEl) {
 
 function renderBoardOverlay(board = game.board()) {
   boardOverlayEl.replaceChildren();
+  for (const threat of currentAttacks(game.fen())) {
+    const [cx, cy] = squareXY(threat.square);
+    const ring = svgElement('circle', {
+      cx, cy, r: 20,
+      class: 'board-threat-ring',
+      'data-square': threat.square,
+      'data-piece': threat.piece,
+      'data-attackers': threat.attackers.join(','),
+      'data-defenders': threat.defenders.join(','),
+      'data-defended': String(threat.defenders.length > 0),
+      'data-certainty': threat.certainty,
+      'aria-hidden': 'true',
+    });
+    boardOverlayEl.appendChild(ring);
+  }
   const legal = selected ? game.moves({ square: selected, verbose: true }).map((move) => move.to) : [];
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
@@ -2169,7 +2227,7 @@ function moveQuality(score, bestScore, white = true) {
   if (loss <= 15) return { key: 'best', label: '首选' };
   if (loss <= 50) return { key: 'steady', label: '稳健可下' };
   if (loss <= 100) return { key: 'accurate', label: '需要准确' };
-  return { key: 'risky', label: '风险较高' };
+  return { key: 'risky', label: '局面损失较大' };
 }
 
 function replyDescription(reply) {
@@ -2185,10 +2243,99 @@ function repliesFor(candidate) {
   if (!candidate?.after) return [];
   let replies = coachReplyCache.get(candidate.after);
   if (!replies) {
-    replies = rankMoves(candidate.after, { depth: 1 });
+    // 对手回应也往后看我方一次回手，避免把“吃完立刻被回吃”误称为最强回应。
+    replies = rankMoves(candidate.after, { depth: 2 });
     coachReplyCache.set(candidate.after, replies);
   }
   return replies;
+}
+
+function threatPresentation(threat) {
+  if (!threat) {
+    return { kind: 'quiet', text: '未完成一步威胁检查' };
+  }
+  const movedCaptures = threat.captures.filter((capture) => capture.capturesMovedPiece);
+  const moved = movedCaptures.find((capture) => capture.kind === 'hanging')
+    || movedCaptures.find((capture) => capture.kind === 'bad-trade')
+    || movedCaptures.find((capture) => capture.kind === 'protected-trade')
+    || null;
+  const top = threat.captures.find((capture) => capture.replyRank === 0) || null;
+  const costly = threat.captures.find((capture) => capture.kind === 'hanging')
+    || threat.captures.find((capture) => capture.kind === 'bad-trade')
+    || null;
+  const pieceLabel = (capture) => PIECE_NAME[capture?.victim?.type] || '棋子';
+
+  if (moved?.kind === 'hanging') {
+    return {
+      kind: 'high',
+      text: `高危：${moved.san} 可直接吃落点${pieceLabel(moved)}，当前无合法回吃`,
+    };
+  }
+  if (moved?.kind === 'bad-trade') {
+    return {
+      kind: 'high',
+      text: `高危：${moved.san} 可吃落点${pieceLabel(moved)}；虽能回吃，交换仍亏子`,
+    };
+  }
+  if (moved?.kind === 'protected-trade') {
+    return {
+      kind: 'trade',
+      text: `可交换：${moved.san} 可吃落点${pieceLabel(moved)}，你有合法回吃`,
+    };
+  }
+  if (top?.kind === 'hanging') {
+    return {
+      kind: 'high',
+      text: `对手首选 ${top.san} 会吃${top.targetSquare.toUpperCase()}的${pieceLabel(top)}，当前无合法回吃`,
+    };
+  }
+  if (top?.kind === 'bad-trade') {
+    return {
+      kind: 'high',
+      text: `对手首选 ${top.san} 会形成亏子交换`,
+    };
+  }
+  if (top?.kind === 'protected-trade') {
+    return {
+      kind: 'trade',
+      text: `对手首选 ${top.san}，但被吃后有合法回吃`,
+    };
+  }
+  if (costly) {
+    return {
+      kind: 'watch',
+      text: `需留意：对手另有合法吃法 ${costly.san}，但不是当前首选`,
+    };
+  }
+  if (threat.legalCaptureCount > 0) {
+    return {
+      kind: 'trade',
+      text: `走后有 ${threat.legalCaptureCount} 条合法交换路线，均能立即回吃`,
+    };
+  }
+  return {
+    kind: 'quiet',
+    text: '走后未发现对手下一手的合法吃子',
+  };
+}
+
+function renderThreatStrip(activeThreat = null) {
+  const attacks = currentAttacks(game.fen());
+  const side = game.turn() === 'w' ? '白方' : '黑方';
+  const active = activeThreat
+    ? `<span class="coach-active-threat" data-kind="${activeThreat.view.kind}">${esc(activeThreat.view.text)}</span>`
+    : '';
+  const note = attacks.length
+    ? `<span class="coach-threat-note">${side}当前攻击线（几何关系，不代表一定失子）</span>`
+    : `<span class="coach-threat-note">${side}当前未发现受攻击棋子</span>`;
+  const chips = attacks.map((attack) =>
+    `<span class="coach-current-threat" data-square="${attack.square}" data-piece="${attack.piece}"`
+      + ` data-attackers="${attack.attackers.join(',')}" data-defenders="${attack.defenders.join(',')}"`
+      + ` data-certainty="${attack.certainty}">`
+      + `${attack.square.toUpperCase()} ${PIECE_NAME[attack.piece] || '棋子'}`
+      + ` · ${attack.attackers.length} 攻/${attack.defenders.length} 护</span>`
+  ).join('');
+  coachThreatStripEl.innerHTML = active + note + chips;
 }
 
 function coachCandidateFromMove(from, to, promotion) {
@@ -2208,13 +2355,19 @@ function buildCoachModel(square) {
   const allCandidates = first.ranked.filter((move) => move.from === square);
   const candidates = allCandidates
     .slice(0, 3)
-    .map((move) => ({
-      ...move,
-      rank: first.ranked.indexOf(move),
-      replies: repliesFor(move).slice(0, 3),
-      situation: scoreSituation(move.score),
-      quality: moveQuality(move.score, first.ranked[0].score),
-    }));
+    .map((move) => {
+      const replies = repliesFor(move);
+      const threat = analyzeCandidateThreat(move.after, move.to, replies);
+      threat.view = threatPresentation(threat);
+      return {
+        ...move,
+        rank: first.ranked.indexOf(move),
+        replies: replies.slice(0, 3),
+        threat,
+        situation: scoreSituation(move.score),
+        quality: moveQuality(move.score, first.ranked[0].score),
+      };
+    });
   if (candidates.length === 0) return null;
   return {
     fen: game.fen(),
@@ -2256,13 +2409,19 @@ function renderCoachIdle() {
   coachTitleEl.textContent = thinking ? '黑方正在思考' : '先点一枚白棋';
   coachExplainEl.textContent = thinking
     ? '应手画出来后，会告诉你是否落在刚才预演的强回应里'
-    : '会依次动画预演“你的一步 → 对手的强回应”，不直接落子';
+    : '橙圈是当前攻击线；点棋后会核对落子后的合法吃法';
+  renderThreatStrip();
   coachMovesEl.replaceChildren();
   coachReplyStripEl.replaceChildren();
 }
 
 function coachCardHtml(candidate, active) {
   const reply = candidate.replies[0];
+  const threat = candidate.threat;
+  const hangingCount = threat.captures.filter((capture) => capture.kind === 'hanging').length;
+  const badTradeCount = threat.captures.filter((capture) => capture.kind === 'bad-trade').length;
+  const recapturableCount = threat.captures.filter((capture) => capture.recapturable).length;
+  const targets = [...new Set(threat.captures.map((capture) => capture.targetSquare))];
   return `<button type="button" class="coach-card${active ? ' is-active' : ''}"`
     + ` aria-pressed="${active}"`
     + ` data-rank="${candidate.rank}" data-san="${esc(candidate.san)}"`
@@ -2270,14 +2429,21 @@ function coachCardHtml(candidate, active) {
     + ` data-promotion="${candidate.promotion || ''}" data-after="${esc(candidate.after)}"`
     + ` data-score="${candidate.score}" data-situation="${candidate.situation.key}"`
     + ` data-quality="${candidate.quality.key}"`
+    + ` data-threat-kind="${threat.view.kind}" data-threat-count="${threat.legalCaptureCount}"`
+    + ` data-threat-moved="${threat.movedPieceEnPrise}"`
+    + ` data-threat-top-capture="${threat.topReply.isCapture}"`
+    + ` data-threat-hanging="${hangingCount}" data-threat-bad-trade="${badTradeCount}"`
+    + ` data-threat-recapturable="${recapturableCount}"`
+    + ` data-threat-targets="${targets.join(',')}"`
     + ` data-reply-san="${esc(reply?.san || '')}" data-reply-from="${reply?.from || ''}"`
     + ` data-reply-to="${reply?.to || ''}" data-reply-piece="${reply?.piece || ''}"`
     + ` data-reply-score="${reply?.score ?? ''}">`
     + `<span class="coach-card-top"><span class="coach-san">${esc(candidate.san)}</span>`
     + `<span class="coach-quality">${candidate.quality.label}</span></span>`
     + `<span class="coach-situation" style="--situation-color:${candidate.situation.color}">${candidate.situation.label}</span>`
+    + `<span class="coach-threat" data-kind="${threat.view.kind}">${esc(threat.view.text)}</span>`
     + `<span class="coach-reply">${esc(replyDescription(reply))}</span>`
-    + `<span class="coach-raw">含对手强回应 · 引擎原分 ${scoreText(candidate.score)}</span>`
+    + `<span class="coach-raw">浅层评分 · 引擎原分 ${scoreText(candidate.score)}</span>`
     + `</button>`;
 }
 
@@ -2289,7 +2455,8 @@ function renderCoachCandidate(candidate, { rerenderBoard = true } = {}) {
   coachTitleEl.textContent = coachModel.total > 3
     ? `${candidate.from.toUpperCase()} 的${PIECE_NAME[coachModel.piece]}共 ${coachModel.total} 种，先看前三`
     : `${candidate.from.toUpperCase()} 的${PIECE_NAME[coachModel.piece]}：先看 ${candidate.san}`;
-  coachExplainEl.textContent = '黄线是你，蓝线是对手；这里的判断已算入对手强回应，不是历史胜率';
+  coachExplainEl.textContent = '局面标签来自浅层评分；红色高危来自落子后对手的合法吃法，不是概率';
+  renderThreatStrip(candidate.threat);
   coachMovesEl.innerHTML = coachModel.candidates
     .map((move) => coachCardHtml(move, move.rank === candidate.rank))
     .join('');
@@ -2316,6 +2483,7 @@ function updateMoveCoach() {
     coachPanelEl.dataset.state = 'thinking';
     coachTitleEl.textContent = '新局面的路径正在更新';
     coachExplainEl.textContent = '棋盘已可见，候选会在下一帧接上';
+    renderThreatStrip();
     coachMovesEl.replaceChildren();
     coachReplyStripEl.replaceChildren();
     return false;
@@ -2327,6 +2495,7 @@ function updateMoveCoach() {
     coachPanelEl.dataset.state = 'idle';
     coachTitleEl.textContent = `${selected.toUpperCase()} 暂无合法走法`;
     coachExplainEl.textContent = '换一枚白棋试试';
+    renderThreatStrip();
     coachMovesEl.replaceChildren();
     coachReplyStripEl.replaceChildren();
     return false;
@@ -2367,6 +2536,7 @@ function setCoachThinking(move) {
   coachPanelEl.dataset.state = 'thinking';
   coachTitleEl.textContent = `你走了 ${move.san}，正在等黑方`;
   coachExplainEl.textContent = '预演不会冒充结果；实际应手画出来后再对照';
+  renderThreatStrip();
   coachMovesEl.replaceChildren();
   coachReplyStripEl.innerHTML = '<span class="coach-reply-chip">黑方思考中…</span>';
 }
@@ -2388,6 +2558,7 @@ function presentCoachTerminal(move, prediction) {
   coachPanelEl.dataset.state = 'outcome';
   coachTitleEl.textContent = `你走了 ${move.san}，棋局结束`;
   coachExplainEl.textContent = describeEnd();
+  coachThreatStripEl.replaceChildren();
   coachMovesEl.innerHTML =
     `<div class="coach-card is-active" data-outcome="true" data-score="${score}" data-situation="${situation.key}">`
       + `<span class="coach-card-top"><span class="coach-san">${esc(move.san)}</span></span>`
@@ -2413,7 +2584,7 @@ function presentCoachTerminal(move, prediction) {
 function presentCoachOutcome(outcome) {
   if (!outcome?.prediction) return false;
   const { prediction, actual, fallback } = outcome;
-  const replies = rankMoves(prediction.candidate.after, { depth: 1 });
+  const replies = rankMoves(prediction.candidate.after, { depth: 2 });
   const actualRank = replies.findIndex((reply) =>
     reply.from === actual.from
     && reply.to === actual.to
@@ -2444,6 +2615,7 @@ function presentCoachOutcome(outcome) {
       : forecastRank > 0
         ? `落在预演的前三条强回应里（第 ${forecastRank + 1} 条）`
         : '没出现在这次浅层预演的前三条，实际结果已用蓝线标出';
+  renderThreatStrip();
   coachMovesEl.innerHTML =
     `<div class="coach-card is-active" data-outcome="true" data-score="${coachOutcome.score}"`
       + ` data-situation="${situation.key}" data-actual-rank="${actualRank}">`
@@ -4399,6 +4571,17 @@ function coachSnapshot() {
     score: card.dataset.score === undefined ? null : Number(card.dataset.score),
     situation: card.dataset.situation || '',
     quality: card.dataset.quality || '',
+    threat: card.dataset.threatKind ? {
+      kind: card.dataset.threatKind,
+      captureCount: Number(card.dataset.threatCount || 0),
+      movedPieceEnPrise: card.dataset.threatMoved === 'true',
+      topReplyCapture: card.dataset.threatTopCapture === 'true',
+      hangingCount: Number(card.dataset.threatHanging || 0),
+      badTradeCount: Number(card.dataset.threatBadTrade || 0),
+      recapturableCount: Number(card.dataset.threatRecapturable || 0),
+      targets: (card.dataset.threatTargets || '').split(',').filter(Boolean),
+      text: card.querySelector('.coach-threat')?.textContent.trim() || '',
+    } : null,
     active: card.classList.contains('is-active'),
     reply: {
       san: card.dataset.replySan || '',
@@ -4433,6 +4616,13 @@ function coachSnapshot() {
     explain: coachExplainEl.textContent,
     cardCount: cards.length,
     cards,
+    currentAttacks: [...coachThreatStripEl.querySelectorAll('.coach-current-threat')].map((chip) => ({
+      square: chip.dataset.square || '',
+      piece: chip.dataset.piece || '',
+      attackers: (chip.dataset.attackers || '').split(',').filter(Boolean),
+      defenders: (chip.dataset.defenders || '').split(',').filter(Boolean),
+      certainty: chip.dataset.certainty || '',
+    })),
     replyChips: [...coachReplyStripEl.querySelectorAll('.coach-reply-chip')].map((chip) => ({
       text: chip.textContent.trim(),
       rank: Number(chip.dataset.rank),
@@ -4570,6 +4760,9 @@ window.__test = {
     situation: scoreSituation(score),
     quality: moveQuality(score, bestScore, white),
   }),
+  threatAnalysis: (afterFen, movedSquare) =>
+    analyzeCandidateThreat(afterFen, movedSquare, rankMoves(afterFen, { depth: 2 })),
+  rankedReplies: (fen, depth = 2) => rankMoves(fen, { depth: Number(depth) }),
   cloudMap: cloudMapSnapshot,
   explorer: explorerSnapshot,
   tree2d: tree2dSnapshot,

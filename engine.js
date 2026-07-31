@@ -194,6 +194,134 @@ export function rankMoves(fen, opts = {}) {
   return out;
 }
 
+/**
+ * verbose move 的真实被吃格。普通吃子在落点；吃过路兵落点是空格，
+ * 真正消失的兵仍在 reply.to 的同文件、reply.from 的同行。
+ */
+export function captureSquare(move) {
+  if (!move?.captured || !move.to || !move.from) return '';
+  return String(move.flags || '').includes('e')
+    ? `${move.to[0]}${move.from[1]}`
+    : move.to;
+}
+
+/**
+ * 当前行棋方有哪些棋处在对方的几何攻击线上。
+ *
+ * 这是攻击事实，不是“对手现在有一手合法吃子”：对手此刻并不行棋，而且
+ * chess.js attackers() 会保留被钉住棋子的攻击关系。因此 certainty 固定为
+ * geometric，交给界面明确写成“攻击线”，不能冒充必丢判断。
+ */
+export function currentAttacks(fen) {
+  const position = new Chess(fen);
+  const side = position.turn();
+  const enemy = side === 'w' ? 'b' : 'w';
+  const out = [];
+  for (const row of position.board()) {
+    for (const piece of row) {
+      if (!piece || piece.color !== side) continue;
+      const attackers = position.attackers(piece.square, enemy);
+      if (attackers.length === 0) continue;
+      out.push({
+        square: piece.square,
+        piece: piece.type,
+        side,
+        attackers: [...attackers].sort(),
+        defenders: [...position.attackers(piece.square, side)].sort(),
+        certainty: 'geometric',
+      });
+    }
+  }
+  return out.sort((a, b) =>
+    Number(a.defenders.length > 0) - Number(b.defenders.length > 0)
+    || VALUE[b.piece] - VALUE[a.piece]
+    || a.square.localeCompare(b.square));
+}
+
+/**
+ * 候选落子后的“一步直接吃子”事实层。
+ *
+ * afterFen 中恰好轮到对手，因此 captures 全都来自真正的合法着；每次吃子后
+ * 再生成一次我方合法着，只判断是否能立刻回吃。它不是完整 SEE，更不证明一枚
+ * 棋“必丢”，但能可靠地区分悬子、可交换和虽能回吃仍亏子的交换。
+ */
+export function analyzeCandidateThreat(afterFen, movedSquare, rankedReplies = null) {
+  const position = new Chess(afterFen);
+  const replies = rankedReplies || rankMoves(afterFen, { depth: 2 });
+  const moved = position.get(movedSquare);
+  const captures = [];
+
+  for (let replyRank = 0; replyRank < replies.length; replyRank++) {
+    const reply = replies[replyRank];
+    if (!reply.captured) continue;
+    const targetSquare = captureSquare(reply);
+    const victimPiece = position.get(targetSquare);
+    const replyPosition = new Chess(reply.after);
+    const attackerPiece = replyPosition.get(reply.to);
+    const recaptures = replyPosition.moves({ verbose: true })
+      .filter((move) => move.captured && captureSquare(move) === reply.to)
+      .map((move) => ({
+        san: move.san,
+        from: move.from,
+        to: move.to,
+        promotion: move.promotion || '',
+      }));
+    const victimType = victimPiece?.type || reply.captured;
+    const attackerType = attackerPiece?.type || reply.promotion || reply.piece;
+    const victimValue = VALUE[victimType] ?? 0;
+    const attackerValue = VALUE[attackerType] ?? 0;
+    const recapturable = recaptures.length > 0;
+    const kind = !recapturable
+      ? 'hanging'
+      : attackerValue < victimValue
+        ? 'bad-trade'
+        : 'protected-trade';
+    captures.push({
+      replyRank,
+      san: reply.san,
+      from: reply.from,
+      to: reply.to,
+      flags: reply.flags || '',
+      targetSquare,
+      capturesMovedPiece: targetSquare === movedSquare,
+      victim: { square: targetSquare, type: victimType, value: victimValue },
+      attacker: { square: reply.to, type: attackerType, value: attackerValue },
+      recaptures,
+      recapturable,
+      immediateLoss: recapturable ? Math.max(0, victimValue - attackerValue) : victimValue,
+      kind,
+    });
+  }
+
+  const topCapture = captures.find((capture) => capture.replyRank === 0) || null;
+  const movedCaptures = captures.filter((capture) => capture.capturesMovedPiece);
+  const movedPieceKind = movedCaptures.some((capture) => capture.kind === 'hanging')
+    ? 'hanging'
+    : movedCaptures.some((capture) => capture.kind === 'bad-trade')
+      ? 'bad-trade'
+      : movedCaptures.some((capture) => capture.kind === 'protected-trade')
+        ? 'protected-trade'
+        : 'safe';
+
+  return {
+    afterFen,
+    movedSquare,
+    movedPiece: moved
+      ? { type: moved.type, value: VALUE[moved.type] ?? 0 }
+      : null,
+    topReply: {
+      san: replies[0]?.san || '',
+      isCapture: !!topCapture,
+      targetSquare: topCapture?.targetSquare || '',
+      capturesMovedPiece: !!topCapture?.capturesMovedPiece,
+    },
+    captures,
+    movedPieceEnPrise: movedCaptures.length > 0,
+    movedPieceKind,
+    legalCaptureCount: captures.length,
+  };
+}
+
 // ---------------------------------------------------------------- 搜索（AI）
 
 const ORDER_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };

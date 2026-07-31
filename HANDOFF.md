@@ -2,7 +2,7 @@
 
 写给下一个接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**，
 照着做就能接着干。截止 2026-07-31，当前最终架构已经写进这份文档；固定验收现在是
-`verify.mjs` 8 项、`live-check.mjs` 83 项，最终本地与线上输出见第 6、9 节。
+`verify.mjs` 8 项、`live-check.mjs` 86 项，最终本地与线上输出见第 6、9 节。
 
 - 线上：https://maxi-max-dev.github.io/chess-cloud/
 - 仓库：https://github.com/maxi-max-dev/chess-cloud （main 分支，GitHub Pages 从 main 根目录发布）
@@ -25,7 +25,7 @@
    所选路线用连续 SVG 主干向下连接；全屏旁边仍是逐格显示分支结果的真实变体棋盘。
 3. **「这些可能里哪几条靠谱」** —— 右边下半部是「可能性分叉」：一列 = 一步棋，
    列头写着这一步一共有多少种走法，列里先摆最靠谱的几条，点任意一条，右边几列顺它重新分叉。
-   卡片主文案是“接近均衡 / 你稍优 / 风险较高”等人话，原始 `+0.35` 只保留作核对。
+   卡片把浅层局面分、相对最佳着损失和“一步合法吃子风险”分开讲；原始 `+0.35` 只保留作核对。
 
 黑方由自写的 minimax + alpha-beta 在 Web Worker 里应手。
 
@@ -56,7 +56,7 @@ node verify.mjs
 node live-check.mjs
 ```
 
-脚本用 `EXPECTED_RESULTS = 83` 锁定固定 83 项；成功时应输出 `全绿：83/83 项通过`。它会自己起
+脚本用 `EXPECTED_RESULTS = 86` 锁定固定 86 项；成功时应输出 `全绿：86/86 项通过`。它会自己起
 静态服务器、拉起无头 Chrome、走棋、截图、对数，
 并切到 390×844 / 667×375 / 844×390 / 1024×768 验手机与平板布局、
 真实触摸/滑动、黑白棋子像素、棋子助手、AI 竞态、空闲 WebGL 帧、背景和路径网全屏变体棋盘。
@@ -70,6 +70,15 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 参数：`--url`（不给就打本地）、`--port`（默认自动选空闲 CDP 端口；显式端口已占用会拒绝）、
 `--shot`（截图落盘路径）。本地静态服务也自动选空闲端口。
 
+**引擎自对弈冒烟**（不替代上面三条，也不是棋力基准）：
+
+```bash
+node self-play.mjs
+```
+
+默认用固定种子跑 10 局、每次搜索 18ms、每局最多 120 plies；逐手独立重放合法着并核对
+FEN / turn / history，还会把真实 `rankMoves()` 分数送进页面的 situation / quality 函数抽查同源。
+
 > 如果这三条有任何一条是红的，**先把它弄绿再动新功能**。绿是基线。
 
 ---
@@ -78,11 +87,12 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 
 | 文件 | 行数 | 干什么 |
 |---|---|---|
-| `index.html` | 4616 | 整个页面：分层 SVG 3D 棋子、棋子助手、3D/2D 路径网、变体棋盘、分叉、响应式与交互 |
-| `engine.js` | 309 | **唯一的评估函数** + 搜索 + 逐层展开 + 走法排序 |
+| `index.html` | 4809 | 整个页面：分层 SVG 3D 棋子、棋子助手、一步威胁、3D/2D 路径网、变体棋盘、分叉、响应式与交互 |
+| `engine.js` | 437 | **唯一的评估函数** + 搜索 + 逐层展开 + 走法排序 + 事实型一步威胁 |
 | `worker.js` | 91 | Web Worker：AI 应手 / 第 1～4 层路径。页面开两个实例，互不排队 |
 | `verify.mjs` | 94 | Node 端棋核验收，导出 `count(fen, depth)` 给别人对数用 |
-| `live-check.mjs` | 4022 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、2D/3D 路径几何、空闲帧、助手、触控与竞态） |
+| `self-play.mjs` | 477 | 默认 10 局引擎自对弈稳定性审计；逐手核合法/FEN/历史并抽查注释同源 |
+| `live-check.mjs` | 4175 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、2D/3D 路径几何、空闲帧、助手、威胁、触控与竞态） |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | | 对外说明 / 待裁决清单 / 迭代过程记录 |
 
 没有构建工具、没有框架、没有后端。chess.js 和 three.js 直接从 CDN 引，版本钉死：
@@ -99,6 +109,10 @@ export function evaluate(fen)           // ★ 唯一的评估函数。正=白�
 export function scoreChild(move)        // 给一个 verbose 走法打分（'#' 结尾判将死，其余走 evaluate）
 export function expand(parentFens, opts)// 从一层局面展开出下一层：{parents, scores, fens}
 export function rankMoves(fen, opts)    // 排序；结果还带 piece/captured/flags，助手用它解释回应类型
+export function captureSquare(move)     // 普通/吃过路兵的真实被吃格
+export function currentAttacks(fen)     // 当前行棋方受到的几何攻击线（不冒充合法吃子）
+export function analyzeCandidateThreat(afterFen, movedSquare, replies)
+                                        // 候选走后的合法吃子、回吃与一步交换分类
 export function search(fen, opts)       // 迭代加深 alpha-beta，返回 {move, san, score, depth, nodes, ms}
 ```
 
@@ -144,13 +158,20 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 
 - 只在白方可走且用户选中一枚白棋时工作。候选来自当前 `columns[0].ranked`，先按 `from` 过滤，
   DOM 最多展示前三条，但 `modelTotal` 保留该棋子的真实合法走法总数。
-- 每个候选的对手回应来自 `rankMoves(candidate.after, {depth: 1})`，黑方排序方向由 `rankMoves`
-  自己处理。文案只能说“对手强回应（按引擎强度）”，不能说历史胜率或概率。
+- 每个候选的对手回应来自 `rankMoves(candidate.after, {depth: 2})`，会再看白方一次回手，
+  避免把“吃完立刻被回吃”的坏交换排成首选。黑方排序方向由 `rankMoves` 自己处理。
+  文案只能说“对手强回应（按浅层引擎强度）”，不能说历史胜率或概率。
+- `currentAttacks()` 的橙圈只表示当前行棋方的棋处在对方几何攻击线上；攻击者可能被钉住，
+  所以不能写成“对手有合法吃法”。真正的红色高危只从候选落子后的全部合法回应生成。
+- `analyzeCandidateThreat()` 必须区分：吃刚走的棋 / 首选吃别处 / 无合法回吃 / 有回吃的等价交换 /
+  虽能回吃仍亏子。吃过路兵的真实目标格用 `captureSquare()`，不能直接拿 `reply.to`。
+  这只是“一步直接吃子风险”，不冒充完整 SEE、两步战术或必然失子。
 - 动画只重建 `boardOverlay`，绝不 `game.move()`。切换棋子、重开、真实落子都会换 `lineId`
   或清空旧动画。黄/蓝两段都只播一次、1.5 秒后停住，不允许无限循环继续耗帧。
   棋盘格支持触摸、鼠标和 Enter/Space。
 - `scoreSituation()` 把唯一引擎分翻译成“接近均衡 / 你稍优 / 对手明显优 / 将死”；`moveQuality()`
-  用候选相对本列最佳的损失翻译成“首选 / 稳健可下 / 需要准确 / 风险较高”。黑方列必须反向算损失。
+  用候选相对本列最佳的损失翻译成“首选 / 稳健可下 / 需要准确 / 局面损失较大”。它不是吃子风险；
+  黑方列必须反向算损失。
 - 默认升变在预测和真实落子两边都归一成 `q`。白方一步直接结束棋局时走
   `presentCoachTerminal()`，不能留在“正在等黑方”。fallback 的说明必须使用真实 `reason`，
   不能把 Worker 故障一概伪装成超时。
@@ -261,7 +282,7 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 
 ## 4. 验收脚本怎么用、怎么扩
 
-`live-check.mjs` 现在固定验这些（83 项，`EXPECTED_RESULTS = 83`，少跑一项也会失败）：
+`live-check.mjs` 现在固定验这些（86 项，`EXPECTED_RESULTS = 86`，少跑一项也会失败）：
 
 | 组 | 验什么 |
 |---|---|
@@ -270,7 +291,7 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 | ③ | 分叉图每列总数和卡片数对账；排序方向对；每列恰有一张选中卡、一条选中边和一段连续主干；真实点击改路；真实展开→收起；推荐区外的选中卡在收起后仍可见；走满两回合后仍对 |
 | ④ | 390×844、667/844 横屏与 1024 平板；真实页面/分叉/候选滑动；全部关键入口 ≥44px 且中心可命中；背景首尾；真全屏四角；真实 SAN 标签和多步主路径；连续触摸两层图标签会更新逐格棋盘且不落子；拖动后标签显隐；主动巡航会动、收起会停；缩略 L3→放大 L4→收起释放回 L3→再次放大完整 L4，空闲 rAF/WebGL=0；2D 手机缩略横滑、全屏纵滑、触摸选满三步、树/棋盘不重叠；桌面 1440×900 与 1280×800 不撞板；模拟 47px 刘海/34px 底部安全区仍不遮挡；667×375 全屏双栏可看可点可收；真实 touch e4 后 AI ≤3 秒 |
 | ⑤ | 实际棋子与 FEN 逐格对撞；32/16/16 和六类数量；六种分层造型；零 Unicode；黑白同几何不同材质；桌面/手机截图差分后的真实亮度、覆盖与明暗跨度 |
-| ⑥ | 手机真触摸选棋且 FEN 不变；候选逐项合法；回应能独立重放且等于 `rankMoves(after,{depth:1})` 首选；两段动画同 `lineId`；切棋/重开/落子清旧动画；人话分档与 raw score 同源，并覆盖黑方方向、默认升后、一步终局和键盘入口 |
+| ⑥ | 手机真触摸选棋且 FEN 不变；候选逐项合法；回应能独立重放且等于 `rankMoves(after,{depth:2})` 首选；两段动画同 `lineId`；切棋/重开/落子清旧动画；人话分档与 raw score 同源；当前攻击线与 chess.js 攻/护方逐项一致；固定局面覆盖悬子、等价回吃、亏交换、被钉假攻击、首选吃别处、吃过路兵，并覆盖黑方方向、默认升后、一步终局和键盘入口 |
 | 其他 | 非法走子；吃子/升变/王车易位后的棋子/FEN；引擎 deadline；首屏冷启动；重开终止旧搜索；强杀 Worker 的合法保底；AI 真实绘制后再延迟可视化；旧分叉淡化、`inert` 且不可触发重排；旧 AI/UI/横滚清理；云坐标 finite；AI 合法重放；页面零 JS 报错 |
 
 历史反向验证是在脚本尚为 63 项时，同时故意破坏白方单类材质、引擎 deadline、Worker/路径网
@@ -300,6 +321,12 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 `根回合显示不是 FEN 实值：{}`、`L1 回合显示=空 / rel=undefined ...`。随后才实现
 `fenTurnContext()`、DOM 回合字段和两行标题。正式实现对真实一回合与 fullmove=37 的空 history FEN
 都通过，完整复跑 83/83；`verify.mjs` 仍零改动。
+
+固定项扩到 86 前先加入三条一步威胁裁判，旧页面按预期三项全红：没有几何攻击圈、没有
+悬子/回吃/亏交换分类、卡片漏掉吃过路兵真实目标格且回应仍是 depth=1。实现后固定局面逐项转绿：
+悬后=`hanging`、受保护车=`protected-trade`、后换车=`bad-trade`、被钉攻击者合法吃子数 0、
+吃过路兵目标为 e4；受保护交换的首选由旧 `Rxh5` 修正为 depth=2 的 `Re8`。
+`verify.mjs` 全程零改动。
 
 ### 加一条新验收
 
@@ -386,16 +413,17 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 | WebGL 对象 | L4 完成后 L0–L4 每层各 1 个 `LineSegments`；全屏约 6 draw calls，收起 geometry 6→5 |
 | 渲染倍率 | 缩略 DPR 1；桌面全屏最高 1.5；粗指针/短边设备最高 1.25 |
 | 棋子 renderer | 六种分层 SVG 3D 视觉造型；零 Unicode；不是 WebGL mesh |
-| 棋子助手 | 候选 depth=2；回应 depth=1；黄/蓝两段 1.5s 单次 SVG 动画；预演不改 FEN |
+| 棋子助手 | 候选/回应均 depth=2；橙圈=几何攻击线；红色=候选后合法一步吃子；区分回吃/亏交换/吃过路兵；黄/蓝两段 1.5s 单次 SVG 动画；预演不改 FEN |
 | 全屏变体探索 | 全部合法走法；可连续 3 步；线、标签、面包屑、逐格 3D 棋盘同一 FEN；实战不动 |
-| `live-check.mjs` 项数 | 固定 83 项；含 2D 数字/主干/生命周期/触控/安全区、AI/FEN 重建与真实 FEN 回合显示 |
+| `live-check.mjs` 项数 | 固定 86 项；含 2D 数字/主干/生命周期/触控/安全区、AI/FEN 重建、真实 FEN 回合与一步威胁 |
 | `verify.mjs` 项数 | 固定 8 项 |
-| 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 83/83 |
-| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 83/83 |
+| 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 86/86 |
+| 线上完整验收 | 发布后填写；必须是 `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 86/86 |
 | AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,397ms / 1,348ms / 967ms |
 | 两套独立浏览器同时冷启动 | 2,718ms / 2,564ms，均未改 3 秒门槛 |
 | 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 949ms / 1,423ms / 2,243ms |
 | 正预算 deadline 探针 | 正常 140.4ms；临时关周期查钟 210.7ms 并按预期报红 |
+| 10 局自对弈稳定性审计 | 最近一次 622 plies / 582 次 search；黑胜 5、三次重复 5；非法/FEN/历史错误 0；82 条注释抽样 0 失败；13.26s |
 | 桌面白/黑棋截图中位亮度 | 195.7 / 57.4；逐类型最小差 122.9 |
 | 线上 AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,930ms / 1,357ms / 955ms |
 | 线上 4× CPU / reset / Worker 被杀保底 | 944ms / 1,420ms / 2,259ms |
@@ -404,8 +432,8 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 本轮发布后的逐字节哈希（本地与 GitHub Pages 已完全一致）：
 
 ```text
-dc77fa90481ecd7938cf8870e097fcfdf80da4708d77c336fe650cd0cde2b1fe  index.html
-64a26efa7b740e74d54ff3c371e4edf875306c03e8f6c0de4fa56aba98552156  engine.js
+8befe2960ba3fb361a30415993d6dfb8d6ccd34bd8cc1d94fb543f7b4ec8673b  index.html
+82dbd4a494c68f2f2766ac5665325ac158acbd943491690613e40bb751380b1f  engine.js
 a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed  worker.js
 ```
 
@@ -430,7 +458,13 @@ a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed  worker.js
 4. **搜索加和棋判定**（BLOCKED #4）。现在只判将死和困毙，不判三次重复 / 50 步 / 子力不足，
    残局会自我感觉良好。代价是每个节点多一次走法生成，深度会掉。
 
-5. **正式名还没定**（BLOCKED #9）。仓库名 `chess-cloud` 是定死的，页面标题现在叫「可能性分叉」。
+5. **规则/分析适配层，再接中国象棋。** 当前已经是小型国际象棋引擎，但 UI 仍写死 chess.js、
+   8×8、SAN、`w/b` 与六种国际象棋棋子。先拆 `RulesAdapter`（局面、合法着、终局、真实分叉）
+   和 `AnalysisAdapter`（最佳着、PV/MultiPV、分数/WDL）；2D/3D 布局、Worker 生命周期和真实计数
+   原则可以复用。纯静态站可先评估 Fairy-Stockfish WASM；专门棋力再评估 Pikafish。
+   不要把规则替换误写成“换一套棋子皮肤”。
+
+6. **正式名还没定**（BLOCKED #9）。仓库名 `chess-cloud` 是定死的，页面标题现在叫「可能性分叉」。
 
 ---
 
@@ -457,14 +491,18 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ## 9. 交接时的状态
 
 - 当前功能基线：六种分层 SVG 3D 棋子（非 WebGL mesh）；点棋子会出现合法候选、对手强回应和
-  两段单次动画；局势优先显示人话；主视图是连续分叉；全景图是零光点的真实父子路径线网，
+  两段单次动画；局势分、相对最佳着损失和一步合法吃子风险分开显示，橙圈只标几何攻击线；
+  主视图是连续分叉；全景图是零光点的真实父子路径线网，
   可切成逐层列出全部合法走法和“走后 N 个分支”的 2D 纵向树；两种模式都可连续预演三步，
   并在旁边逐格显示同源 3D 变体棋盘；2D 的根和层标题从 FEN 显示真实已走手数/回合/行棋方，
   “未来第几步”与内部相对层号明确分开；手机竖屏/短横屏、刘海和底部手势区均已适配。
 - 性能基线：缩略窗只建 L3、静置零 rAF/零 WebGL 新帧；L4 只在明确放大时计算，完成后每层一个
   geometry，收起立即释放；2D 完全不加载 L4、重绘或扩容隐藏 canvas；默认巡航关闭，
   手机全屏 DPR 封顶 1.25。
-- 本轮最终本地输出：`node verify.mjs` **8/8**、`node live-check.mjs` **83/83**。
+- 本轮最终本地输出：`node verify.mjs` **8/8**、`node live-check.mjs` **86/86**。
+- `node self-play.mjs` 最近一次：10 局、622 plies，黑胜 5 / 三次重复 5；逐手非法、
+  FEN / turn / history 错误均为 0，页面注释抽样 82 条失败 0。18ms 时限会导致不同机器/负载下
+  搜到的深度和胜负漂移；它只证明稳定性，不证明棋力。
 - 本轮最终线上输出：`node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`
-  **83/83**；三个运行文件 SHA-256 已用第 8 节流程确认与本地逐字节一致。
+  发布后填写；三个运行文件 SHA-256 必须用第 8 节流程确认与本地逐字节一致。
 - `main` 已推送，GitHub Pages 已更新；交接时 `main`、`origin/main` 与工作树保持同步。

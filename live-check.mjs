@@ -831,7 +831,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 83;
+const EXPECTED_RESULTS = 86;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -1275,7 +1275,7 @@ async function runCoachChecks() {
     const { rankMoves } = await import('./engine.js');
     const inputs = ${JSON.stringify(replyInputs)};
     return inputs.map(({ after }) => {
-      const move = rankMoves(after, { depth: 1 })[0] || null;
+      const move = rankMoves(after, { depth: 2 })[0] || null;
       return move ? {
         san: move.san, from: move.from, to: move.to,
         promotion: move.promotion || '', piece: move.piece, score: move.score,
@@ -1313,7 +1313,7 @@ async function runCoachChecks() {
   });
   record(
     coach.cards.length > 0 && replyProblems.length === 0,
-    '⑥ 对方回应可独立重放，且确为 rankMoves(after, depth=1) 的首选',
+    '⑥ 对方回应可独立重放，且确为 rankMoves(after, depth=2) 的首选',
     replyProblems.length
       ? replyProblems.join('; ')
       : coach.cards.map((card) => `${card.san}→${card.reply.piece} ${card.reply.san}`).join('　'));
@@ -1533,6 +1533,159 @@ async function runCoachChecks() {
           + `｜升变=${JSON.stringify(promotionAudit.state.history)}/${promotionAudit.coach.prediction?.candidate?.san || '无预测'}`
           + `｜终局=${terminalAudit.coach.state}/${terminalAudit.coach.title}`
           + `｜键盘=${keyboardAudit.selected}/${keyboardAudit.activePressed}`);
+
+  const attackFen = '6k1/6b1/8/8/3N4/2P5/8/6K1 w - - 0 1';
+  const attackPosition = new Chess(attackFen);
+  const expectedKnightAttack = {
+    attackers: attackPosition.attackers('d4', 'b').sort(),
+    defenders: attackPosition.attackers('d4', 'w').sort(),
+  };
+  const currentAttackAudit = await evalJs(`(() => {
+    const loaded = window.__test.loadFen('${attackFen}');
+    const coach = window.__test.coach();
+    return {
+      loaded,
+      state: window.__test.state(),
+      coach,
+      rings: [...document.querySelectorAll('#boardOverlay .board-threat-ring')].map((ring) => ({
+        square: ring.dataset.square || '',
+        piece: ring.dataset.piece || '',
+        attackers: (ring.dataset.attackers || '').split(',').filter(Boolean).sort(),
+        defenders: (ring.dataset.defenders || '').split(',').filter(Boolean).sort(),
+        certainty: ring.dataset.certainty || '',
+      })),
+      stripText: document.getElementById('coachThreatStrip')?.textContent.trim() || '',
+    };
+  })()`);
+  const knightAttack = currentAttackAudit.coach.currentAttacks?.find((row) => row.square === 'd4');
+  const knightRing = currentAttackAudit.rings.find((row) => row.square === 'd4');
+  record(
+    currentAttackAudit.loaded
+      && currentAttackAudit.state.fen === attackFen
+      && knightAttack?.piece === 'n'
+      && knightAttack?.certainty === 'geometric'
+      && JSON.stringify([...(knightAttack?.attackers || [])].sort()) === JSON.stringify(expectedKnightAttack.attackers)
+      && JSON.stringify([...(knightAttack?.defenders || [])].sort()) === JSON.stringify(expectedKnightAttack.defenders)
+      && knightRing?.piece === 'n'
+      && knightRing?.certainty === 'geometric'
+      && JSON.stringify(knightRing.attackers) === JSON.stringify(expectedKnightAttack.attackers)
+      && JSON.stringify(knightRing.defenders) === JSON.stringify(expectedKnightAttack.defenders)
+      && currentAttackAudit.stripText.includes('攻击线')
+      && !currentAttackAudit.stripText.includes('必丢'),
+    '⑥ 当前威胁只标真实几何攻击线，攻击者/保护者与 chess.js 对得上',
+    `d4 attackers=${JSON.stringify(knightAttack?.attackers || [])}`
+      + ` defenders=${JSON.stringify(knightAttack?.defenders || [])}`
+      + `｜rings=${currentAttackAudit.rings.length}`
+      + `｜${currentAttackAudit.stripText || '无说明'}`);
+
+  const threatCaseInputs = [
+    { key: 'hanging', fen: 'k6r/8/8/6Q1/8/8/8/K7 w - - 0 1', from: 'g5', to: 'h5' },
+    { key: 'protected', fen: 'k6r/8/8/6R1/6P1/8/8/K7 w - - 0 1', from: 'g5', to: 'h5' },
+    { key: 'badTrade', fen: 'k6r/8/8/6Q1/6P1/8/8/K7 w - - 0 1', from: 'g5', to: 'h5' },
+    { key: 'pinned', fen: '4k3/4r3/3Q4/8/6B1/8/8/K3R3 w - - 0 1', from: 'd6', to: 'd7' },
+    { key: 'elsewhere', fen: 'k6r/8/8/7Q/8/8/P7/K7 w - - 0 1', from: 'a2', to: 'a3' },
+  ].map((row) => {
+    const position = new Chess(row.fen);
+    const move = position.move({ from: row.from, to: row.to, promotion: 'q' });
+    return { ...row, san: move?.san || '', after: move?.after || '' };
+  });
+  const threatCases = await evalJs(`(() => {
+    const cases = ${JSON.stringify(threatCaseInputs)};
+    return cases.map((row) => ({
+      ...row,
+      analysis: row.after && typeof window.__test.threatAnalysis === 'function'
+        ? window.__test.threatAnalysis(row.after, row.to)
+        : null,
+    }));
+  })()`);
+  const threatByKey = Object.fromEntries(threatCases.map((row) => [row.key, row]));
+  const hangingCapture = threatByKey.hanging.analysis?.captures?.find((row) => row.targetSquare === 'h5');
+  const protectedCapture = threatByKey.protected.analysis?.captures?.find((row) => row.targetSquare === 'h5');
+  const badTradeCapture = threatByKey.badTrade.analysis?.captures?.find((row) => row.targetSquare === 'h5');
+  const pinnedCapture = threatByKey.pinned.analysis?.captures?.find((row) => row.targetSquare === 'd7');
+  record(
+    hangingCapture?.kind === 'hanging'
+      && hangingCapture.recapturable === false
+      && hangingCapture.recaptures.length === 0
+      && threatByKey.hanging.analysis?.movedPieceEnPrise === true
+      && protectedCapture?.kind === 'protected-trade'
+      && protectedCapture.recapturable === true
+      && protectedCapture.recaptures.length > 0
+      && badTradeCapture?.kind === 'bad-trade'
+      && badTradeCapture.recapturable === true
+      && badTradeCapture.victim.value > badTradeCapture.attacker.value
+      && !pinnedCapture
+      && threatByKey.pinned.analysis?.legalCaptureCount === 0
+      && threatByKey.elsewhere.analysis?.topReply.isCapture === true
+      && threatByKey.elsewhere.analysis?.topReply.capturesMovedPiece === false
+      && threatByKey.elsewhere.analysis?.movedPieceEnPrise === false,
+    '⑥ 一步威胁能区分悬子、可回吃、亏交换、被钉假攻击和首选吃别处',
+    `hanging=${hangingCapture?.kind || '无'}`
+      + `｜protected=${protectedCapture?.kind || '无'}`
+      + `｜badTrade=${badTradeCapture?.kind || '无'}`
+      + `｜pinned captures=${threatByKey.pinned.analysis?.legalCaptureCount ?? '无'}`
+      + `｜elsewhere top/moved=${threatByKey.elsewhere.analysis?.topReply.isCapture ?? '无'}`
+      + `/${threatByKey.elsewhere.analysis?.movedPieceEnPrise ?? '无'}`);
+
+  const tradeFen = 'k6r/8/8/6R1/6P1/8/8/K7 w - - 0 1';
+  const tradePosition = new Chess(tradeFen);
+  const tradeMove = tradePosition.move({ from: 'g5', to: 'h5' });
+  const cardThreatAudit = await evalJs(`(() => {
+    const hangingFen = 'r5k1/8/8/8/8/8/P7/6K1 w - - 0 1';
+    window.__test.loadFen(hangingFen);
+    document.querySelector('#boardSquares rect[data-sq="a2"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
+    const hanging = window.__test.coach();
+    const hangingText = document.getElementById('coachMoves')?.textContent || '';
+
+    const epFen = 'k7/8/8/8/3p4/8/4P3/K7 w - - 0 1';
+    window.__test.loadFen(epFen);
+    document.querySelector('#boardSquares rect[data-sq="e2"]')?.dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
+    const ep = window.__test.coach();
+    const e4 = ep.cards.find((card) => card.from === 'e2' && card.to === 'e4') || null;
+
+    const tradeFen = '${tradeFen}';
+    const tradeAfter = '${tradeMove.after}';
+    const beforePlay = {
+      depth1: typeof window.__test.rankedReplies === 'function'
+        ? window.__test.rankedReplies(tradeAfter, 1)[0]?.san || ''
+        : '',
+      depth2: typeof window.__test.rankedReplies === 'function'
+        ? window.__test.rankedReplies(tradeAfter, 2)[0]?.san || ''
+        : '',
+    };
+    window.__test.loadFen(tradeFen);
+    const played = window.__test.tryMove('g5', 'h5');
+    const prediction = window.__test.coach().prediction;
+    window.__test.reset();
+    return { hangingFen, hanging, hangingText, ep, e4, beforePlay, played, prediction };
+  })()`);
+  const hangingCardsOk = cardThreatAudit.hanging.cards.length === 2
+    && cardThreatAudit.hanging.cards.every((card) =>
+      card.threat?.kind === 'high'
+      && card.threat.movedPieceEnPrise
+      && card.threat.hangingCount === 1
+      && card.threat.targets.includes(card.to));
+  record(
+    hangingCardsOk
+      && cardThreatAudit.hangingText.includes('无合法回吃')
+      && !cardThreatAudit.hangingText.includes('必丢')
+      && cardThreatAudit.e4?.threat?.movedPieceEnPrise === true
+      && cardThreatAudit.e4.threat.targets.includes('e4')
+      && !cardThreatAudit.e4.threat.targets.includes('e3')
+      && cardThreatAudit.beforePlay.depth1
+      && cardThreatAudit.beforePlay.depth2
+      && cardThreatAudit.beforePlay.depth1 !== cardThreatAudit.beforePlay.depth2
+      && cardThreatAudit.played
+      && cardThreatAudit.prediction?.replies?.[0]?.san === cardThreatAudit.beforePlay.depth2,
+    '⑥ 卡片呈现真实高危与吃过路兵目标，强回应会看到对方下一手回吃',
+    `hanging=${cardThreatAudit.hanging.cards.map((card) => `${card.san}:${card.threat?.kind}/${card.threat?.targets.join(',')}`).join('　')}`
+      + `｜EP e4 targets=${cardThreatAudit.e4?.threat?.targets.join(',') || '无'}`
+      + `｜trade depth1/depth2/prediction=${cardThreatAudit.beforePlay.depth1}/${cardThreatAudit.beforePlay.depth2}`
+      + `/${cardThreatAudit.prediction?.replies?.[0]?.san || '无'}`);
   await clickSelector('#btnReset');
 }
 
