@@ -418,7 +418,7 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 | `live-check.mjs` 项数 | 固定 86 项；含 2D 数字/主干/生命周期/触控/安全区、AI/FEN 重建、真实 FEN 回合与一步威胁 |
 | `verify.mjs` 项数 | 固定 8 项 |
 | 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 86/86 |
-| 线上完整验收 | 发布后填写；必须是 `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 86/86 |
+| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 86/86 |
 | AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,397ms / 1,348ms / 967ms |
 | 两套独立浏览器同时冷启动 | 2,718ms / 2,564ms，均未改 3 秒门槛 |
 | 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 949ms / 1,423ms / 2,243ms |
@@ -504,5 +504,5 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
   FEN / turn / history 错误均为 0，页面注释抽样 82 条失败 0。18ms 时限会导致不同机器/负载下
   搜到的深度和胜负漂移；它只证明稳定性，不证明棋力。
 - 本轮最终线上输出：`node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`
-  发布后填写；三个运行文件 SHA-256 必须用第 8 节流程确认与本地逐字节一致。
+  **86/86**；三个运行文件 SHA-256 已用第 8 节流程确认与本地逐字节一致。
 - `main` 已推送，GitHub Pages 已更新；交接时 `main`、`origin/main` 与工作树保持同步。
