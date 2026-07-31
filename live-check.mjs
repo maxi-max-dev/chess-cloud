@@ -319,6 +319,14 @@ function expectedBoardPieces(fen) {
   return out.sort((a, b) => a.sq.localeCompare(b.sq));
 }
 
+function renderedPiecesMatchFen(pieces, fen) {
+  if (!Array.isArray(pieces) || !fen) return false;
+  const actual = pieces
+    .map(({ sq, color, type }) => ({ sq, color, type }))
+    .sort((a, b) => a.sq.localeCompare(b.sq));
+  return JSON.stringify(actual) === JSON.stringify(expectedBoardPieces(fen));
+}
+
 function auditPrincipalVariation(fen, result) {
   const problems = [];
   const pv = Array.isArray(result?.pv) ? result.pv : [];
@@ -905,7 +913,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 92;
+const EXPECTED_RESULTS = 95;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -3741,6 +3749,397 @@ async function main() {
       + `｜选路后=${futureContract.selectedButtons.legacyDisabled}/${futureContract.selectedButtons.commitDisabled}`
       + `｜清空后=${futureContract.cleanButtons.legacyDisabled}/${futureContract.cleanButtons.commitDisabled}`,
   );
+
+  const futurePreviewProtocol = await evalJs(`(() => {
+    const board = document.getElementById('board');
+    return !!board
+      && board.hasAttribute('data-future-preview')
+      && board.hasAttribute('data-preview-phase')
+      && board.hasAttribute('data-preview-root-fen')
+      && board.hasAttribute('data-preview-display-fen')
+      && board.hasAttribute('data-preview-line-id')
+      && board.hasAttribute('data-preview-step-index')
+      && board.hasAttribute('data-preview-step-count');
+  })()`);
+  if (!futurePreviewProtocol) {
+    const detail = '主棋盘未声明 data-future-preview 与完整 data-preview-* 协议';
+    record(false, '选路会有限播放“你走 → 强回应”并停在真实预演局面', detail);
+    record(false, '快速切换路线会隔离 line-id，旧动画不能回写新预演', detail);
+    record(false, '减少动态模式直接投影两拍最终局面且不改实战', detail);
+  } else {
+    let normalPreview = null;
+    let normalPreviewError = '';
+    try {
+      normalPreview = await evalJs(`(async () => {
+        const board = document.getElementById('board');
+        const read = () => ({
+          active: board.dataset.futurePreview || '',
+          phase: board.dataset.previewPhase || '',
+          rootFen: board.dataset.previewRootFen || '',
+          displayFen: board.dataset.previewDisplayFen || '',
+          lineId: board.dataset.previewLineId || '',
+          stepIndex: Number(board.dataset.previewStepIndex || 0),
+          stepCount: Number(board.dataset.previewStepCount || 0),
+          motions: [...board.querySelectorAll('[data-future-motion-piece="true"]')].map((piece) => ({
+            lineId: piece.dataset.previewLineId || '',
+            step: piece.dataset.previewStep || '',
+            from: piece.dataset.previewFrom || '',
+            to: piece.dataset.previewTo || '',
+          })),
+          paths: [...board.querySelectorAll('[data-future-preview-step]')].map((path) => ({
+            lineId: path.dataset.previewLineId || '',
+            step: path.dataset.futurePreviewStep || '',
+            from: path.dataset.previewFrom || '',
+            to: path.dataset.previewTo || '',
+          })),
+          pieces: [...document.querySelectorAll('#boardPieces g.piece3d')].map((piece) => ({
+            sq: piece.dataset.sq || '', color: piece.dataset.color || '', type: piece.dataset.type || '',
+          })),
+        });
+        window.__futureTest.rewind(0);
+        const initial = window.__futureTest.snapshot();
+        const liveBefore = window.__test.state();
+        const key = initial.suggestedPath[0]?.afterFen || '';
+        const selected = key ? window.__futureTest.selectNode(0, key) : false;
+        const afterSelect = window.__futureTest.snapshot();
+        const samples = [];
+        const startedAt = performance.now();
+        let final = read();
+        while (performance.now() - startedAt < 3200) {
+          final = read();
+          samples.push(final);
+          if (final.active === 'active' && final.phase === 'settled') break;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        final = read();
+        const you = afterSelect.selectedPath[0] || null;
+        const reply = afterSelect.selectedPath[1] || afterSelect.suggestedPath[0] || null;
+        const strongReply = you ? (window.__test.rankedReplies(you.afterFen, 2)[0] || null) : null;
+        document.getElementById('exploreReset')?.click();
+        await Promise.resolve();
+        const afterRealReset = read();
+        const liveAfterRealReset = window.__test.state();
+        const reselected = key ? window.__futureTest.selectNode(0, key) : false;
+        const beforeInvalidMove = read();
+        const invalidAccepted = window.__test.tryMove('e2', 'e5');
+        const afterInvalidMove = read();
+        const liveAfterInvalidMove = window.__test.state();
+        return {
+          selected, initial, afterSelect, liveBefore, liveAfter: window.__test.state(),
+          elapsed: performance.now() - startedAt, samples, final, you, reply, strongReply,
+          afterRealReset, liveAfterRealReset, reselected, beforeInvalidMove,
+          invalidAccepted, afterInvalidMove, liveAfterInvalidMove,
+        };
+      })()`, true);
+    } catch (error) {
+      normalPreviewError = error?.message || String(error);
+    }
+    const normalMotionSteps = new Set(
+      (normalPreview?.samples || []).flatMap((sample) => sample.motions.map((motion) => motion.step)),
+    );
+    const normalPaths = normalPreview?.final?.paths || [];
+    const normalYou = normalPreview?.you;
+    const normalReply = normalPreview?.reply;
+    const normalStrong = normalPreview?.strongReply;
+    const normalFinalFen = normalReply?.afterFen || normalYou?.afterFen || '';
+    const normalLiveFen = normalPreview?.liveBefore?.fen || '';
+    const resetBoard = normalPreview?.afterRealReset;
+    const invalidBoard = normalPreview?.afterInvalidMove;
+    const invalidProtocolConsistent = !!invalidBoard
+      && invalidBoard.rootFen === normalLiveFen
+      && renderedPiecesMatchFen(invalidBoard.pieces, invalidBoard.displayFen)
+      && (invalidBoard.active === 'active'
+        ? invalidBoard.lineId.length > 0 && invalidBoard.phase !== 'idle'
+        : invalidBoard.active === 'idle'
+          && invalidBoard.phase === 'idle'
+          && invalidBoard.lineId === ''
+          && invalidBoard.displayFen === normalLiveFen);
+    const normalPathsExact = normalPaths.length === 2
+      && ['you', 'reply'].every((step) => {
+        const actual = normalPaths.find((path) => path.step === step);
+        const expected = step === 'you' ? normalYou : normalReply;
+        return !!actual && !!expected
+          && actual.lineId === normalPreview.final.lineId
+          && actual.from === expected.from && actual.to === expected.to;
+      });
+    record(
+      !!normalPreview
+        && normalPreview.selected === true
+        && normalMotionSteps.size === 2
+        && normalMotionSteps.has('you')
+        && normalMotionSteps.has('reply')
+        && normalPreview.samples.every((sample) => sample.motions.length <= 1)
+        && normalPreview.final.active === 'active'
+        && normalPreview.final.phase === 'settled'
+        && normalPreview.final.stepCount === 2
+        && normalPreview.final.lineId.length > 0
+        && normalPreview.final.rootFen === normalPreview.liveBefore.fen
+        && normalPreview.final.displayFen === normalFinalFen
+        && normalPreview.final.motions.length === 0
+        && normalPathsExact
+        && normalStrong?.from === normalReply?.from
+        && normalStrong?.to === normalReply?.to
+        && (normalStrong?.promotion || '') === (normalReply?.promotion || '')
+        && normalStrong?.after === normalReply?.afterFen
+        && renderedPiecesMatchFen(normalPreview.final.pieces, normalFinalFen)
+        && normalPreview.liveAfter.fen === normalPreview.liveBefore.fen
+        && JSON.stringify(normalPreview.liveAfter.history) === JSON.stringify(normalPreview.liveBefore.history)
+        && resetBoard?.active === 'idle'
+        && resetBoard?.phase === 'idle'
+        && resetBoard?.lineId === ''
+        && resetBoard?.rootFen === normalLiveFen
+        && resetBoard?.displayFen === normalLiveFen
+        && renderedPiecesMatchFen(resetBoard?.pieces, normalLiveFen)
+        && normalPreview.liveAfterRealReset?.fen === normalLiveFen
+        && JSON.stringify(normalPreview.liveAfterRealReset?.history) === JSON.stringify(normalPreview.liveBefore.history)
+        && normalPreview.reselected === true
+        && normalPreview.beforeInvalidMove?.active === 'active'
+        && normalPreview.invalidAccepted === false
+        && invalidProtocolConsistent
+        && normalPreview.liveAfterInvalidMove?.fen === normalLiveFen
+        && JSON.stringify(normalPreview.liveAfterInvalidMove?.history) === JSON.stringify(normalPreview.liveBefore.history),
+      '选路会有限播放“你走 → 强回应”，回到现在/非法着后主盘与实战同源',
+      normalPreviewError || `steps=${[...normalMotionSteps].join('→') || '无'}`
+        + `｜phase=${normalPreview?.final?.phase || '无'}`
+        + `｜display=${normalPreview?.final?.displayFen === normalFinalFen}`
+        + `｜reset=${resetBoard?.active || '无'}/${renderedPiecesMatchFen(resetBoard?.pieces, normalLiveFen)}`
+        + `｜非法着一致=${normalPreview?.invalidAccepted === false && invalidProtocolConsistent}`
+        + `｜实战未变=${normalPreview?.liveAfterInvalidMove?.fen === normalLiveFen}`,
+    );
+
+    let rapidPreview = null;
+    let rapidPreviewError = '';
+    try {
+      rapidPreview = await evalJs(`(async () => {
+        const board = document.getElementById('board');
+        const read = () => ({
+          active: board.dataset.futurePreview || '',
+          phase: board.dataset.previewPhase || '',
+          rootFen: board.dataset.previewRootFen || '',
+          displayFen: board.dataset.previewDisplayFen || '',
+          lineId: board.dataset.previewLineId || '',
+          stepCount: Number(board.dataset.previewStepCount || 0),
+          ids: [...document.querySelectorAll('[data-preview-line-id]')]
+            .map((node) => node.dataset.previewLineId || '').filter(Boolean),
+          motions: [...board.querySelectorAll('[data-future-motion-piece="true"]')].map((piece) => ({
+            lineId: piece.dataset.previewLineId || '', step: piece.dataset.previewStep || '',
+          })),
+          paths: [...board.querySelectorAll('[data-future-preview-step]')].map((path) => ({
+            lineId: path.dataset.previewLineId || '', step: path.dataset.futurePreviewStep || '',
+          })),
+          pieces: [...document.querySelectorAll('#boardPieces g.piece3d')].map((piece) => ({
+            sq: piece.dataset.sq || '', color: piece.dataset.color || '', type: piece.dataset.type || '',
+          })),
+        });
+        window.__futureTest.rewind(0);
+        const liveBefore = window.__test.state();
+        const keys = [...document.querySelectorAll('#fork g.card[data-col="0"][data-after]')]
+          .map((card) => card.dataset.after || '').filter((key, index, all) => key && all.indexOf(key) === index);
+        const firstSelected = keys[0] ? window.__futureTest.selectNode(0, keys[0]) : false;
+        let first = read();
+        for (let i = 0; i < 12 && !first.lineId; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          first = read();
+        }
+        const firstLineId = first.lineId;
+        const secondSelected = keys[1] ? window.__futureTest.selectNode(0, keys[1]) : false;
+        const secondRoute = window.__futureTest.snapshot();
+        let switched = read();
+        for (let i = 0; i < 20 && (!switched.lineId || switched.lineId === firstLineId); i++) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          switched = read();
+        }
+        const secondLineId = switched.lineId;
+        const staleImmediately = switched.ids.filter((id) => id === firstLineId).length;
+        const startedAt = performance.now();
+        let final = switched;
+        while (performance.now() - startedAt < 3200) {
+          final = read();
+          if (final.active === 'active' && final.phase === 'settled') break;
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        final = read();
+        return {
+          firstSelected, secondSelected, first, switched, final, firstLineId, secondLineId,
+          staleImmediately, staleFinally: final.ids.filter((id) => id === firstLineId).length,
+          secondRoute, liveBefore, liveAfter: window.__test.state(),
+        };
+      })()`, true);
+    } catch (error) {
+      rapidPreviewError = error?.message || String(error);
+    }
+    const rapidYou = rapidPreview?.secondRoute?.selectedPath?.[0];
+    const rapidReply = rapidPreview?.secondRoute?.selectedPath?.[1]
+      || rapidPreview?.secondRoute?.suggestedPath?.[0];
+    const rapidFinalFen = rapidReply?.afterFen || rapidYou?.afterFen || '';
+    record(
+      !!rapidPreview
+        && rapidPreview.firstSelected === true
+        && rapidPreview.secondSelected === true
+        && rapidPreview.first.phase === 'playing'
+        && rapidPreview.firstLineId.length > 0
+        && rapidPreview.secondLineId.length > 0
+        && rapidPreview.secondLineId !== rapidPreview.firstLineId
+        && rapidPreview.staleImmediately === 0
+        && rapidPreview.staleFinally === 0
+        && rapidPreview.switched.ids.every((id) => id === rapidPreview.secondLineId)
+        && rapidPreview.final.ids.every((id) => id === rapidPreview.secondLineId)
+        && rapidPreview.final.phase === 'settled'
+        && rapidPreview.final.stepCount === 2
+        && rapidPreview.final.displayFen === rapidFinalFen
+        && renderedPiecesMatchFen(rapidPreview.final.pieces, rapidFinalFen)
+        && rapidPreview.liveAfter.fen === rapidPreview.liveBefore.fen
+        && JSON.stringify(rapidPreview.liveAfter.history) === JSON.stringify(rapidPreview.liveBefore.history),
+      '快速切换路线会隔离 line-id，旧动画不能回写新预演',
+      rapidPreviewError || `line ${rapidPreview?.firstLineId || '无'} → ${rapidPreview?.secondLineId || '无'}`
+        + `｜旧 DOM 立即/最终=${rapidPreview?.staleImmediately ?? '-1'}/${rapidPreview?.staleFinally ?? '-1'}`
+        + `｜最终局面=${rapidPreview?.final?.displayFen === rapidFinalFen}`,
+    );
+
+    let reducedPreview = null;
+    let reducedPreviewError = '';
+    try {
+      const switchStarted = await evalJs(`(() => {
+        window.__futureTest.rewind(0);
+        const board = document.getElementById('board');
+        const initial = window.__futureTest.snapshot();
+        const liveBefore = window.__test.state();
+        const key = initial.suggestedPath[0]?.afterFen || '';
+        const selected = key ? window.__futureTest.selectNode(0, key) : false;
+        return {
+          selected,
+          route: window.__futureTest.snapshot(),
+          liveBefore,
+          lineId: board.dataset.previewLineId || '',
+          phase: board.dataset.previewPhase || '',
+        };
+      })()`);
+      await sleep(70);
+      await send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+      });
+      await sleep(80);
+      const switched = await evalJs(`(() => {
+        const board = document.getElementById('board');
+        return {
+          liveAfter: window.__test.state(),
+          active: board.dataset.futurePreview || '',
+          phase: board.dataset.previewPhase || '',
+          rootFen: board.dataset.previewRootFen || '',
+          displayFen: board.dataset.previewDisplayFen || '',
+          lineId: board.dataset.previewLineId || '',
+          stepIndex: Number(board.dataset.previewStepIndex || 0),
+          stepCount: Number(board.dataset.previewStepCount || 0),
+          motions: board.querySelectorAll('[data-future-motion-piece="true"]').length,
+          paths: [...board.querySelectorAll('[data-future-preview-step]')].map((path) => ({
+            lineId: path.dataset.previewLineId || '',
+            step: path.dataset.futurePreviewStep || '',
+            from: path.dataset.previewFrom || '',
+            to: path.dataset.previewTo || '',
+          })),
+          pieces: [...document.querySelectorAll('#boardPieces g.piece3d')].map((piece) => ({
+            sq: piece.dataset.sq || '', color: piece.dataset.color || '', type: piece.dataset.type || '',
+          })),
+        };
+      })()`);
+      const staticPreview = await evalJs(`(() => {
+        const board = document.getElementById('board');
+        window.__futureTest.rewind(0);
+        const initial = window.__futureTest.snapshot();
+        const liveBefore = window.__test.state();
+        const key = initial.suggestedPath[0]?.afterFen || '';
+        const selected = key ? window.__futureTest.selectNode(0, key) : false;
+        const route = window.__futureTest.snapshot();
+        return {
+          selected, route, liveBefore, liveAfter: window.__test.state(),
+          reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
+          board: {
+            active: board.dataset.futurePreview || '',
+            phase: board.dataset.previewPhase || '',
+            rootFen: board.dataset.previewRootFen || '',
+            displayFen: board.dataset.previewDisplayFen || '',
+            lineId: board.dataset.previewLineId || '',
+            stepCount: Number(board.dataset.previewStepCount || 0),
+            motions: board.querySelectorAll('[data-future-motion-piece="true"]').length,
+            paths: [...board.querySelectorAll('[data-future-preview-step]')].map((path) => ({
+              lineId: path.dataset.previewLineId || '',
+              step: path.dataset.futurePreviewStep || '',
+              from: path.dataset.previewFrom || '',
+              to: path.dataset.previewTo || '',
+            })),
+            pieces: [...document.querySelectorAll('#boardPieces g.piece3d')].map((piece) => ({
+              sq: piece.dataset.sq || '', color: piece.dataset.color || '', type: piece.dataset.type || '',
+            })),
+          },
+        };
+      })()`);
+      reducedPreview = { ...staticPreview, switchStarted, switched };
+    } catch (error) {
+      reducedPreviewError = error?.message || String(error);
+    } finally {
+      try {
+        await send('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+        });
+      } catch {}
+      try { await evalJs('window.__futureTest.rewind(0)'); } catch {}
+    }
+    const reducedYou = reducedPreview?.route?.selectedPath?.[0];
+    const reducedReply = reducedPreview?.route?.selectedPath?.[1]
+      || reducedPreview?.route?.suggestedPath?.[0];
+    const reducedFinalFen = reducedReply?.afterFen || reducedYou?.afterFen || '';
+    const reducedPaths = reducedPreview?.board?.paths || [];
+    const switchedYou = reducedPreview?.switchStarted?.route?.selectedPath?.[0];
+    const switchedReply = reducedPreview?.switchStarted?.route?.selectedPath?.[1]
+      || reducedPreview?.switchStarted?.route?.suggestedPath?.[0];
+    const switchedFinalFen = switchedReply?.afterFen || switchedYou?.afterFen || '';
+    const switchedPaths = reducedPreview?.switched?.paths || [];
+    record(
+      !!reducedPreview
+        && reducedPreview.switchStarted.selected === true
+        && reducedPreview.switchStarted.phase === 'playing'
+        && reducedPreview.switched.active === 'active'
+        && reducedPreview.switched.phase === 'reduced-static'
+        && reducedPreview.switched.lineId === reducedPreview.switchStarted.lineId
+        && reducedPreview.switched.rootFen === reducedPreview.switchStarted.liveBefore.fen
+        && reducedPreview.switched.displayFen === switchedFinalFen
+        && reducedPreview.switched.stepIndex === 2
+        && reducedPreview.switched.stepCount === 2
+        && reducedPreview.switched.motions === 0
+        && switchedPaths.length === 2
+        && switchedPaths.every((path) => path.lineId === reducedPreview.switched.lineId)
+        && renderedPiecesMatchFen(reducedPreview.switched.pieces, switchedFinalFen)
+        && reducedPreview.switched.liveAfter.fen === reducedPreview.switchStarted.liveBefore.fen
+        && JSON.stringify(reducedPreview.switched.liveAfter.history)
+          === JSON.stringify(reducedPreview.switchStarted.liveBefore.history)
+        && reducedPreview.reduced === true
+        && reducedPreview.selected === true
+        && reducedPreview.board.active === 'active'
+        && reducedPreview.board.phase === 'reduced-static'
+        && reducedPreview.board.rootFen === reducedPreview.liveBefore.fen
+        && reducedPreview.board.displayFen === reducedFinalFen
+        && reducedPreview.board.lineId.length > 0
+        && reducedPreview.board.stepCount === 2
+        && reducedPreview.board.motions === 0
+        && reducedPaths.length === 2
+        && ['you', 'reply'].every((step) => {
+          const path = reducedPaths.find((item) => item.step === step);
+          const expected = step === 'you' ? reducedYou : reducedReply;
+          return !!path && !!expected
+            && path.lineId === reducedPreview.board.lineId
+            && path.from === expected.from && path.to === expected.to;
+        })
+        && renderedPiecesMatchFen(reducedPreview.board.pieces, reducedFinalFen)
+        && reducedPreview.liveAfter.fen === reducedPreview.liveBefore.fen
+        && JSON.stringify(reducedPreview.liveAfter.history) === JSON.stringify(reducedPreview.liveBefore.history),
+      '减少动态在播放中/选择前都直接投影两拍最终局面且不改实战',
+      reducedPreviewError || `运行中=${reducedPreview?.switchStarted?.phase || '无'}→${reducedPreview?.switched?.phase || '无'}`
+        + `｜phase=${reducedPreview?.board?.phase || '无'}`
+        + `｜motion=${reducedPreview?.board?.motions ?? -1}`
+        + `｜paths=${reducedPaths.map((path) => path.step).join('/') || '无'}`
+        + `｜实战未变=${reducedPreview?.liveAfter?.fen === reducedPreview?.liveBefore?.fen}`,
+    );
+  }
 
   // 只有用户明确点「放大探索」才加载完整第 4 层，再逐层对数。
   const s1 = await openCloudAndWait();

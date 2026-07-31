@@ -473,12 +473,33 @@
   }
 
   /* ── 左下：棋盘 */
-  #boardPanel { left: 22px; bottom: 22px; width: 434px; padding: 15px 16px 12px; }
+  #boardPanel {
+    left: 22px; bottom: 22px; width: 434px; padding: 15px 16px 12px;
+    isolation: isolate;
+  }
   #board {
     display: block; width: 380px; height: 380px; margin: 0 auto;
     border-radius: 8px; overflow: hidden; touch-action: manipulation;
     background: #22293a;
   }
+  #board[data-future-preview="active"] {
+    box-shadow:
+      0 0 0 1px rgba(121,230,219,.52),
+      0 12px 34px rgba(0,0,0,.34),
+      0 0 28px rgba(121,230,219,.11);
+  }
+  .future-board-badge {
+    position: absolute; z-index: 8; top: 22px; left: 25px;
+    display: flex; gap: 6px; align-items: baseline;
+    padding: 5px 8px;
+    border: 1px solid rgba(121,230,219,.34); border-radius: 8px;
+    color: #dffcf7; background: rgba(4,15,20,.86);
+    box-shadow: 0 6px 20px rgba(0,0,0,.28);
+    pointer-events: none;
+  }
+  .future-board-badge[hidden] { display: none; }
+  .future-board-badge b { font-size: 10px; letter-spacing: .08em; }
+  .future-board-badge span { color: #9fbfc1; font-size: 9px; }
   /* 棋子完全由本地 SVG 几何组成，不再依赖系统 Unicode 棋子字形。
      黑白双方共用六种造型，只切换材质，避免某些系统把白棋也画成黑色。 */
   .chess-board .piece3d { pointer-events: none; user-select: none; }
@@ -526,6 +547,58 @@
     fill: var(--piece-cut);
     stroke: var(--piece-shine);
     stroke-width: .55;
+  }
+  #board .piece3d[data-future-motion-piece="true"] {
+    filter: drop-shadow(0 0 7px rgba(121,230,219,.84));
+  }
+  #board .piece3d[data-future-motion-piece="true"][data-preview-step="you"] > g {
+    animation: future-piece-you 560ms cubic-bezier(.22,.78,.28,1) both;
+  }
+  #board .piece3d[data-future-motion-piece="true"][data-preview-step="reply"] > g {
+    animation: future-piece-reply 560ms cubic-bezier(.22,.78,.28,1) both;
+  }
+  #board .future-preview-path {
+    fill: none; stroke-linecap: round; pointer-events: none;
+    vector-effect: non-scaling-stroke;
+  }
+  #board .future-preview-path[data-future-preview-step="you"] {
+    stroke: #f1c66b; stroke-width: 4.5; opacity: .78;
+    filter: drop-shadow(0 0 4px rgba(241,198,107,.55));
+  }
+  #board .future-preview-path[data-future-preview-step="reply"] {
+    stroke: #79e6db; stroke-width: 4; opacity: .82;
+    stroke-dasharray: 7 5;
+    filter: drop-shadow(0 0 4px rgba(121,230,219,.55));
+  }
+  #board .future-preview-target {
+    fill: rgba(5,10,15,.62); pointer-events: none;
+    vector-effect: non-scaling-stroke;
+  }
+  #board .future-preview-target[data-preview-step="you"] {
+    stroke: #f1c66b; stroke-width: 3;
+  }
+  #board .future-preview-target[data-preview-step="reply"] {
+    stroke: #79e6db; stroke-width: 3;
+  }
+  #board .future-preview-number {
+    fill: #f7fbff; font-size: 9px; font-weight: 800;
+    text-anchor: middle; dominant-baseline: central; pointer-events: none;
+  }
+  @keyframes future-piece-you {
+    0% {
+      transform: translate(var(--future-motion-x), var(--future-motion-y)) scale(.92);
+      opacity: .45;
+    }
+    72% { transform: translate(0, 0) scale(1.05); opacity: 1; }
+    100% { transform: translate(0, 0) scale(1); opacity: 1; }
+  }
+  @keyframes future-piece-reply {
+    0% {
+      transform: translate(var(--future-motion-x), var(--future-motion-y)) scale(.92);
+      opacity: .45;
+    }
+    72% { transform: translate(0, 0) scale(1.05); opacity: 1; }
+    100% { transform: translate(0, 0) scale(1); opacity: 1; }
   }
   #board .coach-path {
     fill: none; pointer-events: none; stroke-linecap: round;
@@ -850,6 +923,33 @@
     body.cloud-full #skyHint { display: none; }
   }
 
+  /* 竖屏选路时保留一块不跳页的小棋盘；原面板高度不塌，滚动位置不会突然改变。 */
+  @media (max-width: 760px) and (orientation: portrait) {
+    body[data-future-board-preview="active"] #boardPanel {
+      z-index: 145;
+      min-height: calc(min(100vw - 48px, 380px) + 92px);
+    }
+    body[data-future-board-preview="active"] #board {
+      position: fixed; z-index: 140;
+      top: calc(max(12px, var(--safe-top)) + 62px);
+      right: max(12px, var(--safe-right));
+      width: min(43vw, 176px); height: auto; aspect-ratio: 1;
+      margin: 0;
+      border: 1px solid rgba(121,230,219,.46);
+      border-radius: 10px;
+      box-shadow: 0 14px 38px rgba(0,0,0,.58), 0 0 24px rgba(121,230,219,.13);
+    }
+    body[data-future-board-preview="active"] .future-board-badge {
+      position: fixed; z-index: 141;
+      top: calc(max(12px, var(--safe-top)) + 69px);
+      right: calc(max(12px, var(--safe-right)) + 7px);
+      left: auto;
+      max-width: calc(min(43vw, 176px) - 14px);
+      padding: 4px 6px;
+    }
+    body[data-future-board-preview="active"] .future-board-badge span { display: none; }
+  }
+
   /* 常见手机横屏：利用横向空间保留棋盘 + 分叉双栏，整页仍可纵向滚动。 */
   @media (min-width: 560px) and (max-width: 950px) and (max-height: 520px) and (orientation: landscape) {
     body {
@@ -1067,7 +1167,10 @@
 
 <div class="panel" id="boardPanel">
   <svg id="board" class="chess-board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg"
-       role="grid" aria-label="国际象棋棋盘，白方在下">
+       role="grid" aria-label="国际象棋棋盘，白方在下"
+       data-future-preview="idle" data-preview-phase="idle"
+       data-preview-root-fen="" data-preview-display-fen=""
+       data-preview-line-id="" data-preview-step-index="0" data-preview-step-count="0">
     <defs id="boardPieceDefs">
       <linearGradient id="board-white-main" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#fffef8"/>
@@ -1168,6 +1271,9 @@
     <g id="boardPieces"></g>
     <g id="boardOverlay"></g>
   </svg>
+  <div id="futureBoardBadge" class="future-board-badge" aria-live="polite" hidden>
+    <b>路线预演</b><span>你走 → 强回应</span>
+  </div>
   <div id="status">正在算分叉…</div>
   <div class="row">
     <button id="btnReset">重开</button>
@@ -2081,6 +2187,7 @@ function tryMove(from, to, promotion) {
   let mv = null;
   try { mv = game.move({ from, to, promotion: promotion || 'q' }); } catch (e) { mv = null; }
   if (!mv) return false;
+  cancelFutureBoardPreview(false);
   clearPvGuide();
   pendingCoachPrediction = prediction;
   selected = null;
@@ -2126,11 +2233,16 @@ const boardEl = document.getElementById('board');
 const boardSquaresEl = document.getElementById('boardSquares');
 const boardPiecesEl = document.getElementById('boardPieces');
 const boardOverlayEl = document.getElementById('boardOverlay');
+const futureBoardBadgeEl = document.getElementById('futureBoardBadge');
 const CELL = 50;
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const PIECE_NAME = { k: '王', q: '后', r: '车', b: '象', n: '马', p: '兵' };
 let forkPreview = null;   // 分叉 hover 的单步预览
 let coachPreview = null;  // 棋子助手的“你一步 → 对手一步”动画
+let futurePreviewPlayback = null;
+let futurePreviewEpoch = 0;
+let futurePreviewTimer = 0;
+const FUTURE_PREVIEW_STEP_MS = 660;
 const coachPanelEl = document.getElementById('coachPanel');
 const coachTitleEl = document.getElementById('coachTitle');
 const coachExplainEl = document.getElementById('coachExplain');
@@ -2148,6 +2260,158 @@ let coachPreviewGen = 0;
 function squareXY(sq) {
   const f = FILES.indexOf(sq[0]), r = 8 - Number(sq[1]);
   return [f * CELL + CELL / 2, r * CELL + CELL / 2];
+}
+
+function futurePreviewIsActive() {
+  return !!futurePreviewPlayback
+    && futurePreviewPlayback.rootFen === game.fen()
+    && futurePreviewPlayback.frames.length > 0;
+}
+
+function syncFuturePreviewDataset() {
+  const active = futurePreviewIsActive();
+  const frame = active
+    ? futurePreviewPlayback.frames[futurePreviewPlayback.index]
+    : null;
+  boardEl.dataset.futurePreview = active ? 'active' : 'idle';
+  boardEl.dataset.previewPhase = active ? futurePreviewPlayback.phase : 'idle';
+  boardEl.dataset.previewRootFen = active ? futurePreviewPlayback.rootFen : game.fen();
+  boardEl.dataset.previewDisplayFen = frame?.fen || game.fen();
+  boardEl.dataset.previewLineId = active ? futurePreviewPlayback.id : '';
+  boardEl.dataset.previewStepIndex = active ? String(futurePreviewPlayback.index + 1) : '0';
+  boardEl.dataset.previewStepCount = active ? String(futurePreviewPlayback.frames.length) : '0';
+  document.body.dataset.futureBoardPreview = active ? 'active' : 'idle';
+  futureBoardBadgeEl.hidden = !active;
+  if (active) {
+    const current = futurePreviewPlayback.frames[futurePreviewPlayback.index];
+    futureBoardBadgeEl.querySelector('span').textContent =
+      futurePreviewPlayback.phase === 'settled' || futurePreviewPlayback.phase === 'reduced-static'
+        ? `停在 ${futurePreviewPlayback.steps.map((step) => step.san).join(' → ')}`
+        : `${current.role === 'you' ? '你走' : futurePreviewPlayback.replyLabel} ${current.move.san}`;
+  }
+}
+
+function cancelFutureBoardPreview(render = true) {
+  futurePreviewEpoch++;
+  clearTimeout(futurePreviewTimer);
+  futurePreviewTimer = 0;
+  const hadPreview = !!futurePreviewPlayback;
+  futurePreviewPlayback = null;
+  syncFuturePreviewDataset();
+  if (render && hadPreview) renderBoard();
+  return hadPreview;
+}
+
+function replayFuturePreview(rootFen, moves) {
+  let replay;
+  try { replay = new Chess(rootFen); } catch { return []; }
+  const frames = [];
+  for (const [index, requested] of moves.slice(0, 2).entries()) {
+    const legal = replay.moves({ verbose: true }).find((candidate) =>
+      candidate.from === requested.from
+      && candidate.to === requested.to
+      && (candidate.promotion || '') === (requested.promotion || ''));
+    if (!legal) break;
+    replay.move({
+      from: legal.from,
+      to: legal.to,
+      ...(legal.promotion ? { promotion: legal.promotion } : {}),
+    });
+    frames.push({
+      role: index === 0 ? 'you' : 'reply',
+      fen: replay.fen(),
+      move: {
+        san: legal.san,
+        from: legal.from,
+        to: legal.to,
+        promotion: legal.promotion || '',
+      },
+    });
+  }
+  return frames;
+}
+
+function armFuturePreviewStep(token) {
+  clearTimeout(futurePreviewTimer);
+  futurePreviewTimer = setTimeout(() => {
+    const preview = futurePreviewPlayback;
+    if (!preview || preview.token !== token || preview.rootFen !== game.fen()) return;
+    if (preview.index + 1 < preview.frames.length) {
+      preview.index++;
+      preview.phase = 'playing';
+      renderBoard();
+      armFuturePreviewStep(token);
+      return;
+    }
+    preview.phase = 'settled';
+    futurePreviewTimer = 0;
+    renderBoard();
+  }, FUTURE_PREVIEW_STEP_MS);
+}
+
+function startFutureBoardPreview(moves) {
+  const rootFen = game.fen();
+  const frames = replayFuturePreview(rootFen, Array.isArray(moves) ? moves : []);
+  if (frames.length === 0) {
+    cancelFutureBoardPreview();
+    return false;
+  }
+  cancelFutureBoardPreview(false);
+  const token = ++futurePreviewEpoch;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  futurePreviewPlayback = {
+    token,
+    id: `chess-line-${token}`,
+    rootFen,
+    steps: frames.map((frame) => ({ ...frame.move, role: frame.role })),
+    frames,
+    replyLabel: columns[1]?.chosen === 0 ? '强回应' : '所选回应',
+    index: reduced ? frames.length - 1 : 0,
+    phase: reduced ? 'reduced-static' : 'playing',
+  };
+  selected = null;
+  forkPreview = null;
+  coachPreview = null;
+  renderBoard();
+  if (!reduced) armFuturePreviewStep(token);
+  return true;
+}
+
+function appendFuturePreviewPaths() {
+  if (!futurePreviewIsActive()) return;
+  futurePreviewPlayback.steps.forEach((move, index) => {
+    const [x1, y1] = squareXY(move.from);
+    const [x2, y2] = squareXY(move.to);
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const bend = index === 0 ? -7 : 7;
+    const mx = (x1 + x2) / 2 - (dy / len) * bend;
+    const my = (y1 + y2) / 2 + (dx / len) * bend;
+    const path = svgElement('path', {
+      d: `M${x1} ${y1} Q${mx.toFixed(2)} ${my.toFixed(2)} ${x2} ${y2}`,
+      class: 'future-preview-path',
+      'data-future-preview-step': move.role,
+      'data-preview-line-id': futurePreviewPlayback.id,
+      'data-preview-from': move.from,
+      'data-preview-to': move.to,
+      'aria-hidden': 'true',
+    });
+    boardOverlayEl.appendChild(path);
+    boardOverlayEl.appendChild(svgElement('circle', {
+      cx: x2, cy: y2, r: 10,
+      class: 'future-preview-target',
+      'data-preview-step': move.role,
+      'aria-hidden': 'true',
+    }));
+    const number = svgElement('text', {
+      x: x2, y: y2 + .5,
+      class: 'future-preview-number',
+      'aria-hidden': 'true',
+    });
+    number.textContent = String(index + 1);
+    boardOverlayEl.appendChild(number);
+  });
 }
 
 function appendForkPreview(move) {
@@ -2232,10 +2496,15 @@ function appendPieceModel(pc, sq, f, r, target = boardPiecesEl) {
   model.removeAttribute('data-piece-template');
   piece.appendChild(model);
   target.appendChild(piece);
+  return piece;
 }
 
 function renderBoardOverlay(board = game.board()) {
   boardOverlayEl.replaceChildren();
+  if (futurePreviewIsActive()) {
+    appendFuturePreviewPaths();
+    return;
+  }
   for (const threat of currentAttacks(game.fen())) {
     const [cx, cy] = squareXY(threat.square);
     const ring = svgElement('circle', {
@@ -2276,8 +2545,17 @@ function renderBoard() {
   boardSquaresEl.replaceChildren();
   boardPiecesEl.replaceChildren();
   const legal = selected ? game.moves({ square: selected, verbose: true }).map((m) => m.to) : [];
-  const board = game.board();
-  const last = game.history({ verbose: true }).slice(-1)[0];
+  if (futurePreviewPlayback && futurePreviewPlayback.rootFen !== game.fen()) {
+    cancelFutureBoardPreview(false);
+  }
+  const previewActive = futurePreviewIsActive();
+  const previewFrame = previewActive
+    ? futurePreviewPlayback.frames[futurePreviewPlayback.index]
+    : null;
+  const displayFen = previewFrame?.fen || game.fen();
+  const board = new Chess(displayFen).board();
+  const liveBoard = game.board();
+  const last = previewActive ? null : game.history({ verbose: true }).slice(-1)[0];
 
   // 第一层只画格子，保证棋子的 pointer-events:none 时点击稳定落到真实格子上。
   for (let r = 0; r < 8; r++) {
@@ -2290,12 +2568,15 @@ function renderBoard() {
         'stroke-width': .55,
         'data-sq': sq,
         role: 'gridcell',
-        tabindex: (board[r][f]?.color === 'w' || legal.includes(sq)) ? 0 : -1,
+        tabindex: (liveBoard[r][f]?.color === 'w' || legal.includes(sq)) ? 0 : -1,
         'aria-selected': sq === selected ? 'true' : 'false',
         'aria-label': sq,
       });
       let fill = dark ? '#3b4560' : '#8b97b4';
       if (last && (sq === last.from || sq === last.to)) fill = dark ? '#5c6132' : '#b3b06a';
+      if (previewFrame && (sq === previewFrame.move.from || sq === previewFrame.move.to)) {
+        fill = dark ? '#315f5e' : '#67a39d';
+      }
       if (sq === selected) fill = '#c9a24a';
       rect.setAttribute('fill', fill);
       boardSquaresEl.appendChild(rect);
@@ -2307,20 +2588,42 @@ function renderBoard() {
     for (let f = 0; f < 8; f++) {
       const sq = FILES[f] + (8 - r);
       const pc = board[r][f];
-      if (pc) appendPieceModel(pc, sq, f, r);
+      if (!pc) continue;
+      const piece = appendPieceModel(pc, sq, f, r);
+      if (
+        previewActive
+        && futurePreviewPlayback.phase === 'playing'
+        && sq === previewFrame.move.to
+      ) {
+        const [fromX, fromY] = squareXY(previewFrame.move.from);
+        const [toX, toY] = squareXY(previewFrame.move.to);
+        piece.dataset.futureMotionPiece = 'true';
+        piece.dataset.previewLineId = futurePreviewPlayback.id;
+        piece.dataset.previewStep = previewFrame.role;
+        piece.dataset.previewFrom = previewFrame.move.from;
+        piece.dataset.previewTo = previewFrame.move.to;
+        piece.style.setProperty('--future-motion-x', `${fromX - toX}px`);
+        piece.style.setProperty('--future-motion-y', `${fromY - toY}px`);
+      }
     }
   }
 
   // 第三层只重建轻量 overlay；分叉 hover 不再反复克隆 32 枚棋子。
   renderBoardOverlay(board);
+  syncFuturePreviewDataset();
   boardEl.setAttribute(
     'aria-label',
-    `国际象棋棋盘，${game.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${boardPiecesEl.childElementCount} 枚棋子`,
+    previewActive
+      ? `路线预演棋盘，第 ${futurePreviewPlayback.index + 1}/${futurePreviewPlayback.frames.length} 步，`
+        + `实战未落子，共 ${boardPiecesEl.childElementCount} 枚棋子`
+      : `国际象棋棋盘，${game.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${boardPiecesEl.childElementCount} 枚棋子`,
   );
 }
 
 function activateBoardSquare(sq) {
   if (!sq) return false;
+  // 预演棋盘是只读投影；避免用户在手机 PiP 上误触后把假设局面当成实战落子。
+  if (futurePreviewIsActive()) return false;
   if (selected) {
     if (sq === selected) {
       selected = null;
@@ -3378,6 +3681,8 @@ function syncForkFromExplorer() {
   routeSelectionDepth = nextPath.length;
   renderFork();
   routeSyncing = false;
+  if (routeSelectionDepth > 0) startFutureBoardPreview(routeMovesFromColumns(2));
+  else cancelFutureBoardPreview();
   return nextPath.length === explorerState.path.length;
 }
 
@@ -3394,6 +3699,7 @@ function alignFutureRootMove(move, explicit = false) {
   renderFork();
   // 棋盘点选时虽然仍是“建议预演”，2D/3D 也必须看同一条 e4/e3 路线。
   syncExplorerFromFork(1);
+  if (explicit) startFutureBoardPreview(routeMovesFromColumns(2));
   return true;
 }
 
@@ -3409,6 +3715,7 @@ function chooseForkBranch(i, rank, scrollNext = false) {
   renderFork();
   syncExplorerFromFork(routeSelectionDepth);
   showMoveDetails(columns[i], columns[i].ranked[rank], rank);
+  startFutureBoardPreview(routeMovesFromColumns(2));
   if (scrollNext) scrollForkToward(i + 1);
   return true;
 }
@@ -3736,6 +4043,7 @@ explorePathEl.addEventListener('click', (event) => {
   if (crumb) rewindExplorer(+crumb.dataset.exploreDepth);
 });
 document.getElementById('exploreReset').onclick = () => {
+  cancelFutureBoardPreview();
   resetExplorer(false);
   routeSelectionDepth = 0;
   branchPath = [];
@@ -4553,6 +4861,17 @@ addEventListener('keydown', (event) => {
 motionPreference.addEventListener('change', (event) => {
   reducedMotion = event.matches;
   if (reducedMotion) setCloudMotion(false);
+  if (
+    reducedMotion
+    && futurePreviewIsActive()
+    && futurePreviewPlayback.phase === 'playing'
+  ) {
+    clearTimeout(futurePreviewTimer);
+    futurePreviewTimer = 0;
+    futurePreviewPlayback.index = futurePreviewPlayback.frames.length - 1;
+    futurePreviewPlayback.phase = 'reduced-static';
+    renderBoard();
+  }
 });
 
 let forkViewportW = -1, forkViewportH = -1, resizeFrame = 0;
@@ -5383,6 +5702,7 @@ function resetGame(fen = null) {
   clearAiWatchdog();
   aiPending = null;
   restartSearchWorker();
+  cancelFutureBoardPreview(false);
   if (fen) game.load(fen); else game.reset();
   resetCloudView();
   selected = null;

@@ -81,6 +81,25 @@ record(
     && xiangqi.includes('data-future-context'),
   '两页都公开同形选路状态并提供唯一的路线语境栏',
 );
+record(
+  [chess, xiangqi].every((source) =>
+    source.includes('data-future-preview')
+      && source.includes('data-preview-phase')
+      && source.includes('data-preview-root-fen')
+      && source.includes('data-preview-display-fen')
+      && source.includes('data-preview-line-id')
+      && source.includes('data-preview-step-index')
+      && source.includes('data-preview-step-count')),
+  '两页主棋盘都声明同形的两段路线预演状态',
+);
+record(
+  [chess, xiangqi].every((source) =>
+    source.includes('data-future-motion-piece')
+      && source.includes('data-future-preview-step'))
+    && sharedUi.includes('data-future-motion-piece')
+    && sharedUi.includes('prefers-reduced-motion'),
+  '两页共用真棋子运动、静态路线与减少动态协议',
+);
 
 const forbidden = ['8902', '197281'];
 for (const file of ['index.html', 'chess.html', 'future-map.css', 'engine.js', 'worker.js', 'xiangqi.html', 'xiangqi-engine.js', 'xiangqi-worker.js']) {

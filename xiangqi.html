@@ -95,7 +95,7 @@
     user-select: none; touch-action: manipulation;
   }
   .board-frame::after {
-    content: ""; position: absolute; z-index: 6; inset: 1.5%;
+    content: ""; position: absolute; z-index: 7; inset: 1.5%;
     border: 1px solid rgba(255, 229, 180, .35); border-radius: 7px;
     box-shadow: inset 0 0 0 1px rgba(83, 45, 23, .23);
     pointer-events: none;
@@ -107,6 +107,26 @@
   #board { z-index: 3; }
   #lastMoveOverlay { z-index: 4; overflow: visible; pointer-events: none; }
   #threatOverlay { z-index: 5; overflow: visible; pointer-events: none; }
+  #previewOverlay {
+    position: absolute; z-index: 6; inset: 0; width: 100%; height: 100%;
+    overflow: visible; pointer-events: none;
+  }
+  .future-preview-path {
+    fill: none; stroke-width: 2.2; stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .future-preview-path[data-future-preview-step="you"] {
+    stroke: #79e6db; marker-end: url(#futurePreviewArrowYou);
+  }
+  .future-preview-path[data-future-preview-step="reply"] {
+    stroke: #f1c66b; stroke-dasharray: 5 3; marker-end: url(#futurePreviewArrowReply);
+  }
+  .future-preview-path-label {
+    font: 900 3px/1 system-ui; text-anchor: middle; dominant-baseline: central;
+    paint-order: stroke; stroke: rgba(7, 18, 20, .9); stroke-width: 1.8px;
+  }
+  .future-preview-path-label.you { fill: #a8fff6; }
+  .future-preview-path-label.reply { fill: #ffe1a0; }
   #boardLines line, #boardLines path, #boardLines rect {
     stroke: rgba(58, 36, 23, .82); stroke-width: 1.15; fill: none; vector-effect: non-scaling-stroke;
   }
@@ -215,6 +235,11 @@
     animation: piece-arrive .42s cubic-bezier(.2, .76, .26, 1) 1 both;
     will-change: transform, opacity;
   }
+  .piece.future-preview-piece {
+    z-index: 7;
+    animation: future-preview-piece-arrive .34s cubic-bezier(.2, .76, .26, 1) 1 both;
+    will-change: transform, opacity;
+  }
   @keyframes piece-arrive {
     0% {
       opacity: .68;
@@ -225,6 +250,35 @@
     74% { opacity: 1; transform: translate(-50%, -50%) scale(1.035); }
     100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
+  @keyframes future-preview-piece-arrive {
+    0% {
+      opacity: .54;
+      transform:
+        translate(calc(-50% + var(--move-dx)), calc(-50% + var(--move-dy)))
+        scale(.96);
+    }
+    76% { opacity: 1; transform: translate(-50%, -50%) scale(1.025); }
+    100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  .preview-status {
+    position: absolute; z-index: 8; left: 50%; bottom: 2.2%;
+    display: flex; align-items: center; gap: 6px; max-width: 90%; padding: 5px 8px;
+    transform: translateX(-50%); border: 1px solid rgba(121, 230, 219, .54);
+    border-radius: 999px; color: #effffc; background: rgba(7, 20, 22, .91);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, .34); white-space: nowrap;
+    font: 700 10px/1.2 system-ui; pointer-events: none;
+  }
+  .preview-status b { color: #8ff4e9; font-weight: 800; }
+  .preview-step {
+    display: inline-flex; align-items: center; gap: 3px; color: #c7d9d6;
+    font-size: 9px;
+  }
+  .preview-step::before {
+    content: attr(data-preview-order); display: grid; place-items: center;
+    width: 15px; height: 15px; border-radius: 50%; color: #061416;
+    background: var(--blue); font-size: 9px; font-weight: 900;
+  }
+  .preview-step[data-preview-chip-step="reply"]::before { background: var(--gold); }
   .last-move-trace {
     fill: none; stroke: #f3c56e; stroke-width: 2.15;
     stroke-linecap: round; vector-effect: non-scaling-stroke;
@@ -588,6 +642,22 @@
     .branch-grid { grid-template-columns: repeat(4, 112px); }
     .path-node, .pv-node, .branch-node, .root-node { width: 112px; }
   }
+  @media (max-width: 760px) and (orientation: portrait) {
+    body.xq-preview-active .board-shell::before {
+      content: ""; display: block; width: 100%; aspect-ratio: 9 / 10;
+    }
+    body.xq-preview-active .board-frame {
+      position: fixed; z-index: 40;
+      top: calc(56px + var(--safe-top)); right: 8px;
+      width: 171px; border-width: 4px;
+      box-shadow: 0 16px 42px rgba(0, 0, 0, .58), 0 0 0 1px rgba(121, 230, 219, .36);
+    }
+    body.xq-preview-active .preview-status {
+      bottom: 1.5%; gap: 3px; max-width: 96%; padding: 4px 5px; font-size: 8px;
+    }
+    body.xq-preview-active .preview-step { gap: 1px; font-size: 0; }
+    body.xq-preview-active .preview-step::before { width: 13px; height: 13px; font-size: 8px; }
+  }
   @media (max-width: 760px) and (orientation: landscape) {
     .app { padding: calc(5px + var(--safe-top)) 6px calc(7px + var(--safe-bottom)); }
     .topbar { min-height: 44px; margin-bottom: 5px; }
@@ -615,10 +685,11 @@
   @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; }
     .threat-ring, .threat-path, .threat-flow, .threat-impact,
-    .piece.just-moved, .last-move-trace.is-new, .last-move-target.is-new {
+    .piece.just-moved, .piece.future-preview-piece,
+    .last-move-trace.is-new, .last-move-target.is-new {
       animation: none !important;
     }
-    .piece.just-moved { will-change: auto; }
+    .piece.just-moved, .piece.future-preview-piece { will-change: auto; }
     .threat-flow { opacity: .42; stroke-dasharray: .12 .88; }
   }
 
@@ -793,7 +864,26 @@
           <svg id="lastMoveOverlay" viewBox="0 0 80 90" aria-hidden="true">
             <g id="lastMoveMarks"></g>
           </svg>
-          <div id="board" data-xq-board role="grid" aria-label="九路十行中国象棋棋盘"></div>
+          <div id="board" data-xq-board data-future-preview="idle"
+               data-preview-phase="idle" data-preview-root-fen=""
+               data-preview-display-fen="" data-preview-line-id=""
+               data-preview-step-index="0" data-preview-step-count="0"
+               role="grid" aria-label="九路十行中国象棋棋盘">
+            <svg id="previewOverlay" viewBox="0 0 80 90" aria-hidden="true">
+              <defs>
+                <marker id="futurePreviewArrowYou" viewBox="0 0 10 10" refX="8" refY="5"
+                        markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+                  <path d="M1 1L9 5L1 9Z" fill="#79e6db"></path>
+                </marker>
+                <marker id="futurePreviewArrowReply" viewBox="0 0 10 10" refX="8" refY="5"
+                        markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+                  <path d="M1 1L9 5L1 9Z" fill="#f1c66b"></path>
+                </marker>
+              </defs>
+              <g id="previewPaths"></g>
+            </svg>
+          </div>
+          <div id="previewStatus" class="preview-status" hidden aria-live="polite"></div>
         </div>
 
         <section id="threatStrip" class="threat-strip" aria-label="当前攻击线" hidden>
@@ -916,6 +1006,8 @@ const FILES = 'abcdefghi';
 
 const els = Object.freeze({
   board: document.getElementById('board'),
+  previewStatus: document.getElementById('previewStatus'),
+  previewPaths: document.getElementById('previewPaths'),
   threatPaths: document.getElementById('threatPaths'),
   lastMoveMarks: document.getElementById('lastMoveMarks'),
   threatStrip: document.getElementById('threatStrip'),
@@ -1110,11 +1202,130 @@ let lastSearchMs = 0;
 let lastSearchDepth = 0;
 let zoom = 1;
 let previewLine = null;
+let previewPlayback = null;
+let previewEpoch = 0;
+let previewFallbackTimer = 0;
 let futureMode = 'tree-2d';
 let overviewYaw = -.18;
 let overviewPitch = .06;
 let overviewDrag = null;
 const futureNodeCache = new Map();
+
+function activePreviewPlayback() {
+  return previewPlayback && previewPlayback.rootFen === currentFen ? previewPlayback : null;
+}
+
+function cancelPreviewMotionAnimations() {
+  for (const piece of els.board.querySelectorAll('[data-future-motion-piece="true"]')) {
+    for (const animation of piece.getAnimations()) animation.cancel();
+    piece.remove();
+  }
+}
+
+function cancelPreviewPlayback() {
+  previewEpoch++;
+  if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
+  previewFallbackTimer = 0;
+  cancelPreviewMotionAnimations();
+  previewPlayback = null;
+  document.body.classList.remove('xq-preview-active');
+}
+
+function buildPreviewFrames(line) {
+  if (!line?.move || line.node?.parentFen && line.node.parentFen !== currentFen) return [];
+  try {
+    const first = applyOn(position, line.move);
+    const frames = [{ role: 'you', move: first.move, fen: first.fen }];
+    if (line.reply) {
+      const reply = applyOn(first.position, line.reply);
+      frames.push({ role: 'reply', move: reply.move, fen: reply.fen });
+    }
+    return frames.map((frame) => Object.freeze(frame));
+  } catch {
+    return [];
+  }
+}
+
+function schedulePreviewFallback(playback) {
+  if (!playback || playback.phase !== 'playing') return;
+  if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
+  const token = playback.token;
+  previewFallbackTimer = window.setTimeout(() => advancePreviewPlayback(token), 520);
+}
+
+function startPreviewPlayback(line) {
+  cancelPreviewPlayback();
+  const frames = buildPreviewFrames(line);
+  if (!frames.length) {
+    previewLine = null;
+    render();
+    return false;
+  }
+  pendingMoveAnimation = null;
+  threatPulseSquares.clear();
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const token = `xq-preview-${previewEpoch}-${futureMoveKey(line.move)}-${futureMoveKey(line.reply)}`;
+  previewPlayback = {
+    token,
+    rootFen: currentFen,
+    routeKey: futureMoveKey(line.move),
+    frames,
+    index: reduceMotion ? frames.length - 1 : 0,
+    phase: reduceMotion ? 'reduced-static' : 'playing',
+  };
+  document.body.classList.add('xq-preview-active');
+  render();
+  if (!reduceMotion) schedulePreviewFallback(previewPlayback);
+  return true;
+}
+
+function advancePreviewPlayback(token) {
+  const playback = activePreviewPlayback();
+  if (!playback || playback.token !== token || playback.routeKey !== futureMoveKey(previewLine?.move)) return false;
+  if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
+  previewFallbackTimer = 0;
+  if (playback.index < playback.frames.length - 1) {
+    playback.index++;
+    playback.phase = 'playing';
+    render();
+    schedulePreviewFallback(playback);
+  } else {
+    playback.phase = 'settled';
+    render();
+  }
+  return true;
+}
+
+function syncPreviewProtocol(playback, displayFen) {
+  const active = !!playback;
+  const frame = active ? playback.frames[playback.index] : null;
+  els.board.dataset.futurePreview = active ? 'active' : 'idle';
+  els.board.dataset.previewPhase = active ? playback.phase : 'idle';
+  els.board.dataset.previewRootFen = active ? playback.rootFen : currentFen;
+  els.board.dataset.previewDisplayFen = displayFen;
+  els.board.dataset.previewLineId = active ? playback.token : '';
+  els.board.dataset.previewStepIndex = active ? String(playback.index + 1) : '0';
+  els.board.dataset.previewStepCount = active ? String(playback.frames.length) : '0';
+  document.body.classList.toggle('xq-preview-active', active);
+  els.previewStatus.hidden = !active;
+  if (!active) {
+    els.previewStatus.replaceChildren();
+    delete els.previewStatus.dataset.activeStep;
+    els.board.setAttribute('aria-label', '九路十行中国象棋棋盘');
+    return;
+  }
+  const status = playback.phase === 'playing'
+    ? `第 ${playback.index + 1}/${playback.frames.length} 拍`
+    : playback.phase === 'reduced-static' ? '静态结果' : '预演结果';
+  els.previewStatus.innerHTML = `<b>路线预演 · 未落子</b><span>${status}</span>`
+    + playback.frames.map((step, index) => `<span class="preview-step"`
+      + ` data-preview-chip-step="${step.role}" data-preview-order="${index + 1}"`
+      + ` data-preview-line-id="${escapeHtml(playback.token)}"`
+      + ` data-preview-from="${coord(moveFrom(step.move))}" data-preview-to="${coord(moveTo(step.move))}">`
+      + `${step.role === 'you' ? '我的一步' : '黑方回应'}</span>`).join('');
+  els.board.setAttribute('aria-label', `九路十行中国象棋棋盘，路线预演未落子，${status}`);
+  if (frame) els.previewStatus.dataset.activeStep = frame.role;
+}
 
 function futureMoveKey(move) {
   return move ? `${moveFrom(move)}-${moveTo(move)}` : '';
@@ -1378,13 +1589,24 @@ function legalForSelected() {
 }
 
 function renderBoard() {
-  const board = boardFromFen(currentFen);
+  const playback = activePreviewPlayback();
+  const previewFrame = playback?.frames[playback.index] || null;
+  const displayFen = previewFrame?.fen || currentFen;
+  const board = boardFromFen(displayFen);
+  const rootBoard = boardFromFen(currentFen);
+  const previewing = !!playback;
+  syncPreviewProtocol(playback, displayFen);
   const selectedMoves = legalForSelected();
   const legalTargets = new Map(selectedMoves.map((move) => [moveTo(move), move]));
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const boardRect = els.board.getBoundingClientRect();
-  const animatedFrom = pendingMoveAnimation ? moveFrom(pendingMoveAnimation.move) : -1;
-  const animatedTo = pendingMoveAnimation ? moveTo(pendingMoveAnimation.move) : -1;
+  const previewMotion = previewing && playback.phase === 'playing' && !reduceMotion
+    ? { move: previewFrame.move, fen: displayFen, token: playback.token, role: previewFrame.role }
+    : null;
+  const actualMotion = !previewing ? pendingMoveAnimation : null;
+  const motion = previewMotion || actualMotion;
+  const boardRect = motion ? els.board.getBoundingClientRect() : { width: 0, height: 0 };
+  const animatedFrom = motion ? moveFrom(motion.move) : -1;
+  const animatedTo = motion ? moveTo(motion.move) : -1;
   const moveDx = animatedFrom >= 0 && animatedTo >= 0
     ? ((animatedFrom % 9) - (animatedTo % 9)) * boardRect.width / 8
     : 0;
@@ -1392,17 +1614,17 @@ function renderBoard() {
     ? (Math.floor(animatedFrom / 9) - Math.floor(animatedTo / 9)) * boardRect.height / 9
     : 0;
   let consumeStaticMoveAnimation = false;
-  for (const squareEl of els.board.children) {
+  for (const squareEl of els.board.querySelectorAll(':scope > .square')) {
     const square = Number(squareEl.dataset.square);
     const piece = board[square];
-    const threat = threatened.get(square);
+    const threat = previewing ? null : threatened.get(square);
     squareEl.className = 'square';
     delete squareEl.dataset.attackers;
     delete squareEl.dataset.defenders;
     delete squareEl.dataset.threatLevel;
-    if (square === selectedSquare) squareEl.classList.add('selected');
-    if (lastMove && square === moveFrom(lastMove)) squareEl.classList.add('last-from');
-    if (lastMove && square === moveTo(lastMove)) squareEl.classList.add('last-to');
+    if (!previewing && square === selectedSquare) squareEl.classList.add('selected');
+    if (!previewing && lastMove && square === moveFrom(lastMove)) squareEl.classList.add('last-from');
+    if (!previewing && lastMove && square === moveTo(lastMove)) squareEl.classList.add('last-to');
     if (previewLine && square === moveTo(previewLine.move)) squareEl.classList.add('preview-you');
     if (previewLine?.reply && square === moveTo(previewLine.reply)) squareEl.classList.add('preview-reply');
     if (threat) {
@@ -1420,13 +1642,16 @@ function renderBoard() {
       delete squareEl.dataset.threatened;
     }
     if (legalTargets.has(square)) {
-      squareEl.classList.add(piece ? 'legal-capture' : 'legal-empty');
+      squareEl.classList.add(rootBoard[square] ? 'legal-capture' : 'legal-empty');
       squareEl.dataset.target = coord(square);
     } else {
       delete squareEl.dataset.target;
     }
+    const previewMotionKey = previewMotion && square === animatedTo
+      ? `|preview:${previewMotion.token}:${previewMotion.role}`
+      : '';
     const renderKey = piece
-      ? `${piece}|${threat ? `${threatLevel(threat)}|${threatSignature(threat)}` : 'safe'}`
+      ? `${piece}|${threat ? `${threatLevel(threat)}|${threatSignature(threat)}` : 'safe'}${previewMotionKey}`
       : '';
     const existingDisk = squareEl.querySelector(':scope > .piece');
     if (!piece) {
@@ -1456,13 +1681,28 @@ function renderBoard() {
       squareEl.append(disk);
     }
     const renderedDisk = squareEl.querySelector(':scope > .piece');
+    const shouldAnimatePreview = !!renderedDisk
+      && !!previewMotion
+      && square === animatedTo
+      && previewMotion.fen === displayFen;
     const shouldAnimateMove = !!renderedDisk
+      && !previewing
       && square === animatedTo
       && pendingMoveAnimation?.fen === currentFen
       && lastMove
       && moveFrom(lastMove) === animatedFrom
       && moveTo(lastMove) === animatedTo;
-    if (shouldAnimateMove) {
+    if (shouldAnimatePreview) {
+      renderedDisk.classList.remove('just-moved');
+      renderedDisk.classList.add('future-preview-piece');
+      renderedDisk.setAttribute('data-future-motion-piece', 'true');
+      renderedDisk.dataset.previewLineId = previewMotion.token;
+      renderedDisk.dataset.previewStep = previewMotion.role;
+      renderedDisk.dataset.previewFrom = coord(animatedFrom);
+      renderedDisk.dataset.previewTo = coord(animatedTo);
+      renderedDisk.style.setProperty('--move-dx', `${moveDx}px`);
+      renderedDisk.style.setProperty('--move-dy', `${moveDy}px`);
+    } else if (shouldAnimateMove) {
       renderedDisk.dataset.motionRole = 'piece-arrive';
       if (reduceMotion) {
         renderedDisk.classList.remove('just-moved');
@@ -1480,12 +1720,18 @@ function renderBoard() {
         && lastMove
         && square === moveTo(lastMove))) {
       renderedDisk.classList.remove('just-moved');
+      renderedDisk.classList.remove('future-preview-piece');
       delete renderedDisk.dataset.motionRole;
+      renderedDisk.removeAttribute('data-future-motion-piece');
+      delete renderedDisk.dataset.previewLineId;
+      delete renderedDisk.dataset.previewStep;
+      delete renderedDisk.dataset.previewFrom;
+      delete renderedDisk.dataset.previewTo;
       renderedDisk.style.removeProperty('--move-dx');
       renderedDisk.style.removeProperty('--move-dy');
     }
     const place = coord(square);
-    const threatCopy = threatened.has(square) ? '，被攻击线瞄准' : '';
+    const threatCopy = !previewing && threatened.has(square) ? '，被攻击线瞄准' : '';
     const previewCopy = previewLine && square === moveTo(previewLine.move)
       ? '，预演第 1 步'
       : previewLine?.reply && square === moveTo(previewLine.reply)
@@ -1494,14 +1740,60 @@ function renderBoard() {
     squareEl.setAttribute('aria-label', piece
       ? `${place} ${PIECE_NAMES[piece] || piece}${threatCopy}${previewCopy}`
       : `${place} 空位${previewCopy}`);
-    squareEl.disabled = thinking || gameOver
-      || (!piece && !legalTargets.has(square))
-      || (piece && !sideOwns(piece, fenSide(currentFen)) && !legalTargets.has(square));
+    squareEl.disabled = thinking || gameOver || (previewing
+      ? true
+      : (!piece && !legalTargets.has(square))
+        || (piece && !sideOwns(piece, fenSide(currentFen)) && !legalTargets.has(square)));
   }
   if (consumeStaticMoveAnimation) pendingMoveAnimation = null;
 }
 
+function renderPreviewOverlay() {
+  const playback = activePreviewPlayback();
+  els.previewPaths.replaceChildren();
+  if (!playback) return;
+  const namespace = 'http://www.w3.org/2000/svg';
+  playback.frames.forEach((frame, index) => {
+    const from = moveFrom(frame.move);
+    const to = moveTo(frame.move);
+    const source = boardPoint(from);
+    const target = boardPoint(to);
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const xUnit = dx / distance;
+    const yUnit = dy / distance;
+    const padding = Math.min(4.1, Math.max(2.1, distance * .3));
+    const line = document.createElementNS(namespace, 'line');
+    line.classList.add('future-preview-path');
+    line.setAttribute('x1', String(source.x + xUnit * padding));
+    line.setAttribute('y1', String(source.y + yUnit * padding));
+    line.setAttribute('x2', String(target.x - xUnit * padding));
+    line.setAttribute('y2', String(target.y - yUnit * padding));
+    line.dataset.futurePreviewStep = frame.role;
+    line.dataset.previewLineId = playback.token;
+    line.dataset.previewFrom = coord(from);
+    line.dataset.previewTo = coord(to);
+    line.dataset.previewStepIndex = String(index + 1);
+    const label = document.createElementNS(namespace, 'text');
+    label.classList.add('future-preview-path-label', frame.role);
+    label.setAttribute('x', String((source.x + target.x) / 2 - yUnit * 3.2));
+    label.setAttribute('y', String((source.y + target.y) / 2 + xUnit * 3.2));
+    label.textContent = String(index + 1);
+    els.previewPaths.append(line, label);
+  });
+}
+
 function renderLastMoveOverlay() {
+  const playback = activePreviewPlayback();
+  if (playback) {
+    const key = `preview|${playback.token}`;
+    if (key !== lastMoveOverlayKey) {
+      lastMoveOverlayKey = key;
+      els.lastMoveMarks.replaceChildren();
+    }
+    return;
+  }
   const from = moveFrom(lastMove);
   const to = moveTo(lastMove);
   const isNew = !!pendingMoveAnimation
@@ -1593,6 +1885,15 @@ function renderLastMoveOverlay() {
 }
 
 function renderThreatOverlay() {
+  const playback = activePreviewPlayback();
+  if (playback) {
+    const key = `preview|${playback.token}`;
+    if (key !== threatOverlayKey) {
+      threatOverlayKey = key;
+      els.threatPaths.replaceChildren();
+    }
+    return;
+  }
   const detail = focusedThreat();
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   if (detail && !detail.attackers.includes(activeThreatAttacker)) {
@@ -1723,6 +2024,14 @@ function renderThreatOverlay() {
 }
 
 function renderThreatStrip() {
+  if (activePreviewPlayback()) {
+    els.threatStrip.hidden = true;
+    els.threatHeadline.textContent = '';
+    els.threatDetail.textContent = '';
+    els.threatChips.replaceChildren();
+    els.attackerChips.replaceChildren();
+    return;
+  }
   const detail = focusedThreat();
   els.threatStrip.hidden = !detail;
   if (!detail) {
@@ -1764,13 +2073,15 @@ function renderThreatStrip() {
 
 function renderStatus() {
   const side = fenSide(currentFen);
+  const playback = activePreviewPlayback();
   els.turn.dataset.side = side;
-  els.turn.textContent = gameOver ? '对局结束' : thinking ? '黑方思考中' : side === 'red' ? '红方行棋' : '黑方行棋';
+  els.turn.textContent = playback ? '路线预演 · 未落子'
+    : gameOver ? '对局结束' : thinking ? '黑方思考中' : side === 'red' ? '红方行棋' : '黑方行棋';
   els.legalCount.textContent = String(currentMoves.length);
-  els.threatCount.textContent = String(threatened.size);
+  els.threatCount.textContent = playback ? '—' : String(threatened.size);
   els.pathCount.textContent = String(path.length);
   const previousStep = path.at(-1);
-  els.lastMoveFact.textContent = previousStep
+  els.lastMoveFact.textContent = playback ? '预演中 · 实战未变' : previousStep
     ? `${previousStep.side === 'black' ? '黑方' : '红方'} · ${previousStep.label}`
       + ` · ${coord(moveFrom(previousStep.move))} → ${coord(moveTo(previousStep.move))}`
     : '—';
@@ -1789,12 +2100,21 @@ function renderStatus() {
       + '<p>这盘棋已经结束，可以悔棋或重新开局。</p>';
   } else if (thinking) {
     els.coach.innerHTML = '<strong>黑方正在计算</strong><p>搜索在独立 Worker 中进行；棋盘保持可读，完成后一次落子。</p>';
+  } else if (playback) {
+    const frame = playback.frames[playback.index];
+    const phaseCopy = playback.phase === 'playing'
+      ? `正在播放第 ${playback.index + 1}/${playback.frames.length} 拍`
+      : playback.phase === 'reduced-static' ? '已按减少动态设置显示最终局面' : '已停在预演最终局面';
+    els.coach.dataset.tone = 'normal';
+    els.coach.innerHTML = `<strong>路线预演 · 未落子：${escapeHtml(phaseCopy)}</strong>`
+      + `<p>${frame?.role === 'reply' ? '金色 2 是黑方浅层强回应。' : '蓝色 1 是你选择的一步。'}`
+      + '当前 FEN、实战路径和上一步都没有改变；点“走这步”才确认。</p>';
   } else if (checked) {
     els.coach.innerHTML = `<strong>将军：必须先解围</strong><p>当前只有 ${currentMoves.length} 条真实合法应手。</p>`;
   } else if (previewLine?.reply) {
     els.coach.innerHTML = `<strong>预演：你走 ${escapeHtml(moveLabel(previewLine.move, position))}`
       + `，黑方浅层强回应 ${escapeHtml(moveLabel(previewLine.reply))}</strong>`
-      + '<p>蓝色 1 → 金色 2；这是含一步合法回吃的局面排序，不是概率。点蓝色落点才会真正走棋。</p>';
+      + '<p>蓝色 1 → 金色 2；这是含一步合法回吃的局面排序，不是概率。点“走这步”才会真正走棋。</p>';
   } else if (selectedSquare >= 0) {
     const piece = board[selectedSquare];
     if (selectedThreat) {
@@ -1971,7 +2291,7 @@ function renderTree() {
 
   els.branchSummary.innerHTML = thinking
     ? '当前由黑方计算，分叉将在真实应手落盘后刷新。'
-    : `这个局面共有 <b>${currentMoves.length}</b> 条合法分叉。点卡片预演，再点棋盘蓝色落点确认。`;
+    : `这个局面共有 <b>${currentMoves.length}</b> 条合法分叉。点卡片预演，再点“走这步”确认。`;
   if (thinking) {
     els.branchGrid.replaceChildren();
   } else {
@@ -2031,6 +2351,7 @@ function renderTree() {
 
 function render() {
   renderBoard();
+  renderPreviewOverlay();
   renderLastMoveOverlay();
   renderThreatOverlay();
   renderThreatStrip();
@@ -2043,24 +2364,25 @@ function render() {
 
 function focusMove(move, ranked = null) {
   if (!move || thinking || gameOver) return;
-  selectedSquare = moveFrom(move);
+  selectedSquare = -1;
   previewLine = {
     move: ranked || move,
     reply: ranked?.reply || null,
     node: futureNodeData(move, ranked),
   };
-  render();
-  els.board.querySelector(`[data-square="${moveTo(move)}"]`)?.focus({ preventScroll: true });
+  startPreviewPlayback(previewLine);
+  els.futureCommit.focus({ preventScroll: true });
 }
 
 function handleSquare(square) {
-  if (thinking || gameOver) return;
+  if (thinking || gameOver || activePreviewPlayback()) return;
   const board = boardFromFen(currentFen);
   const targetMove = legalForSelected().find((move) => moveTo(move) === square);
   if (targetMove) {
     play(targetMove, 'red');
     return;
   }
+  cancelPreviewPlayback();
   if (sideOwns(board[square], fenSide(currentFen))) {
     selectedSquare = selectedSquare === square ? -1 : square;
   } else {
@@ -2082,6 +2404,7 @@ function applyOn(positionBefore, move) {
 }
 
 function play(move, actor) {
+  cancelPreviewPlayback();
   const beforeCount = currentMoves.length;
   const label = moveLabel(move, position);
   const result = applyOn(position, move);
@@ -2191,6 +2514,8 @@ function onWorkerMessage(event) {
         reply: selectedRanked.reply || null,
         node: futureNodeData(selectedMove, selectedRanked),
       };
+      startPreviewPlayback(previewLine);
+      return;
     }
     render();
     return;
@@ -2260,6 +2585,7 @@ function fallbackAi(reason) {
 }
 
 function resetGame() {
+  cancelPreviewPlayback();
   requestId++;
   thinking = false;
   selectedSquare = -1;
@@ -2290,6 +2616,7 @@ function resetGame() {
 
 function undoRound() {
   if (thinking || path.length < 2) return;
+  cancelPreviewPlayback();
   requestId++;
   path = path.slice(0, -2);
   snapshots = snapshots.slice(0, -2);
@@ -2327,8 +2654,28 @@ els.zoomIn.addEventListener('click', () => setZoom(zoom + .12));
 els.zoomReset.addEventListener('click', () => setZoom(1));
 els.overviewMode.addEventListener('click', () => setFutureMode('overview-3d'));
 els.treeMode.addEventListener('click', () => setFutureMode('tree-2d'));
+const reducedMotionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+reducedMotionPreference.addEventListener?.('change', (event) => {
+  const playback = activePreviewPlayback();
+  if (!playback) return;
+  if (event.matches) {
+    if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
+    previewFallbackTimer = 0;
+    cancelPreviewMotionAnimations();
+    playback.index = playback.frames.length - 1;
+    playback.phase = 'reduced-static';
+    render();
+    return;
+  }
+  if (playback.phase !== 'reduced-static') return;
+  cancelPreviewPlayback();
+  selectedSquare = -1;
+  previewLine = null;
+  render();
+});
 els.futureClear.addEventListener('click', () => {
   if (thinking) return;
+  cancelPreviewPlayback();
   selectedSquare = -1;
   previewLine = null;
   render();
@@ -2392,6 +2739,7 @@ els.threatChips.addEventListener('click', (event) => {
   if (!button || thinking || gameOver) return;
   const square = Number(button.dataset.threatSquare);
   if (!threatened.has(square)) return;
+  cancelPreviewPlayback();
   selectedSquare = square;
   activeThreatAttacker = -1;
   previewLine = null;
@@ -2410,6 +2758,15 @@ els.attackerChips.addEventListener('click', (event) => {
 });
 els.board.addEventListener('animationend', (event) => {
   if (!(event.target instanceof Element)) return;
+  if (event.target.classList.contains('future-preview-piece')
+    && event.animationName === 'future-preview-piece-arrive') {
+    const token = event.target.dataset.previewLineId || '';
+    event.target.classList.remove('future-preview-piece');
+    event.target.style.removeProperty('--move-dx');
+    event.target.style.removeProperty('--move-dy');
+    advancePreviewPlayback(token);
+    return;
+  }
   if (event.target.classList.contains('just-moved') && event.animationName === 'piece-arrive') {
     event.target.classList.remove('just-moved');
     delete event.target.dataset.motionRole;
@@ -2430,6 +2787,7 @@ createBoardSquares();
 resetGame();
 
 function loadFenForTest(fen) {
+  cancelPreviewPlayback();
   requestId++;
   branchRequestId++;
   thinking = false;
@@ -2573,6 +2931,7 @@ window.__futureTest = Object.freeze({
   selectNode: selectFutureNode,
   rewind: () => {
     if (thinking) return false;
+    cancelPreviewPlayback();
     selectedSquare = -1;
     previewLine = null;
     render();

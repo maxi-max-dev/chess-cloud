@@ -348,6 +348,18 @@ button.future-commit:disabled {
   border-color: rgba(239, 102, 92, .48) !important;
 }
 
+/*
+ * 两种棋共用的路线预演协议：运动棋子只存在于当前一拍，静态路径则保留到
+ * 最终投影，方便用户把“我走 → 强回应”和停住的盘面对应起来。
+ */
+[data-future-preview="active"] [data-future-motion-piece="true"] {
+  will-change: transform, opacity;
+}
+
+[data-future-preview="active"] [data-future-preview-step] {
+  pointer-events: none;
+}
+
 @media (max-width: 760px) {
   .future-appbar {
     gap: 9px;
@@ -399,5 +411,11 @@ button.future-commit:disabled {
 @media (prefers-reduced-motion: reduce) {
   .future-product * {
     scroll-behavior: auto !important;
+  }
+
+  [data-future-preview="active"] [data-future-motion-piece="true"] {
+    animation: none !important;
+    transition: none !important;
+    will-change: auto;
   }
 }
