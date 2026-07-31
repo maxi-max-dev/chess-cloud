@@ -329,6 +329,105 @@ button.future-commit:disabled {
   background: var(--future-blue-soft);
 }
 
+/*
+ * 第一步是用户已经选定的动作；从第二步开始只能是条件分支。回应条完整列出
+ * 第一步走后局面的全部合法着，金色只标引擎建议，蓝色才表示用户明确选中。
+ */
+.future-reply-panel {
+  min-width: 0;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--future-edge);
+}
+
+.future-reply-panel[hidden] {
+  display: none;
+}
+
+.future-reply-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+  color: var(--future-muted);
+  font-size: 9.5px;
+}
+
+.future-reply-heading b {
+  color: var(--future-text);
+  font-size: 10.5px;
+}
+
+[data-future-reply-list] {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  padding: 1px 1px 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(121, 230, 219, .28) transparent;
+}
+
+/* 国际象棋把 data 属性放在横向选项轨道上；中国象棋把它放在整块面板上。 */
+[data-future-map][data-game="xiangqi"] [data-future-reply-list] {
+  display: block;
+  overflow: visible;
+}
+
+[data-future-reply-option] {
+  flex: 0 0 auto;
+  min-width: 104px;
+  min-height: 44px;
+  padding: 6px 9px;
+  border: 1px solid var(--future-edge);
+  border-radius: 9px;
+  color: var(--future-text);
+  background: rgba(15, 29, 36, .82);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* 回应项在路线语境栏里仍应保持中性；青色只留给用户明确选中的分支。 */
+.future-context [data-future-reply-option] {
+  border-color: var(--future-edge);
+  color: var(--future-text);
+  background: rgba(15, 29, 36, .82);
+}
+
+[data-future-reply-option] b,
+[data-future-reply-option] small {
+  display: block;
+}
+
+[data-future-reply-option] b {
+  font-size: 11px;
+}
+
+[data-future-reply-option] small {
+  margin-top: 2px;
+  color: var(--future-muted);
+  font-size: 8.5px;
+}
+
+[data-future-reply-option][data-engine-suggested="true"] {
+  border-color: rgba(241, 198, 107, .58);
+  background: var(--future-gold-soft);
+  box-shadow: inset 3px 0 0 var(--future-gold);
+}
+
+[data-future-reply-option][data-selected="true"] {
+  border-color: var(--future-blue);
+  background: var(--future-blue-soft);
+  box-shadow: inset 3px 0 0 var(--future-blue);
+}
+
+[data-future-reply-option]:focus-visible {
+  outline: 3px solid var(--future-blue);
+  outline-offset: 2px;
+}
+
 [data-future-map][data-phase="thinking"] [data-future-node] {
   opacity: .46;
 }
@@ -350,7 +449,7 @@ button.future-commit:disabled {
 
 /*
  * 两种棋共用的路线预演协议：运动棋子只存在于当前一拍，静态路径则保留到
- * 最终投影，方便用户把“我走 → 强回应”和停住的盘面对应起来。
+ * 最终投影，方便用户把“我选的一步 → 我主动选择的假设回应”和停住的盘面对应起来。
  */
 [data-future-preview="active"] [data-future-motion-piece="true"] {
   will-change: transform, opacity;
@@ -405,6 +504,10 @@ button.future-commit:disabled {
 
   .future-context-actions button {
     flex: 1 1 auto;
+  }
+
+  [data-future-reply-option] {
+    min-width: 118px;
   }
 }
 

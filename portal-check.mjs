@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
+const EXPECTED_RESULTS = 25;
 const results = [];
 
 function record(ok, name, detail = '') {
@@ -100,6 +101,42 @@ record(
     && sharedUi.includes('prefers-reduced-motion'),
   '两页共用真棋子运动、静态路线与减少动态协议',
 );
+record(
+  [chess, xiangqi].every((source) =>
+    source.includes('data-future-reply-list')
+      && source.includes('data-future-reply-option')
+      && source.includes('data-reply-count')
+      && source.includes('data-engine-suggested')
+      && source.includes('await-reply')
+      && source.includes('conditional-playing')
+      && source.includes('conditional-settled')
+      && source.includes('conditional-static')
+      && /id=["'](?:futureClear|xqClearPreview)["']/.test(source)
+      && !/<[^>]*data-future-reply-list[^>]*aria-live=/i.test(source)
+      && /(?:可能|假设)回应/.test(source))
+    && sharedUi.includes('data-future-reply-list')
+    && sharedUi.includes('data-future-reply-option'),
+  '两页共用“先走一步、再显式选择可能回应”的不确定分支协议',
+);
+
+const xiangqiFutureNode = xiangqi.match(
+  /function futureNodeData\([\s\S]*?(?=\nfunction buildFutureReplyOptions)/,
+)?.[0] || '';
+const xiangqiReplyBuilder = xiangqi.match(
+  /function buildFutureReplyOptions\([\s\S]*?(?=\nfunction orderedFutureReplies)/,
+)?.[0] || '';
+const xiangqiKnownLegal = xiangqi.match(
+  /function applyKnownLegal\([\s\S]*?(?=\nfunction play)/,
+)?.[0] || '';
+record(
+  xiangqiFutureNode.includes('currentMoves.find')
+    && xiangqiFutureNode.includes('applyKnownLegal(position, legalMove)')
+    && !xiangqiFutureNode.includes('applyOn(position, move)')
+    && xiangqiReplyBuilder.includes('applyKnownLegal(parent, move)')
+    && !xiangqiReplyBuilder.includes('applyOn(parent, move)')
+    && /api\.applyMove\(positionBefore, legalMove, \{ validate: false \}\)/.test(xiangqiKnownLegal),
+  '中国象棋节点和回应批量复用已校验合法着，不在主线程重复生成同一父局面',
+);
 
 const forbidden = ['8902', '197281'];
 for (const file of ['index.html', 'chess.html', 'future-map.css', 'engine.js', 'worker.js', 'xiangqi.html', 'xiangqi-engine.js', 'xiangqi-worker.js']) {
@@ -110,6 +147,13 @@ for (const file of ['index.html', 'chess.html', 'future-map.css', 'engine.js', '
   );
 }
 
+if (results.length !== EXPECTED_RESULTS) {
+  record(
+    false,
+    '验收项总数没有静默缩水或意外膨胀',
+    `运行到 ${results.length} 项，应为固定 ${EXPECTED_RESULTS} 项`,
+  );
+}
 const failed = results.filter((result) => !result.ok);
 console.log(`\n${failed.length ? '未通过' : '全绿'}：${results.length - failed.length}/${results.length} 项通过，零跳过。`);
 if (failed.length) process.exitCode = 1;

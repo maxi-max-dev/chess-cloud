@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#080b10" />
-<meta name="description" content="在一张可交互的棋局未来地图里查看中国象棋的真实下一步、强回应与路线后果。" />
+<meta name="description" content="在一张可交互的棋局未来地图里查看中国象棋的真实下一步、可能回应与路线后果。" />
 <title>中国象棋 · 棋路未来地图</title>
 <link rel="stylesheet" href="./future-map.css" />
 <style>
@@ -119,14 +119,14 @@
     stroke: #79e6db; marker-end: url(#futurePreviewArrowYou);
   }
   .future-preview-path[data-future-preview-step="reply"] {
-    stroke: #f1c66b; stroke-dasharray: 5 3; marker-end: url(#futurePreviewArrowReply);
+    stroke: #79e6db; stroke-dasharray: 5 3; marker-end: url(#futurePreviewArrowReply);
   }
   .future-preview-path-label {
     font: 900 3px/1 system-ui; text-anchor: middle; dominant-baseline: central;
     paint-order: stroke; stroke: rgba(7, 18, 20, .9); stroke-width: 1.8px;
   }
   .future-preview-path-label.you { fill: #a8fff6; }
-  .future-preview-path-label.reply { fill: #ffe1a0; }
+  .future-preview-path-label.reply { fill: #a8fff6; }
   #boardLines line, #boardLines path, #boardLines rect {
     stroke: rgba(58, 36, 23, .82); stroke-width: 1.15; fill: none; vector-effect: non-scaling-stroke;
   }
@@ -163,7 +163,7 @@
   }
   .square.preview-you::before { content: "1"; }
   .square.preview-reply::before {
-    content: "2"; top: auto; bottom: 1%; background: var(--gold);
+    content: "2"; top: auto; bottom: 1%; background: var(--blue);
   }
   .piece {
     --piece-rim: #654226;
@@ -278,7 +278,7 @@
     width: 15px; height: 15px; border-radius: 50%; color: #061416;
     background: var(--blue); font-size: 9px; font-weight: 900;
   }
-  .preview-step[data-preview-chip-step="reply"]::before { background: var(--gold); }
+  .preview-step[data-preview-chip-step="reply"]::before { background: var(--blue); }
   .last-move-trace {
     fill: none; stroke: #f3c56e; stroke-width: 2.15;
     stroke-linecap: round; vector-effect: non-scaling-stroke;
@@ -585,6 +585,41 @@
     box-shadow: inset 3px 0 0 var(--gold), 0 8px 18px rgba(0, 0, 0, .2);
   }
   .branch-node.suggested small { color: #e5c98e; }
+  .future-reply-list {
+    margin: 12px 15px 0; padding: 12px;
+    border: 1px solid rgba(121, 230, 219, .24); border-radius: 12px;
+    background: rgba(11, 24, 22, .92);
+  }
+  .future-reply-list[hidden] { display: none; }
+  .future-reply-heading {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+    margin-bottom: 9px; color: #d9ebe6; font-size: 11px;
+  }
+  .future-reply-heading b { color: var(--blue); font-size: 13px; }
+  .future-reply-heading span { color: #91a19b; text-align: right; }
+  .future-reply-options {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    gap: 8px; max-height: 164px; overflow: auto; overscroll-behavior: contain;
+  }
+  .future-reply-option {
+    min-width: 0; padding: 8px 9px; text-align: left;
+    border: 1px solid rgba(164, 186, 174, .22); border-radius: 9px;
+    color: #e7f3ef; background: #18241f; cursor: pointer;
+  }
+  .future-reply-option b,
+  .future-reply-option small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .future-reply-option b { font-size: 12px; }
+  .future-reply-option small { margin-top: 3px; color: #91a19b; font-size: 9.5px; }
+  .future-reply-option[data-engine-suggested="true"] {
+    border-color: rgba(241, 198, 107, .76); background: #352b18;
+    box-shadow: inset 3px 0 0 var(--gold);
+  }
+  .future-reply-option[data-engine-suggested="true"] small { color: #e5c98e; }
+  .future-reply-option[data-selected="true"] {
+    border-color: var(--blue); background: rgba(35, 72, 75, .92);
+    box-shadow: inset 3px 0 0 var(--blue);
+  }
+  .future-reply-empty { margin: 0; color: #b7c6c0; font-size: 11px; }
   .thinking-row {
     width: 100%; margin-top: 18px; padding: 12px;
     border: 1px solid rgba(242, 189, 99, .20); border-radius: 10px;
@@ -617,6 +652,11 @@
     .layout { display: block; }
     .panel { border-radius: 14px; }
     .play-panel { padding: 8px; }
+    .future-reply-list { margin-inline: 8px; }
+    .future-reply-options {
+      grid-auto-flow: column; grid-auto-columns: minmax(138px, 44vw);
+      grid-template-columns: none; max-height: none; overflow-x: auto; overflow-y: hidden;
+    }
     .board-shell { width: min(100%, 510px); }
     .piece { font-size: clamp(21px, 6.45vw, 28px); }
     .threat-strip { margin-top: 8px; padding: 7px 8px; }
@@ -877,7 +917,7 @@
                 </marker>
                 <marker id="futurePreviewArrowReply" viewBox="0 0 10 10" refX="8" refY="5"
                         markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
-                  <path d="M1 1L9 5L1 9Z" fill="#f1c66b"></path>
+                  <path d="M1 1L9 5L1 9Z" fill="#79e6db"></path>
                 </marker>
               </defs>
               <g id="previewPaths"></g>
@@ -926,12 +966,12 @@
         <div class="tree-title">
           <span class="future-kicker">Future map · Xiangqi</span>
           <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
-          <p>第一层完整显示当前全部真实走法；点一条路线，棋盘同步标出你的一步与黑方强回应。</p>
+          <p>第一层完整显示当前全部真实走法；点一步后，再从全部合法可能回应中选择一条继续分析。</p>
           <div class="future-map-legend" aria-label="未来地图图例">
             <span class="future-legend-key" data-kind="option">其他合法路线</span>
             <span class="future-legend-key" data-kind="selected">正在预演</span>
             <span class="future-legend-key" data-kind="played">实战历史</span>
-            <span class="future-legend-key" data-kind="engine">引擎强应</span>
+            <span class="future-legend-key" data-kind="engine">引擎建议</span>
             <span class="future-legend-key" data-kind="effect">吃子 / 威胁</span>
           </div>
         </div>
@@ -960,7 +1000,7 @@
             <div id="pathRow" class="node-row"></div>
           </section>
           <section class="pv-lane">
-            <span class="lane-label">强应路线</span>
+            <span class="lane-label">搜索主线</span>
             <div id="pvRow" class="node-row"></div>
           </section>
           <section class="branch-block">
@@ -971,11 +1011,14 @@
           </section>
         </div>
       </div>
+      <section id="xqFutureReplies" class="future-reply-list" data-future-reply-list
+               data-reply-count="0" data-parent-fen="" hidden
+               aria-label="对方的全部可能回应"></section>
       <div id="xqFutureContext" class="future-context" data-future-context aria-live="polite">
         <div class="future-context-copy">
           <span class="future-context-label">路线语境</span>
           <span id="xqFutureTitle" class="future-context-title">尚未选择路线</span>
-          <span id="xqFutureDetail" class="future-context-detail">点任一分叉，只预演“你的一步 → 黑方强回应”；确认后才真正落子。</span>
+          <span id="xqFutureDetail" class="future-context-detail">先选你的一步；对方实际会怎么走未知，点一条可能回应后才继续条件预演。</span>
           <span id="xqFutureEffects" class="future-effects" aria-label="这条路线的直接后果"></span>
         </div>
         <div class="future-context-actions">
@@ -1028,6 +1071,7 @@ const els = Object.freeze({
   pvRow: document.getElementById('pvRow'),
   branchSummary: document.getElementById('branchSummary'),
   branchGrid: document.getElementById('branchGrid'),
+  futureReplyList: document.getElementById('xqFutureReplies'),
   thinkingRow: document.getElementById('thinkingRow'),
   treeViewport: document.getElementById('treeViewport'),
   treeCanvas: document.getElementById('treeCanvas'),
@@ -1075,8 +1119,8 @@ const api = (() => {
     const result = legal(position);
     return Array.isArray(result) ? result : (result && result.moves) || [];
   }
-  function applyMove(position, move) {
-    const result = apply(position, move);
+  function applyMove(position, move, options) {
+    const result = apply(position, move, options);
     return result || position;
   }
   function initialFen() {
@@ -1234,10 +1278,12 @@ function cancelPreviewPlayback() {
 function buildPreviewFrames(line) {
   if (!line?.move || line.node?.parentFen && line.node.parentFen !== currentFen) return [];
   try {
-    const first = applyOn(position, line.move);
+    const firstMove = currentMoves.find((candidate) => sameMove(candidate, line.move));
+    if (!firstMove) return [];
+    const first = applyKnownLegal(position, firstMove);
     const frames = [{ role: 'you', move: first.move, fen: first.fen }];
     if (line.reply) {
-      const reply = applyOn(first.position, line.reply);
+      const reply = applyKnownLegal(first.position, line.reply);
       frames.push({ role: 'reply', move: reply.move, fen: reply.fen });
     }
     return frames.map((frame) => Object.freeze(frame));
@@ -1246,8 +1292,25 @@ function buildPreviewFrames(line) {
   }
 }
 
+function previewRouteKey(line) {
+  return `${futureMoveKey(line?.move)}|${futureMoveKey(line?.reply)}`;
+}
+
+function settledPreviewPhase(line, reduceMotion = false) {
+  if (!line?.reply && !(line?.replies?.length > 0)) return 'terminal';
+  if (line.reply) return reduceMotion ? 'conditional-static' : 'conditional-settled';
+  return 'await-reply';
+}
+
+function canChooseFutureReply(line = previewLine, playback = activePreviewPlayback()) {
+  if (!line?.node || !playback || playback.routeKey !== previewRouteKey(line)) return false;
+  if (playback.phase === 'await-reply') return true;
+  return !!line.reply
+    && ['conditional-playing', 'conditional-settled', 'conditional-static'].includes(playback.phase);
+}
+
 function schedulePreviewFallback(playback) {
-  if (!playback || playback.phase !== 'playing') return;
+  if (!playback || !['playing', 'conditional-playing'].includes(playback.phase)) return;
   if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
   const token = playback.token;
   previewFallbackTimer = window.setTimeout(() => advancePreviewPlayback(token), 520);
@@ -1264,14 +1327,18 @@ function startPreviewPlayback(line) {
   pendingMoveAnimation = null;
   threatPulseSquares.clear();
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const conditional = !!line.reply;
   const token = `xq-preview-${previewEpoch}-${futureMoveKey(line.move)}-${futureMoveKey(line.reply)}`;
   previewPlayback = {
     token,
     rootFen: currentFen,
-    routeKey: futureMoveKey(line.move),
+    routeKey: previewRouteKey(line),
     frames,
-    index: reduceMotion ? frames.length - 1 : 0,
-    phase: reduceMotion ? 'reduced-static' : 'playing',
+    // 选择可能回应时，从已经停住的第一步局面继续，只播放新选中的条件边。
+    index: conditional ? frames.length - 1 : 0,
+    phase: reduceMotion
+      ? settledPreviewPhase(line, true)
+      : conditional ? 'conditional-playing' : 'playing',
   };
   document.body.classList.add('xq-preview-active');
   render();
@@ -1281,16 +1348,16 @@ function startPreviewPlayback(line) {
 
 function advancePreviewPlayback(token) {
   const playback = activePreviewPlayback();
-  if (!playback || playback.token !== token || playback.routeKey !== futureMoveKey(previewLine?.move)) return false;
+  if (!playback || playback.token !== token || playback.routeKey !== previewRouteKey(previewLine)) return false;
   if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
   previewFallbackTimer = 0;
   if (playback.index < playback.frames.length - 1) {
     playback.index++;
-    playback.phase = 'playing';
+    playback.phase = previewLine?.reply ? 'conditional-playing' : 'playing';
     render();
     schedulePreviewFallback(playback);
   } else {
-    playback.phase = 'settled';
+    playback.phase = settledPreviewPhase(previewLine);
     render();
   }
   return true;
@@ -1316,13 +1383,21 @@ function syncPreviewProtocol(playback, displayFen) {
   }
   const status = playback.phase === 'playing'
     ? `第 ${playback.index + 1}/${playback.frames.length} 拍`
-    : playback.phase === 'reduced-static' ? '静态结果' : '预演结果';
+    : playback.phase === 'await-reply'
+      ? '等待选择可能回应'
+      : playback.phase === 'conditional-playing'
+        ? '正在播放假设回应'
+      : playback.phase === 'conditional-static'
+          ? '静态条件结果'
+          : playback.phase === 'terminal'
+            ? '终局：对方没有合法回应'
+            : '条件预演结果';
   els.previewStatus.innerHTML = `<b>路线预演 · 未落子</b><span>${status}</span>`
     + playback.frames.map((step, index) => `<span class="preview-step"`
       + ` data-preview-chip-step="${step.role}" data-preview-order="${index + 1}"`
       + ` data-preview-line-id="${escapeHtml(playback.token)}"`
       + ` data-preview-from="${coord(moveFrom(step.move))}" data-preview-to="${coord(moveTo(step.move))}">`
-      + `${step.role === 'you' ? '我的一步' : '黑方回应'}</span>`).join('');
+      + `${step.role === 'you' ? '我的一步' : '假设回应'}</span>`).join('');
   els.board.setAttribute('aria-label', `九路十行中国象棋棋盘，路线预演未落子，${status}`);
   if (frame) els.previewStatus.dataset.activeStep = frame.role;
 }
@@ -1339,7 +1414,11 @@ function futureNodeData(move, ranked = rankedForMove(move)) {
   const cacheKey = `${currentFen}|${futureMoveKey(move)}`;
   const cached = futureNodeCache.get(cacheKey);
   if (cached && (!ranked || cached.ranked)) return cached;
-  const applied = applyOn(position, move);
+  // 这里的 move 来自 currentMoves；复用这份已校验列表，避免为每张节点卡
+  // 重新生成整个根局面的合法着。
+  const legalMove = currentMoves.find((candidate) => sameMove(candidate, move));
+  if (!legalMove) throw new Error(`未找到当前局面的合法分叉 ${moveLabel(move)}`);
+  const applied = applyKnownLegal(position, legalMove);
   const afterFen = ranked?.after || applied.fen;
   const branchCount = Number.isInteger(ranked?.replyCount)
     ? ranked.replyCount
@@ -1364,6 +1443,42 @@ function futureNodeData(move, ranked = rankedForMove(move)) {
   });
   futureNodeCache.set(cacheKey, node);
   return node;
+}
+
+function buildFutureReplyOptions(node) {
+  if (!node?.afterFen) return [];
+  try {
+    const parent = api.parseFen(node.afterFen);
+    return api.legalMoves(parent).map((move) => {
+      // move 就是上一行从同一 parent 生成的合法着；这里不再为每个回应
+      // 重生整份 parent 合法着。下一层分叉数仍从真实子局面现算。
+      const applied = applyKnownLegal(parent, move);
+      return Object.freeze({
+        ...applied.move,
+        notation: moveLabel(applied.move, parent),
+        after: applied.fen,
+        branchCount: api.legalMoves(applied.position).length,
+        givesCheck: api.isCheck(applied.position),
+      });
+    });
+  } catch {
+    return [];
+  }
+}
+
+function orderedFutureReplies(line = previewLine) {
+  const replies = Array.isArray(line?.replies) ? line.replies.slice() : [];
+  const suggestedKey = futureMoveKey(line?.suggestedReply);
+  if (!suggestedKey) return replies;
+  return replies.sort((left, right) =>
+    Number(futureMoveKey(right) === suggestedKey) - Number(futureMoveKey(left) === suggestedKey));
+}
+
+function futureReplyByKey(key, line = previewLine) {
+  return (line?.replies || []).find((reply) =>
+    futureMoveKey(reply) === String(key)
+    || moveLabel(reply, api.parseFen(line.node.afterFen)) === String(key)
+    || reply.after === String(key)) || null;
 }
 
 function orderedFutureMoves() {
@@ -1402,7 +1517,7 @@ function futureEffectsForPreview(line) {
       kind: 'capture',
       evidence: 'legal-reply',
       targetSquare: coord(moveTo(line.reply)),
-      text: `黑方强应可吃 ${PIECE_NAMES[line.reply.captured] || '棋子'}`,
+      text: `所选假设回应可吃 ${PIECE_NAMES[line.reply.captured] || '棋子'}`,
     });
   }
   const consequenceFen = line.reply?.after || '';
@@ -1423,8 +1538,10 @@ function futureEffectsForPreview(line) {
   if (!effects.length) {
     effects.push({
       kind: 'defense',
-      evidence: 'legal-reply',
-      text: '这条浅层强应中未发现直接吃子',
+      evidence: line.reply ? 'legal-reply' : 'legal-move',
+      text: line.reply
+        ? '这条假设回应中未发现直接吃子'
+        : '这一步没有直接吃子或将军',
     });
   }
   return effects;
@@ -1439,16 +1556,29 @@ function renderFutureContext() {
       : '尚未选择路线';
     els.futureDetail.textContent = suggested
       ? '金色只表示浅层排序靠前；点任一节点后才会出现蓝色预演路线。'
-      : '点任一分叉，只预演“你的一步 → 黑方强回应”；确认后才真正落子。';
+      : '先选你的一步；对方实际会怎么走未知，再点一条可能回应继续分析。';
     els.futureEffects.replaceChildren();
     els.futureCommit.disabled = true;
     els.futureClear.disabled = true;
     return;
   }
-  const replyLabel = line.reply ? moveLabel(line.reply) : '无合法应手';
-  els.futureTitle.textContent = `正在预演：${line.node.label} → ${replyLabel}`;
-  els.futureDetail.textContent =
-    `你走后对方有 ${line.node.branchCount} 个真实分支；金色第二拍是浅层较强回应，不是概率。`;
+  const replyCount = line.replies?.length || 0;
+  if (line.reply) {
+    els.futureTitle.textContent = `条件分析：${line.node.label} → 假设 ${moveLabel(line.reply)}`;
+    els.futureDetail.textContent =
+      `第二步是你明确选择的可能回应；它不是对真人或 AI 下一步的预测。`
+      + (sameMove(line.reply, line.suggestedReply) ? ' 这条同时也是引擎建议优先检查的应对。' : '');
+  } else if (replyCount) {
+    els.futureTitle.textContent = `假设你走 ${line.node.label} · 等待选择回应`;
+    els.futureDetail.textContent =
+      `对方有 ${replyCount} 种真实合法回应；金色只表示引擎建议优先检查，不代表一定会走。`;
+  } else {
+    const status = api.status(api.parseFen(line.node.afterFen));
+    els.futureTitle.textContent = `假设你走 ${line.node.label} · 对方无合法回应`;
+    els.futureDetail.textContent = status?.inCheck
+      ? '这是将死终局；预演只有你选择的第一步。'
+      : '这是无合法着法的终局；预演只有你选择的第一步。';
+  }
   els.futureEffects.innerHTML = futureEffectsForPreview(line).map(futureEffectHtml).join('');
   els.futureCommit.disabled = thinking || gameOver || fenSide(currentFen) !== 'red';
   els.futureClear.disabled = thinking;
@@ -1599,7 +1729,9 @@ function renderBoard() {
   const selectedMoves = legalForSelected();
   const legalTargets = new Map(selectedMoves.map((move) => [moveTo(move), move]));
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const previewMotion = previewing && playback.phase === 'playing' && !reduceMotion
+  const previewMotion = previewing
+    && ['playing', 'conditional-playing'].includes(playback.phase)
+    && !reduceMotion
     ? { move: previewFrame.move, fen: displayFen, token: playback.token, role: previewFrame.role }
     : null;
   const actualMotion = !previewing ? pendingMoveAnimation : null;
@@ -2103,18 +2235,28 @@ function renderStatus() {
   } else if (playback) {
     const frame = playback.frames[playback.index];
     const phaseCopy = playback.phase === 'playing'
-      ? `正在播放第 ${playback.index + 1}/${playback.frames.length} 拍`
-      : playback.phase === 'reduced-static' ? '已按减少动态设置显示最终局面' : '已停在预演最终局面';
+      ? '正在播放你选择的第一步'
+      : playback.phase === 'await-reply'
+        ? previewLine?.replies?.length
+          ? `第一步已停住；从 ${previewLine.replies.length} 种可能回应中选择一条`
+          : '第一步已停住；当前没有可供选择的合法回应'
+      : playback.phase === 'conditional-playing'
+          ? '正在播放你选中的假设回应'
+          : playback.phase === 'conditional-static'
+            ? '已按减少动态设置显示条件结果'
+            : playback.phase === 'terminal'
+              ? '第一步已停住；这是终局，对方没有合法回应'
+              : '已停在所选条件结果';
     els.coach.dataset.tone = 'normal';
     els.coach.innerHTML = `<strong>路线预演 · 未落子：${escapeHtml(phaseCopy)}</strong>`
-      + `<p>${frame?.role === 'reply' ? '金色 2 是黑方浅层强回应。' : '蓝色 1 是你选择的一步。'}`
+      + `<p>${frame?.role === 'reply' ? '蓝色 2 是你明确选择的假设回应，不是预测。' : '蓝色 1 是你选择的第一步；对方实际回应仍未知。'}`
       + '当前 FEN、实战路径和上一步都没有改变；点“走这步”才确认。</p>';
   } else if (checked) {
     els.coach.innerHTML = `<strong>将军：必须先解围</strong><p>当前只有 ${currentMoves.length} 条真实合法应手。</p>`;
   } else if (previewLine?.reply) {
     els.coach.innerHTML = `<strong>预演：你走 ${escapeHtml(moveLabel(previewLine.move, position))}`
-      + `，黑方浅层强回应 ${escapeHtml(moveLabel(previewLine.reply))}</strong>`
-      + '<p>蓝色 1 → 金色 2；这是含一步合法回吃的局面排序，不是概率。点“走这步”才会真正走棋。</p>';
+      + `，假设对方回应 ${escapeHtml(moveLabel(previewLine.reply))}</strong>`
+      + '<p>蓝色 1 → 蓝色 2 是你选择的条件路线；金色只用于未选择的引擎建议。点“走这步”才会真正走棋。</p>';
   } else if (selectedSquare >= 0) {
     const piece = board[selectedSquare];
     if (selectedThreat) {
@@ -2164,6 +2306,10 @@ function overviewPoint(index, total) {
 }
 
 function renderOverview() {
+  const activeOverview = document.activeElement?.closest?.('[data-overview-key]');
+  const activeOverviewKey = activeOverview && els.overviewSvg.contains(activeOverview)
+    ? activeOverview.dataset.overviewKey || ''
+    : '';
   const moves = orderedFutureMoves();
   const selectedKey = previewLine?.node ? futureMoveKey(previewLine.move) : '';
   const paths = [];
@@ -2214,7 +2360,8 @@ function renderOverview() {
   });
 
   let replyMarkup = '';
-  if (previewLine?.node && previewLine.reply) {
+  const overviewReply = previewLine?.reply || previewLine?.suggestedReply || null;
+  if (previewLine?.node && overviewReply) {
     const selectedIndex = moves.findIndex((move) => sameMove(move, previewLine.move));
     const from = overviewPoint(Math.max(0, selectedIndex), Math.max(1, moves.length));
     const replyDirection = from.x > 690 ? -1 : 1;
@@ -2222,15 +2369,22 @@ function renderOverview() {
       x: clamp(from.x + replyDirection * 136, 72, 828),
       y: Math.max(58, Math.min(562, from.y + (from.y > rootY ? -66 : 66))),
     };
-    const replyLabel = moveLabel(previewLine.reply);
+    const explicit = !!previewLine.reply;
+    const replyLabel = moveLabel(overviewReply, api.parseFen(previewLine.node.afterFen));
+    const lineColor = explicit ? '#79e6db' : '#f1c66b';
+    const fillColor = explicit ? '#173b3d' : '#352c18';
+    const copy = explicit
+      ? `已选假设回应${sameMove(overviewReply, previewLine.suggestedReply) ? ' · 同时为建议' : ''}`
+      : '建议先检查 · 尚未选择';
     replyMarkup =
-      `<path data-future-edge data-engine="true" data-played="false"`
+      `<path data-future-edge data-selected="${explicit}" data-suggested="${!explicit}"`
+      + ` data-engine="${!explicit}" data-played="false"`
       + ` d="M${from.x.toFixed(1)},${from.y.toFixed(1)} C${(from.x + 58).toFixed(1)},${from.y.toFixed(1)} ${(to.x - 48).toFixed(1)},${to.y.toFixed(1)} ${to.x.toFixed(1)},${to.y.toFixed(1)}"`
-      + ` fill="none" stroke="#f1c66b" stroke-width="2.4" stroke-dasharray="7 5"/>`
+      + ` fill="none" stroke="${lineColor}" stroke-width="2.4" stroke-dasharray="7 5"/>`
       + `<g transform="translate(${to.x.toFixed(1)} ${to.y.toFixed(1)})">`
-      + `<rect x="-58" y="-19" width="116" height="38" rx="10" fill="#352c18" stroke="#f1c66b"/>`
+      + `<rect x="-64" y="-19" width="128" height="38" rx="10" fill="${fillColor}" stroke="${lineColor}"/>`
       + `<text x="0" y="-2" text-anchor="middle" font-size="12" font-weight="700">${escapeHtml(replyLabel)}</text>`
-      + `<text x="0" y="11" text-anchor="middle" font-size="8.5" fill="#b9a56f">黑方较强回应</text></g>`;
+      + `<text x="0" y="11" text-anchor="middle" font-size="8.5" fill="${lineColor}">${escapeHtml(copy)}</text></g>`;
   }
 
   els.overviewSvg.innerHTML =
@@ -2241,6 +2395,11 @@ function renderOverview() {
     + `<text x="92" y="321" text-anchor="middle" font-size="9" fill="#9ab4b2">${moves.length} 个真实下一步</text></g>`
     + nodes.join('')
     + replyMarkup;
+  if (activeOverviewKey) {
+    const replacement = [...els.overviewSvg.querySelectorAll('[data-overview-key]')]
+      .find((node) => node.dataset.overviewKey === activeOverviewKey);
+    replacement?.focus({ preventScroll: true });
+  }
   els.overviewFact.textContent =
     `${moves.length} 条第一层真实路线 · 更深层用节点上的真实分叉数表示`;
 }
@@ -2258,7 +2417,86 @@ function setFutureMode(mode) {
   return futureMode;
 }
 
+function renderFutureReplyList() {
+  const line = previewLine;
+  const previousOptions = els.futureReplyList.querySelector('.future-reply-options');
+  const previousScrollLeft = previousOptions?.scrollLeft || 0;
+  const previousScrollTop = previousOptions?.scrollTop || 0;
+  const previousParentFen = els.futureReplyList.dataset.parentFen || '';
+  const activeReply = document.activeElement?.closest?.('button[data-future-reply-option]');
+  const focusedReplyKey = activeReply && els.futureReplyList.contains(activeReply)
+    ? activeReply.dataset.key || ''
+    : '';
+  if (!line?.node) {
+    els.futureReplyList.hidden = true;
+    els.futureReplyList.dataset.replyCount = '0';
+    els.futureReplyList.dataset.parentFen = '';
+    els.futureReplyList.dataset.interactive = 'false';
+    delete els.futureReplyList.dataset.terminal;
+    els.futureReplyList.replaceChildren();
+    return;
+  }
+  const replies = orderedFutureReplies(line);
+  const suggestedKey = futureMoveKey(line.suggestedReply);
+  const selectedKey = futureMoveKey(line.reply);
+  const canChooseReply = canChooseFutureReply(line);
+  els.futureReplyList.hidden = false;
+  els.futureReplyList.dataset.replyCount = String(replies.length);
+  els.futureReplyList.dataset.parentFen = line.node.afterFen;
+  els.futureReplyList.dataset.interactive = String(canChooseReply);
+  els.futureReplyList.dataset.terminal = String(replies.length === 0);
+  if (!replies.length) {
+    els.futureReplyList.innerHTML = `<div class="future-reply-heading"><b>对方没有合法回应</b>`
+      + `<span>这是终局，不会伪造第二步</span></div>`
+      + `<p class="future-reply-empty">预演停在你选择的第一步；确认后才会改变实战。</p>`;
+    return;
+  }
+  const parentPosition = api.parseFen(line.node.afterFen);
+  const options = replies.map((reply) => {
+    const key = futureMoveKey(reply);
+    const suggested = key === suggestedKey;
+    const selected = key === selectedKey;
+    const optionState = selected ? '已选假设回应' : suggested ? '建议先检查' : '可能回应';
+    const effects = [
+      reply.captured ? 'capture' : '',
+      reply.givesCheck ? 'check' : '',
+    ].filter(Boolean).join(' ');
+    return `<button type="button" class="future-reply-option" data-future-reply-option`
+      + ` data-key="${escapeHtml(key)}" data-from="${moveFrom(reply)}" data-to="${moveTo(reply)}"`
+      + ` data-parent-fen="${escapeHtml(line.node.afterFen)}" data-after-fen="${escapeHtml(reply.after)}"`
+      + ` data-branch-count="${reply.branchCount}" data-engine-suggested="${suggested}"`
+      + ` data-selected="${selected}" data-future-node data-node-id="future-2-${escapeHtml(key)}"`
+      + ` data-parent-id="${escapeHtml(line.node.id)}" data-fen="${escapeHtml(reply.after)}"`
+      + ` data-depth="2" data-side="b" data-resolved="true" data-suggested="${suggested}"`
+      + ` data-engine="${suggested}" data-played="false" data-effect="${effects}"`
+      + `${canChooseReply ? '' : ' disabled'} aria-disabled="${!canChooseReply}"`
+      + ` aria-pressed="${selected}" aria-label="${escapeHtml(moveLabel(reply, parentPosition))}，${optionState}，走后 ${reply.branchCount} 个分支">`
+      + `<b>${escapeHtml(moveLabel(reply, parentPosition))}</b>`
+      + `<small>${optionState} · 走后 ${reply.branchCount} 个分支</small></button>`;
+  }).join('');
+  els.futureReplyList.innerHTML = `<div class="future-reply-heading"><b>对方有 ${replies.length} 种可能回应</b>`
+    + `<span>金色只是引擎建议，不代表真人或 AI 必然这样走</span></div>`
+    + `<div class="future-reply-options">${options}</div>`;
+  const nextOptions = els.futureReplyList.querySelector('.future-reply-options');
+  if (nextOptions) {
+    const sameParent = previousParentFen === line.node.afterFen;
+    if (sameParent && focusedReplyKey) {
+      const sameReply = [...nextOptions.querySelectorAll('button[data-future-reply-option]')]
+        .find((option) => option.dataset.key === focusedReplyKey);
+      if (sameReply && !sameReply.disabled) sameReply.focus({ preventScroll: true });
+    }
+    if (sameParent) {
+      nextOptions.scrollLeft = previousScrollLeft;
+      nextOptions.scrollTop = previousScrollTop;
+    }
+  }
+}
+
 function renderTree() {
+  const activeBranch = document.activeElement?.closest?.('#branchGrid button[data-from][data-to]');
+  const activeBranchKey = activeBranch
+    ? `${activeBranch.dataset.from}-${activeBranch.dataset.to}`
+    : '';
   const rootCount = snapshots[0] && snapshots[0].legalCount;
   const nodes = [
     `<span class="root-node" data-fen="${escapeHtml(snapshots[0]?.fen || api.initialFen())}"`
@@ -2291,7 +2529,7 @@ function renderTree() {
 
   els.branchSummary.innerHTML = thinking
     ? '当前由黑方计算，分叉将在真实应手落盘后刷新。'
-    : `这个局面共有 <b>${currentMoves.length}</b> 条合法分叉。点卡片预演，再点“走这步”确认。`;
+    : `这个局面共有 <b>${currentMoves.length}</b> 条合法分叉。先选你的一步，再选可能回应继续分析。`;
   if (thinking) {
     els.branchGrid.replaceChildren();
   } else {
@@ -2305,20 +2543,18 @@ function renderTree() {
       const ranked = rankMap.get(futureMoveKey(move))?.move;
       const node = futureNodeData(move, ranked);
       const selected = !!previewLine && sameMove(previewLine.move, move);
-      const replyLabel = ranked?.reply ? escapeHtml(moveLabel(ranked.reply)) : '无合法应手';
       const copy = selected
-        ? `正在预演 · 回应 ${replyLabel}`
+        ? `已选第一步 · ${node.branchCount} 种可能回应`
         : index === 0 && ranked
-          ? `建议先看 · 回应 ${replyLabel}`
+          ? `建议先看 · 走后 ${node.branchCount} 种回应`
         : ranked
-          ? `回应 ${replyLabel} · ${node.branchCount} 应手`
+          ? `走后 ${node.branchCount} 种可能回应`
           : target
             ? `可吃 ${escapeHtml(PIECE_NAMES[target] || target)}`
             : `${coord(moveFrom(move))} 到 ${coord(moveTo(move))}`;
       const effects = [
         node.captured ? 'capture' : '',
         node.givesCheck ? 'check' : '',
-        ranked?.reply?.captured ? 'exposure' : '',
       ].filter(Boolean).join(' ');
       return `<button class="branch-node ${target ? 'capture' : ''} ${index === 0 && ranked ? 'suggested' : ''} ${selected ? 'selected' : ''}"`
         + ` type="button" data-from="${moveFrom(move)}" data-to="${moveTo(move)}"`
@@ -2347,6 +2583,12 @@ function renderTree() {
       focusMove(move, ranked);
     });
   });
+  renderFutureReplyList();
+  if (activeBranchKey) {
+    const replacement = [...els.branchGrid.querySelectorAll('button[data-from][data-to]')]
+      .find((button) => `${button.dataset.from}-${button.dataset.to}` === activeBranchKey);
+    if (replacement && !replacement.disabled) replacement.focus({ preventScroll: true });
+  }
 }
 
 function render() {
@@ -2365,13 +2607,28 @@ function render() {
 function focusMove(move, ranked = null) {
   if (!move || thinking || gameOver) return;
   selectedSquare = -1;
+  const node = futureNodeData(move, ranked);
+  const replies = buildFutureReplyOptions(node);
+  const suggestedReply = ranked?.reply
+    ? replies.find((reply) => sameMove(reply, ranked.reply)) || null
+    : null;
   previewLine = {
     move: ranked || move,
-    reply: ranked?.reply || null,
-    node: futureNodeData(move, ranked),
+    reply: null,
+    suggestedReply,
+    replies,
+    node,
   };
   startPreviewPlayback(previewLine);
-  els.futureCommit.focus({ preventScroll: true });
+}
+
+function chooseFutureReply(move) {
+  if (!previewLine?.node || !move || thinking || gameOver) return false;
+  if (!canChooseFutureReply(previewLine)) return false;
+  const reply = previewLine.replies.find((candidate) => sameMove(candidate, move));
+  if (!reply) return false;
+  previewLine = { ...previewLine, reply };
+  return startPreviewPlayback(previewLine);
 }
 
 function handleSquare(square) {
@@ -2394,10 +2651,14 @@ function handleSquare(square) {
 }
 
 function applyOn(positionBefore, move) {
-  const fenBefore = api.toFen(positionBefore);
   const legalMove = api.legalMoves(positionBefore).find((candidate) => sameMove(candidate, move));
   if (!legalMove) throw new Error(`引擎拒绝非法着法 ${moveLabel(move)}`);
-  const next = api.applyMove(positionBefore, legalMove);
+  return applyKnownLegal(positionBefore, legalMove);
+}
+
+function applyKnownLegal(positionBefore, legalMove) {
+  const fenBefore = api.toFen(positionBefore);
+  const next = api.applyMove(positionBefore, legalMove, { validate: false });
   const afterFen = api.toFen(next);
   if (!afterFen || afterFen === fenBefore) throw new Error('applyMove 没有产生新局面');
   return { position: next, move: legalMove, fen: afterFen };
@@ -2502,19 +2763,31 @@ function onWorkerMessage(event) {
   if (message.type === 'branchesDone') {
     if (Number(message.id) !== branchRequestId || currentFen !== branchRequestFen || thinking) return;
     rankedBranches = Array.isArray(message.result?.branches) ? message.result.branches : [];
-    // 用户可能在 Worker 回包前已点了一条同步渲染的合法路线。排名和强回应到达后，
-    // 必须升级同一条预演，不能把当时的 null 永久解释成“无合法应手”。
+    // Worker 晚到只补充“建议优先检查”的标记；不能把建议写成用户已选回应，
+    // 更不能自动启动第二拍。
     const selectedMove = previewLine?.move
       ? currentMoves.find((candidate) => sameMove(candidate, previewLine.move))
       : null;
     const selectedRanked = selectedMove ? rankedForMove(selectedMove) : null;
     if (selectedMove && selectedRanked) {
+      const node = futureNodeData(selectedMove, selectedRanked);
+      const replies = previewLine.replies?.length === node.branchCount
+        ? previewLine.replies
+        : buildFutureReplyOptions(node);
+      const selectedReply = previewLine.reply
+        ? replies.find((reply) => sameMove(reply, previewLine.reply)) || null
+        : null;
       previewLine = {
+        ...previewLine,
         move: selectedRanked,
-        reply: selectedRanked.reply || null,
-        node: futureNodeData(selectedMove, selectedRanked),
+        reply: selectedReply,
+        suggestedReply: selectedRanked.reply
+          ? replies.find((reply) => sameMove(reply, selectedRanked.reply)) || null
+          : null,
+        replies,
+        node,
       };
-      startPreviewPlayback(previewLine);
+      render();
       return;
     }
     render();
@@ -2663,22 +2936,41 @@ reducedMotionPreference.addEventListener?.('change', (event) => {
     previewFallbackTimer = 0;
     cancelPreviewMotionAnimations();
     playback.index = playback.frames.length - 1;
-    playback.phase = 'reduced-static';
+    playback.phase = settledPreviewPhase(previewLine, true);
     render();
     return;
   }
-  if (playback.phase !== 'reduced-static') return;
-  cancelPreviewPlayback();
-  selectedSquare = -1;
-  previewLine = null;
-  render();
+  if (playback.phase === 'conditional-static') {
+    playback.phase = 'conditional-settled';
+    render();
+  }
+});
+els.futureReplyList.addEventListener('click', (event) => {
+  const option = event.target.closest('button[data-future-reply-option]');
+  const playback = activePreviewPlayback();
+  if (!option
+    || option.disabled
+    || !canChooseFutureReply(previewLine, playback)
+    || option.dataset.parentFen !== previewLine?.node?.afterFen) return;
+  const reply = futureReplyByKey(option.dataset.key || `${option.dataset.from}-${option.dataset.to}`);
+  if (reply) chooseFutureReply(reply);
 });
 els.futureClear.addEventListener('click', () => {
   if (thinking) return;
+  const clearedMoveKey = futureMoveKey(previewLine?.move);
   cancelPreviewPlayback();
   selectedSquare = -1;
   previewLine = null;
   render();
+  const overview = futureMode === 'overview-3d';
+  const focusRoot = overview ? els.overviewSvg : els.branchGrid;
+  const selector = overview ? '[data-overview-key]' : 'button[data-from][data-to]';
+  const replacement = [...focusRoot.querySelectorAll(selector)]
+    .find((node) => (overview
+      ? node.dataset.overviewKey
+      : `${node.dataset.from}-${node.dataset.to}`) === clearedMoveKey)
+    || focusRoot.querySelector(selector);
+  replacement?.focus({ preventScroll: true });
 });
 els.futureCommit.addEventListener('click', () => {
   if (!previewLine || thinking || gameOver) return;
@@ -2865,15 +3157,33 @@ function futureSnapshot() {
       role: 'selected',
     });
   }
-  const previewPath = selectedPath.slice();
   if (previewLine?.reply) {
-    previewPath.push(xqFutureRecord(
+    selectedPath.push(xqFutureRecord(
       previewLine.reply,
       2,
-      'engine',
+      'selected',
       previewLine.node.afterFen,
     ));
   }
+  const previewPath = selectedPath.slice();
+  const suggestedPath = previewLine?.node
+    ? (previewLine.suggestedReply
+      ? [xqFutureRecord(previewLine.suggestedReply, 2, 'suggested', previewLine.node.afterFen)]
+      : [])
+    : rankedBranches.slice(0, 1).map((move) => xqFutureRecord(move, 1, 'suggested'));
+  const replyParentFen = previewLine?.node?.afterFen || '';
+  const replyParent = replyParentFen ? api.parseFen(replyParentFen) : null;
+  const replyOptions = orderedFutureReplies().map((reply) => ({
+    key: futureMoveKey(reply),
+    depth: 2,
+    label: moveLabel(reply, replyParent),
+    from: coord(moveFrom(reply)),
+    to: coord(moveTo(reply)),
+    afterFen: reply.after,
+    branchCount: reply.branchCount,
+    suggested: sameMove(reply, previewLine?.suggestedReply),
+    selected: sameMove(reply, previewLine?.reply),
+  }));
   const activeView = futureMode === 'overview-3d' ? els.overviewSvg : els.branchGrid;
   return freezeFutureValue({
     schema: 1,
@@ -2888,12 +3198,20 @@ function futureSnapshot() {
     },
     focusSquare: selectedSquare < 0 ? null : coord(selectedSquare),
     selectedPath,
-    suggestedPath: rankedBranches.slice(0, 1).map((move) =>
-      xqFutureRecord(move, 1, 'suggested')),
+    suggestedPath,
+    frontier: {
+      parentFen: replyParentFen,
+      side: replyParentFen ? (fenSide(replyParentFen) === 'black' ? 'b' : 'w') : null,
+      depth: replyParentFen ? 2 : 1,
+      count: replyOptions.length,
+      terminal: !!replyParentFen && replyOptions.length === 0,
+      candidates: replyOptions,
+    },
     preview: {
       fen: previewPath.at(-1)?.afterFen || currentFen,
       depth: previewPath.length,
       path: previewPath,
+      phase: els.board.dataset.previewPhase,
     },
     enginePath: {
       verified: pv.length > 0,
@@ -2915,13 +3233,21 @@ function futureSnapshot() {
 }
 
 function selectFutureNode(parentDepth, key) {
-  if (Number(parentDepth) !== 0 || thinking || gameOver) return false;
-  const move = currentMoves.find((candidate) =>
-    futureMoveKey(candidate) === String(key)
-    || moveLabel(candidate, position) === String(key));
-  if (!move) return false;
-  focusMove(move, rankedForMove(move));
-  return true;
+  const depth = Number(parentDepth);
+  if (!Number.isInteger(depth) || thinking || gameOver) return false;
+  if (depth === 0) {
+    const move = currentMoves.find((candidate) =>
+      futureMoveKey(candidate) === String(key)
+      || moveLabel(candidate, position) === String(key));
+    if (!move) return false;
+    focusMove(move, rankedForMove(move));
+    return true;
+  }
+  if (depth === 1 && previewLine?.node) {
+    const reply = futureReplyByKey(key);
+    return !!reply && chooseFutureReply(reply);
+  }
+  return false;
 }
 
 window.__futureTest = Object.freeze({

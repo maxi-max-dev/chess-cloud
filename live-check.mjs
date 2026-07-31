@@ -327,6 +327,44 @@ function renderedPiecesMatchFen(pieces, fen) {
   return JSON.stringify(actual) === JSON.stringify(expectedBoardPieces(fen));
 }
 
+function auditChessReplyOptions(fen, options) {
+  const problems = [];
+  let legal = [];
+  try {
+    const game = new Chess(fen);
+    legal = game.moves({ verbose: true }).map((move) => ({
+      key: `${move.from}-${move.to}-${move.promotion || ''}`,
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion || '',
+      afterFen: move.after,
+      branchCount: count(move.after, 1),
+    }));
+  } catch (error) {
+    return { ok: false, legalCount: 0, problems: [`回应根 FEN 无法解析：${error?.message || error}`] };
+  }
+  const expected = new Map(legal.map((move) => [move.key, move]));
+  const seen = new Set();
+  for (const option of options || []) {
+    const key = `${option.from}-${option.to}-${option.promotion || ''}`;
+    const truth = expected.get(key);
+    if (!truth) problems.push(`DOM 含非法回应 ${key}`);
+    if (seen.has(key)) problems.push(`DOM 回应重复 ${key}`);
+    seen.add(key);
+    if (truth && option.afterFen !== truth.afterFen) problems.push(`${key} after FEN 不同源`);
+    if (truth && option.branchCount !== truth.branchCount) {
+      problems.push(`${key} 走后分叉 ${option.branchCount}≠${truth.branchCount}`);
+    }
+  }
+  if ((options || []).length !== legal.length) {
+    problems.push(`DOM ${options?.length || 0} 条≠棋核 ${legal.length} 条`);
+  }
+  for (const key of expected.keys()) {
+    if (!seen.has(key)) problems.push(`DOM 漏回应 ${key}`);
+  }
+  return { ok: problems.length === 0, legalCount: legal.length, problems };
+}
+
 function auditPrincipalVariation(fen, result) {
   const problems = [];
   const pv = Array.isArray(result?.pv) ? result.pv : [];
@@ -913,7 +951,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 95;
+const EXPECTED_RESULTS = 101;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -1394,8 +1432,12 @@ async function runCoachChecks() {
     }
   });
   record(
-    coach.cards.length > 0 && replyProblems.length === 0,
-    '⑥ 对方回应可独立重放，且确为 rankMoves(after, depth=2) 的首选',
+    coach.cards.length > 0
+      && replyProblems.length === 0
+      && coach.cards.every((card) => card.reply.kind === 'analysis-suggestion' && !card.reply.selected)
+      && coach.replyChips.length > 0
+      && coach.replyChips.every((chip) => chip.analysisOnly),
+    '⑥ 对方回应是可独立重放的引擎分析建议，不冒充已选未来',
     replyProblems.length
       ? replyProblems.join('; ')
       : coach.cards.map((card) => `${card.san}→${card.reply.piece} ${card.reply.san}`).join('　'));
@@ -1404,7 +1446,6 @@ async function runCoachChecks() {
   const animationCoach = await evalJs('window.__test.coach()');
   const activeCard = animationCoach.cards.find((card) => card.active) || null;
   const youPath = animationCoach.paths.find((path) => path.step === 'you') || null;
-  const replyPath = animationCoach.paths.find((path) => path.step === 'reply') || null;
   const animationLineIds = new Set(animationCoach.paths.map((path) => path.lineId).filter(Boolean));
   const animatedPath = (path) =>
     !!path
@@ -1416,25 +1457,25 @@ async function runCoachChecks() {
   await sleep(2400);
   const settledCoach = await evalJs('({ coach: window.__test.coach(), render: window.__test.renderStats() })');
   record(
-    animationCoach.paths.length === 2
+    animationCoach.paths.length === 1
       && animationLineIds.size === 1
       && animatedPath(youPath)
-      && animatedPath(replyPath)
       && !!activeCard
       && youPath.san === activeCard.san
       && youPath.from === activeCard.from
       && youPath.to === activeCard.to
-      && replyPath.san === activeCard.reply.san
-      && replyPath.from === activeCard.reply.from
-      && replyPath.to === activeCard.reply.to
+      && animationCoach.preview?.replySource === 'unselected-analysis'
+      && animationCoach.preview?.reply === null
+      && animationCoach.preview?.drawnReply === false
       && animationState.fen === coach.fen
       && animationCoach.fen === coach.fen
       && animationState.history.length === 0
-      && settledCoach.coach.paths.length === 2
+      && settledCoach.coach.paths.length === 1
       && settledCoach.render.runningAnimations === 0,
-    '⑥「你 → 回应」只播放一次并停住，预演不落子也不留下持续动画',
+    '⑥ 助手只播放确定的我方首步，未选回应不落子也不画成既定未来',
     `lineId=${[...animationLineIds][0] || '无'}`
       + `｜steps=${animationCoach.paths.map((path) => `${path.step}:${path.animationName}/${path.animationDuration}`).join('　')}`
+      + `｜回应来源=${animationCoach.preview?.replySource || '无'}/${animationCoach.preview?.drawnReply ? '已绘制' : '未绘制'}`
       + `｜结束后 running=${settledCoach.render.runningAnimations}`
       + `｜FEN 未变=${animationState.fen === coach.fen}`);
 
@@ -1453,7 +1494,7 @@ async function runCoachChecks() {
   record(
     switchedPiece
       && switchedCoach.selected === 'g1'
-      && switchedCoach.paths.length === 2
+      && switchedCoach.paths.length === 1
       && switchedIds.size === 1
       && !switchedIds.has(oldLineId)
       && resetClicked
@@ -1595,7 +1636,7 @@ async function runCoachChecks() {
     && terminalAudit.coach.title.includes('棋局结束')
     && keyboardAudit.selected === 'e2'
     && keyboardAudit.state === 'ready'
-    && keyboardAudit.paths === 2
+    && keyboardAudit.paths === 1
     && keyboardAudit.activePressed
     && keyboardAudit.squareTabIndex === '0';
   record(
@@ -1942,6 +1983,15 @@ async function runTree2dChecks() {
   const firstTreeClick = await clickSelectorHit(
     '#cloudTree2d button.tree2d-choice[data-parent-depth="0"][data-tree-rank="3"]',
   );
+  let firstTreePhase = '';
+  for (let sample = 0; sample < 90; sample++) {
+    firstTreePhase = await evalJs(
+      'document.getElementById("board")?.dataset.previewPhase || ""',
+    );
+    if (firstTreePhase === 'await-reply') break;
+    await sleep(30);
+  }
+  const firstTreeReady = firstTreePhase === 'await-reply';
   const secondTreeClick = await clickSelectorHit(
     '#cloudTree2d button.tree2d-choice[data-parent-depth="1"][data-tree-rank="0"]',
   );
@@ -1975,6 +2025,7 @@ async function runTree2dChecks() {
   const pathBack2dAudit = auditTree2d(pathBack2d);
   record(
     firstTreeClick
+      && firstTreeReady
       && secondTreeClick
       && deepTree.path.length === 2
       && deepTree.levels.length === 3
@@ -2004,6 +2055,7 @@ async function runTree2dChecks() {
     '② 2D 树可逐层选路和回到旧层换分支；连接线、分叉数与变体棋盘保持同一 FEN',
     deepTreeAudit.ok && switchedTreeAudit.ok
       ? `路径 ${deepTree.path.map((step) => step.san).join(' → ')}`
+        + `｜首拍=${firstTreePhase}`
         + `｜DOM 节点 ${deepTreeAudit.nodeCount}｜换首步后 ${switchedTree.path[0]?.san}`
         + `｜分支箭头 ${Math.round(panBefore)}→${Math.round(panAfter)}`
         + `｜2D→3D→2D 保留 ${pathBack2d.path.map((step) => step.san).join(' → ')}`
@@ -2014,6 +2066,17 @@ async function runTree2dChecks() {
   const preparedMobileDepth = await clickSelectorHit(
     '#cloudTree2d button.tree2d-choice[data-parent-depth="1"][data-tree-rank="0"]',
   );
+  let preparedMobilePhase = '';
+  for (let sample = 0; sample < 90; sample++) {
+    preparedMobilePhase = await evalJs(
+      'document.getElementById("board")?.dataset.previewPhase || ""',
+    );
+    if (preparedMobilePhase === 'conditional-settled'
+      || preparedMobilePhase === 'conditional-static') break;
+    await sleep(30);
+  }
+  const preparedMobileReady = preparedMobilePhase === 'conditional-settled'
+    || preparedMobilePhase === 'conditional-static';
 
   // ④ 390px 真触摸：节点和入口可命中、同层能横滑；全屏树与底部变体棋盘互不遮挡。
   const closedForMobile = await touchSelector('#cloudClose');
@@ -2131,6 +2194,7 @@ async function runTree2dChecks() {
     && card.rect.y < mobileFullTree.tree.rect.bottom);
   record(
     preparedMobileDepth
+      && preparedMobileReady
       && closedForMobile
       && mobileTreeBefore.mode === '2d'
       && mobileTreeBefore.tree.visible
@@ -2171,6 +2235,7 @@ async function runTree2dChecks() {
       + `｜桌面间距 ${Math.round(desktopTreeLayout.board.top - desktopTreeLayout.cloud.bottom)}`
       + ` / ${Math.round(shortDesktopTreeLayout.board.top - shortDesktopTreeLayout.cloud.bottom)}`
       + `｜横滑 ${branchSwipe?.before || 0}→${Math.round(branchScrollAfter)}`
+      + `｜前缀 phase=${preparedMobilePhase}`
       + `｜触摸走到第 ${mobileThirdTree.path.length} 步`
       + `｜纵滑 ${verticalSwipe.before}→${Math.round(mobileFullTree.tree.scrollTop)}`
       + `｜全屏树 bottom ${Math.round(mobileFullBoxes.tree.bottom)}`
@@ -2402,6 +2467,7 @@ async function runMobileChecks() {
 
   // 助手抬高了 stageHead；先把真实滚动容器带回视口，再从屏幕坐标发 touch 手势。
   // 不能直接给 scrollLeft 赋目标值来冒充用户横滑。
+  await evalJs('window.__futureTest.rewind(0)');
   await evalJs('document.getElementById("forkWrap").scrollIntoView({ block: "center", inline: "nearest" })');
   await settleLayout();
   const forkGesture = await evalJs(`(() => {
@@ -2416,6 +2482,33 @@ async function runMobileChecks() {
   await swipeTouch(forkGesture.from, forkGesture.to);
   const gestureScrollLeft = await evalJs('document.getElementById("forkWrap").scrollLeft');
 
+  // 第二列以后现在是条件路线，不能再像旧测试那样直接点最后一列跳过前缀。
+  // 先走五列分叉图自己的选路入口逐层建立四步前缀，再用真触摸选最后一列。
+  // 不能用 __futureTest.selectNode 搭这个前缀：它属于全屏探索器，按性能契约只展开 3 层。
+  const mobilePrefixUnlock = [];
+  await evalJs('window.__futureTest.rewind(0)');
+  for (let depth = 0; depth < 4; depth++) {
+    const picked = await evalJs(`(() => {
+      const card = document.querySelector('#fork g.card[data-col="${depth}"][data-idx="1"]')
+        || document.querySelector('#fork g.card[data-col="${depth}"]');
+      return {
+        found: !!card,
+        accepted: card ? window.__test.pickBranch(${depth}, Number(card.dataset.idx)) : false,
+        san: card?.dataset.san || '',
+      };
+    })()`);
+    let phase = '';
+    for (let sample = 0; sample < 90; sample++) {
+      phase = await evalJs('document.getElementById("board")?.dataset.previewPhase || ""');
+      const ready = depth === 0
+        ? phase === 'await-reply' || phase === 'terminal'
+        : phase === 'conditional-settled' || phase === 'conditional-static';
+      if (ready) break;
+      await sleep(30);
+    }
+    mobilePrefixUnlock.push({ ...picked, depth, phase });
+  }
+
   const forkReach = await evalJs(`(() => {
     const wrap = document.getElementById('forkWrap');
     const cards = [...document.querySelectorAll('#fork g.card')];
@@ -2428,17 +2521,38 @@ async function runMobileChecks() {
       };
     }
     wrap.scrollLeft = wrap.scrollWidth;
-    const wr = wrap.getBoundingClientRect();
     const lastCol = Math.max(...cards.map((card) => Number(card.dataset.col)));
     const target = cards.find((card) => Number(card.dataset.col) === lastCol && Number(card.dataset.idx) === 1)
       || cards.find((card) => Number(card.dataset.col) === lastCol);
-    const r = target.getBoundingClientRect();
+    const initialChosenRank = Number(
+      cards.find((card) => Number(card.dataset.col) === lastCol && card.dataset.selected === 'true')
+        ?.dataset.idx,
+    );
+    let wr = wrap.getBoundingClientRect();
+    let r = target.getBoundingClientRect();
+    wrap.scrollTop = Math.max(
+      0,
+      Math.min(
+        wrap.scrollHeight - wrap.clientHeight,
+        wrap.scrollTop + (r.top + r.bottom - wr.top - wr.bottom) / 2,
+      ),
+    );
+    wr = wrap.getBoundingClientRect();
+    r = target.getBoundingClientRect();
+    const x = Math.max(wr.left + 2, Math.min(wr.right - 2, (r.left + r.right) / 2));
+    const y = Math.max(wr.top + 2, Math.min(wr.bottom - 2, (r.top + r.bottom) / 2));
+    const hit = document.elementFromPoint(x, y)?.closest?.('g.card');
     return {
       cards: cards.length, clientW: wrap.clientWidth, scrollW: wrap.scrollWidth,
-      visible: r.right > wr.left && r.left < wr.right,
+      visible:
+        r.right > wr.left && r.left < wr.right
+        && r.bottom > wr.top && r.top < wr.bottom,
+      hittable: hit === target,
+      scrollTop: wrap.scrollTop,
+      lastCol,
+      initialChosenRank,
       target: {
-        x: (r.left + r.right) / 2, y: (r.top + r.bottom) / 2,
-        col: lastCol, san: target.querySelector('text').textContent,
+        x, y, col: lastCol, rank: Number(target.dataset.idx), san: target.dataset.san,
       },
       rootScrollW: document.documentElement.scrollWidth,
       rootClientW: document.documentElement.clientWidth,
@@ -2448,18 +2562,67 @@ async function runMobileChecks() {
     await touchAt(forkReach.target.x, forkReach.target.y);
     await sleep(120);
   }
-  const touchedBranch = forkReach.target
-    ? await evalJs(`window.__forkStats()[${forkReach.target.col}].chosenSan`)
+  const touchedRoute = forkReach.target
+    ? await evalJs(`({
+        column: window.__forkStats()[${forkReach.target.col}],
+        future: window.__futureTest.snapshot(),
+        explorer: window.__test.explorer(),
+        state: window.__test.state(),
+      })`)
     : null;
+  const touchedBranch = touchedRoute?.column?.chosenSan || null;
+  const selectedPathAudit = (() => {
+    const path = touchedRoute?.future?.selectedPath || [];
+    let replay;
+    try { replay = new Chess(touchedRoute?.future?.root?.fen || ''); }
+    catch (error) { return { ok: false, detail: error.message }; }
+    for (const [index, step] of path.entries()) {
+      const played = replay.move({
+        from: step.from,
+        to: step.to,
+        ...(step.promotion ? { promotion: step.promotion } : {}),
+      });
+      if (
+        !played
+        || played.san !== step.label
+        || replay.fen() !== step.afterFen
+        || step.branchCount !== count(step.afterFen, 1)
+      ) return { ok: false, detail: `L${index + 1} ${step.label}` };
+    }
+    return { ok: true, detail: path.map((step) => step.label).join('→') };
+  })();
+  const explorerPrefix = touchedRoute?.explorer?.path || [];
+  const selectedPath = touchedRoute?.future?.selectedPath || [];
   record(
     forkReach.cards > 0
       && gestureScrollLeft > 10
+      && mobilePrefixUnlock.length === 4
+      && mobilePrefixUnlock.every((step, depth) =>
+        step.found && step.accepted
+          && (depth === 0
+            ? step.phase === 'await-reply' || step.phase === 'terminal'
+            : step.phase === 'conditional-settled' || step.phase === 'conditional-static'))
       && forkReach.scrollW > forkReach.clientW
       && forkReach.visible
+      && forkReach.hittable
+      && forkReach.lastCol === 4
+      && forkReach.target?.rank !== forkReach.initialChosenRank
       && touchedBranch === forkReach.target?.san
+      && touchedRoute?.column?.chosenRank === forkReach.target?.rank
+      && selectedPath.length === 5
+      && selectedPathAudit.ok
+      && touchedRoute?.state?.history?.length === 0
+      && touchedRoute?.state?.fen === touchedRoute?.future?.root?.fen
+      && explorerPrefix.length === 3
+      && explorerPrefix.every((step, index) => step.after === selectedPath[index]?.afterFen)
       && forkReach.rootScrollW <= forkReach.rootClientW + 1,
     '④ 分叉可真实横滑，最后一列可触摸选择',
-    `手势滑到 ${Math.round(gestureScrollLeft)}px｜末列点 ${forkReach.target?.san || '无卡片'}→${touchedBranch || '未选'}｜根页面 ${forkReach.rootClientW}/${forkReach.rootScrollW}px`);
+    `手势滑到 ${Math.round(gestureScrollLeft)}px`
+      + `｜前缀 ${mobilePrefixUnlock.map((step) => `${step.san}:${step.phase}`).join('→')}`
+      + `｜纵滚 ${Math.round(forkReach.scrollTop || 0)}px / hit=${forkReach.hittable}`
+      + `｜末列点 ${forkReach.target?.san || '无卡片'}→${touchedBranch || '未选'}`
+      + `｜五步 ${selectedPathAudit.detail} / explorer=${explorerPrefix.length}`
+      + `｜根页面 ${forkReach.rootClientW}/${forkReach.rootScrollW}px`);
 
   const resetUi = await evalJs(`(() => {
     const before = {
@@ -2483,13 +2646,13 @@ async function runMobileChecks() {
   })()`, true);
   record(
     resetUi.before.scrollLeft > 10
-      && resetUi.after.scrollLeft <= 1
+      && resetUi.after.scrollLeft <= 2
       && resetUi.after.state.history.length === 0
       && resetUi.after.state.thinking === false
       && resetUi.after.ai === null
       && resetUi.after.pending === null
       && resetUi.after.status.includes('你执白')
-      && resetUi.after.foot.includes('亮蓝主干')
+      && resetUi.after.foot.includes('第一步由你选择')
       && !resetUi.after.foot.includes(forkReach.target?.san || '\u0000'),
     '④ 重开会清掉旧状态、走法详情和分叉横滚位置',
     `scrollLeft ${Math.round(resetUi.before.scrollLeft)}→${Math.round(resetUi.after.scrollLeft)}`
@@ -3750,6 +3913,391 @@ async function main() {
       + `｜清空后=${futureContract.cleanButtons.legacyDisabled}/${futureContract.cleanButtons.commitDisabled}`,
   );
 
+  let uncertainReplies = null;
+  let uncertainRepliesError = '';
+  try {
+    await send('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+    });
+    uncertainReplies = await evalJs(`(async () => {
+      const board = document.getElementById('board');
+      const read = () => {
+        const list = document.querySelector('[data-future-reply-list]');
+        return {
+          phase: board?.dataset.previewPhase || '',
+          rootFen: board?.dataset.previewRootFen || '',
+          displayFen: board?.dataset.previewDisplayFen || '',
+          lineId: board?.dataset.previewLineId || '',
+          stepIndex: Number(board?.dataset.previewStepIndex || 0),
+          stepCount: Number(board?.dataset.previewStepCount || 0),
+          boardReadOnly: board?.getAttribute('aria-readonly') || '',
+          tabbableSquares: board?.querySelectorAll('#boardSquares [tabindex="0"]').length || 0,
+          disabledSquares: board?.querySelectorAll('#boardSquares [aria-disabled="true"]').length || 0,
+          motions: [...(board?.querySelectorAll('[data-future-motion-piece="true"]') || [])].map((node) => ({
+            lineId: node.dataset.previewLineId || '',
+            step: node.dataset.previewStep || '',
+          })),
+          paths: [...(board?.querySelectorAll('[data-future-preview-step]') || [])].map((node) => ({
+            lineId: node.dataset.previewLineId || '',
+            step: node.dataset.futurePreviewStep || '',
+            from: node.dataset.previewFrom || '',
+            to: node.dataset.previewTo || '',
+          })),
+          pieces: [...document.querySelectorAll('#boardPieces g.piece3d')].map((piece) => ({
+            sq: piece.dataset.sq || '', color: piece.dataset.color || '', type: piece.dataset.type || '',
+          })),
+          replyCount: Number(list?.dataset.replyCount ?? -1),
+          replyText: list?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+          options: [...document.querySelectorAll('[data-future-reply-option]')].map((option) => ({
+            from: option.dataset.from || '',
+            to: option.dataset.to || '',
+            promotion: option.dataset.promotion || '',
+            afterFen: option.dataset.afterFen || '',
+            branchCount: Number(option.dataset.branchCount),
+            suggested: option.dataset.engineSuggested === 'true',
+            text: (option.textContent || '').replace(/\\s+/g, ' ').trim(),
+            aria: option.getAttribute('aria-label') || '',
+            tag: option.tagName,
+            disabled: !!option.disabled,
+          })),
+          continuations: [
+            document.querySelector('#fork g.card[data-col="1"]'),
+            document.querySelector('#cloudTree2d [data-tree-rank][data-parent-depth="1"]'),
+            document.querySelector('#exploreChoices [data-explore-rank][data-parent-depth="1"]'),
+          ].filter(Boolean).map((control) => ({
+            kind: control.matches('#fork g.card') ? 'fork'
+              : control.matches('#cloudTree2d *') ? 'tree' : 'explorer',
+            disabled: control.matches('button') ? control.disabled : control.hasAttribute('disabled'),
+            ariaDisabled: control.getAttribute('aria-disabled') || '',
+            tabIndex: control.getAttribute('tabindex') || '',
+          })),
+          ids: [...(board?.querySelectorAll('[data-preview-line-id]') || [])]
+            .map((node) => node.dataset.previewLineId || '').filter(Boolean),
+        };
+      };
+      window.__futureTest.rewind(0);
+      const initial = window.__futureTest.snapshot();
+      const liveBefore = window.__test.state();
+      const deepCard = document.querySelector('#fork g.card[data-col="2"][data-after]');
+      const bypassAccepted = deepCard
+        ? window.__futureTest.selectNode(2, deepCard.dataset.after || '')
+        : null;
+      const afterBypass = window.__futureTest.snapshot();
+      const bypassButtons = {
+        legacyDisabled: document.getElementById('btnPlayLine')?.disabled,
+        commitDisabled: document.getElementById('futureCommit')?.disabled,
+      };
+      window.__futureTest.rewind(0);
+      const key = initial.suggestedPath[0]?.afterFen || '';
+      const prematureFirstSelected = key ? window.__futureTest.selectNode(0, key) : false;
+      const prematureReplyCard = document.querySelector('#fork g.card[data-col="1"][data-after]');
+      const prematureReply = {
+        firstSelected: prematureFirstSelected,
+        ariaDisabled: prematureReplyCard?.getAttribute('aria-disabled') || '',
+        tabIndex: prematureReplyCard?.getAttribute('tabindex') || '',
+        hookAccepted: prematureReplyCard
+          ? window.__futureTest.selectNode(1, prematureReplyCard.dataset.after || '')
+          : null,
+        selectedDepth: window.__futureTest.snapshot().selectedPath.length,
+      };
+      window.__futureTest.rewind(0);
+      const keyboardCard = [...document.querySelectorAll('#fork g.card[data-col="0"]')]
+        .find((card) => card.dataset.after === key);
+      keyboardCard?.focus({ preventScroll: true });
+      keyboardCard?.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Enter', bubbles: true, cancelable: true,
+      }));
+      const keyboardSelection = {
+        selectedDepth: window.__futureTest.snapshot().selectedPath.length,
+        phase: board?.dataset.previewPhase || '',
+        activeTag: document.activeElement?.tagName || '',
+        activeCol: document.activeElement?.dataset?.col || '',
+        activeAfter: document.activeElement?.dataset?.after || '',
+        activeIsBody: document.activeElement === document.body,
+        board: read(),
+      };
+      window.__futureTest.rewind(0);
+      const selected = key ? window.__futureTest.selectNode(0, key) : false;
+      const afterSelect = window.__futureTest.snapshot();
+      const immediate = read();
+      const samples = [];
+      const start = performance.now();
+      let awaited = read();
+      while (performance.now() - start < 2200) {
+        awaited = read();
+        samples.push(awaited);
+        if (awaited.phase === 'await-reply') break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const beforeIdleWait = read();
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const afterIdleWait = read();
+      const snapshotAfterAwait = window.__futureTest.snapshot();
+      const choices = afterIdleWait.options;
+      const suggestedIndex = choices.findIndex((option) => option.suggested);
+      const secondIndex = choices.findIndex((option, index) => index !== suggestedIndex && !option.suggested);
+      const firstIndex = choices.findIndex((option, index) => index !== secondIndex);
+      const firstChoice = choices[firstIndex] || null;
+      const secondChoice = choices[secondIndex] || null;
+      const optionFor = (choice) => [...document.querySelectorAll('[data-future-reply-option]')]
+        .find((option) => option.dataset.from === choice?.from
+          && option.dataset.to === choice?.to
+          && (option.dataset.promotion || '') === (choice?.promotion || ''));
+      const replyList = document.querySelector('[data-future-reply-list]');
+      if (replyList) replyList.scrollLeft = Math.min(96, replyList.scrollWidth);
+      const firstButton = optionFor(firstChoice);
+      firstButton?.focus({ preventScroll: true });
+      const beforeFirstClick = {
+        scrollLeft: replyList?.scrollLeft || 0,
+        activeFrom: document.activeElement?.dataset?.from || '',
+        activeTo: document.activeElement?.dataset?.to || '',
+        activePromotion: document.activeElement?.dataset?.promotion || '',
+      };
+      firstButton?.click();
+      const replacementList = document.querySelector('[data-future-reply-list]');
+      const afterFirstClick = {
+        scrollLeft: replacementList?.scrollLeft || 0,
+        activeFrom: document.activeElement?.dataset?.from || '',
+        activeTo: document.activeElement?.dataset?.to || '',
+        activePromotion: document.activeElement?.dataset?.promotion || '',
+        commitDisabled: document.getElementById('futureCommit')?.disabled,
+      };
+      await new Promise((resolve) => setTimeout(resolve, 55));
+      const firstBranch = read();
+      optionFor(secondChoice)?.click();
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      const switched = read();
+      const branchStart = performance.now();
+      let final = switched;
+      while (performance.now() - branchStart < 2200) {
+        final = read();
+        if (final.phase === 'conditional-settled') break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      final = read();
+      const liveAfter = window.__test.state();
+      const finalSnapshot = window.__futureTest.snapshot();
+      const clearControl = document.getElementById('futureClear');
+      const clearBefore = {
+        enabled: !!clearControl && !clearControl.disabled,
+        live: window.__test.state(),
+      };
+      clearControl?.focus({ preventScroll: true });
+      clearControl?.click();
+      const clearAfter = {
+        preview: read(),
+        snapshot: window.__futureTest.snapshot(),
+        live: window.__test.state(),
+        repliesHidden: document.getElementById('futureReplyPanel')?.hidden,
+        clearDisabled: clearControl?.disabled,
+        commitDisabled: document.getElementById('futureCommit')?.disabled,
+        coachState: document.getElementById('coachPanel')?.dataset.state || '',
+        coachTitle: document.getElementById('coachTitle')?.textContent || '',
+        activeIsRootCard:
+          document.activeElement?.matches?.('#fork g.card[data-col="0"][data-selected="true"]') || false,
+      };
+      return {
+        selected, initial, bypassAccepted, afterBypass, bypassButtons, prematureReply,
+        keyboardSelection,
+        afterSelect, immediate, samples, beforeIdleWait, afterIdleWait,
+        snapshotAfterAwait, firstChoice, secondChoice, beforeFirstClick, afterFirstClick,
+        firstBranch, switched, final,
+        liveBefore, liveAfter, finalSnapshot, clearBefore, clearAfter,
+      };
+    })()`, true);
+  } catch (error) {
+    uncertainRepliesError = error?.message || String(error);
+  }
+  const uncertainYou = uncertainReplies?.afterSelect?.selectedPath?.[0];
+  const uncertainSamples = uncertainReplies?.samples || [];
+  const uncertainMotionRoles = new Set(
+    uncertainSamples.flatMap((sample) => sample.motions.map((motion) => motion.step)),
+  );
+  const uncertainAwait = uncertainReplies?.afterIdleWait;
+  const replyAudit = auditChessReplyOptions(uncertainYou?.afterFen || '', uncertainAwait?.options || []);
+  const suggestedReplies = (uncertainAwait?.options || []).filter((option) => option.suggested);
+  const suggestedStep = uncertainReplies?.snapshotAfterAwait?.suggestedPath?.[0];
+  const suggestedOption = suggestedReplies[0];
+  const firstPath = uncertainAwait?.paths?.[0];
+  record(
+    !!uncertainReplies
+      && uncertainReplies.selected === true
+      && uncertainReplies.bypassAccepted === false
+      && uncertainReplies.afterBypass.selectedPath.length === 0
+      && uncertainReplies.bypassButtons.legacyDisabled === true
+      && uncertainReplies.bypassButtons.commitDisabled === true
+      && uncertainReplies.prematureReply.firstSelected === true
+      && uncertainReplies.prematureReply.ariaDisabled === 'true'
+      && uncertainReplies.prematureReply.tabIndex === '-1'
+      && uncertainReplies.prematureReply.hookAccepted === false
+      && uncertainReplies.prematureReply.selectedDepth === 1
+      && !!uncertainYou
+      && uncertainReplies.immediate.phase === 'playing'
+      && uncertainReplies.immediate.options.length > 0
+      && uncertainReplies.immediate.options.every((option) => option.disabled)
+      && uncertainReplies.immediate.continuations.length === 3
+      && uncertainReplies.immediate.continuations.every((control) =>
+        control.disabled && control.ariaDisabled === 'true' && control.tabIndex === '-1')
+      && uncertainAwait?.phase === 'await-reply'
+      && uncertainAwait.stepIndex === 1
+      && uncertainAwait.stepCount === 1
+      && uncertainAwait.displayFen === uncertainYou.afterFen
+      && uncertainAwait.lineId
+      && uncertainAwait.paths.length === 1
+      && uncertainAwait.continuations.length === 3
+      && uncertainAwait.continuations.every((control) =>
+        !control.disabled && control.ariaDisabled === 'false' && control.tabIndex === '0')
+      && firstPath?.step === 'you'
+      && firstPath?.lineId === uncertainAwait.lineId
+      && firstPath?.from === uncertainYou.from
+      && firstPath?.to === uncertainYou.to
+      && uncertainMotionRoles.has('you')
+      && !uncertainMotionRoles.has('reply')
+      && uncertainSamples.every((sample) => sample.motions.length <= 1)
+      && uncertainReplies.beforeIdleWait.phase === 'await-reply'
+      && uncertainReplies.beforeIdleWait.lineId === uncertainAwait.lineId
+      && uncertainReplies.beforeIdleWait.displayFen === uncertainAwait.displayFen
+      && renderedPiecesMatchFen(uncertainAwait.pieces, uncertainYou.afterFen)
+      && uncertainReplies.liveAfter.fen === uncertainReplies.liveBefore.fen
+      && JSON.stringify(uncertainReplies.liveAfter.history)
+        === JSON.stringify(uncertainReplies.liveBefore.history),
+    '选第一步后只播放该步并稳定等待回应，未选择不能自动推进',
+    uncertainRepliesError || `phase=${uncertainAwait?.phase || '无'}`
+      + `｜motions=${[...uncertainMotionRoles].join('/') || '无'}`
+      + `｜paths=${uncertainAwait?.paths?.map((path) => path.step).join('/') || '无'}`
+      + `｜实战未变=${uncertainReplies?.liveAfter?.fen === uncertainReplies?.liveBefore?.fen}`,
+  );
+  record(
+    !!uncertainReplies
+      && uncertainReplies.keyboardSelection.selectedDepth === 1
+      && uncertainReplies.keyboardSelection.phase === 'playing'
+      && uncertainReplies.keyboardSelection.activeTag.toLowerCase() === 'g'
+      && uncertainReplies.keyboardSelection.activeCol === '0'
+      && uncertainReplies.keyboardSelection.activeAfter
+        === uncertainReplies.initial.suggestedPath[0]?.afterFen
+      && uncertainReplies.keyboardSelection.activeIsBody === false
+      && uncertainReplies.keyboardSelection.board.boardReadOnly === 'true'
+      && uncertainReplies.keyboardSelection.board.tabbableSquares === 0
+      && uncertainReplies.keyboardSelection.board.disabledSquares === 64
+      && uncertainAwait?.boardReadOnly === 'true'
+      && uncertainAwait?.tabbableSquares === 0
+      && uncertainAwait?.disabledSquares === 64,
+    '键盘选首步保留分叉焦点，预演棋盘整块移出 Tab 并明确只读',
+    uncertainRepliesError || `focus=${uncertainReplies?.keyboardSelection?.activeTag || '无'}`
+      + `/${uncertainReplies?.keyboardSelection?.activeCol || '无'}`
+      + `｜playing Tab=${uncertainReplies?.keyboardSelection?.board?.tabbableSquares ?? '？'}`
+      + `｜await Tab=${uncertainAwait?.tabbableSquares ?? '？'}`,
+  );
+  record(
+    !!uncertainReplies
+      && replyAudit.ok
+      && uncertainAwait.replyCount === uncertainAwait.options.length
+      && uncertainAwait.options.length === replyAudit.legalCount
+      && uncertainAwait.options.every((option) => option.tag === 'BUTTON' && !option.disabled)
+      && suggestedReplies.length === 1
+      && !!suggestedStep
+      && suggestedOption?.from === suggestedStep.from
+      && suggestedOption?.to === suggestedStep.to
+      && (suggestedOption?.promotion || '') === (suggestedStep.promotion || '')
+      && suggestedOption?.afterFen === suggestedStep.afterFen
+      && /建议/.test(suggestedOption?.text || '')
+      && /建议/.test(suggestedOption?.aria || '')
+      && uncertainAwait.options
+        .filter((option) => !option.suggested)
+        .every((option) => /可能|假设/.test(option.aria))
+      && /(?:可能|假设)回应/.test(uncertainAwait.replyText)
+      && !/(?:确定|必然)回应/.test(uncertainAwait.replyText),
+    '回应面板完整渲染全部合法候选，金色引擎回应只是一项建议',
+    uncertainRepliesError || (replyAudit.ok
+      ? `DOM/属性/棋核=${uncertainAwait?.options?.length || 0}`
+        + `｜建议=${suggestedReplies.length}｜条件文案=${uncertainAwait?.replyText || '无'}`
+      : replyAudit.problems.slice(0, 5).join('；')),
+  );
+  const conditionalFinal = uncertainReplies?.final;
+  const conditionalChoice = uncertainReplies?.secondChoice;
+  const conditionalPaths = conditionalFinal?.paths || [];
+  record(
+    !!uncertainReplies
+      && !!conditionalChoice
+      && conditionalChoice.suggested === false
+      && uncertainReplies.firstBranch.lineId
+      && uncertainReplies.switched.lineId
+      && uncertainReplies.firstBranch.lineId !== uncertainReplies.switched.lineId
+      && conditionalFinal.phase === 'conditional-settled'
+      && conditionalFinal.lineId === uncertainReplies.switched.lineId
+      && conditionalFinal.stepIndex === 2
+      && conditionalFinal.stepCount === 2
+      && conditionalFinal.displayFen === conditionalChoice.afterFen
+      && conditionalFinal.motions.length === 0
+      && conditionalPaths.length === 2
+      && conditionalPaths.every((path) => path.lineId === conditionalFinal.lineId)
+      && conditionalPaths.some((path) => path.step === 'you')
+      && conditionalPaths.some((path) => path.step === 'reply'
+        && path.from === conditionalChoice.from && path.to === conditionalChoice.to)
+      && conditionalFinal.ids.every((id) => id === conditionalFinal.lineId)
+      && renderedPiecesMatchFen(conditionalFinal.pieces, conditionalChoice.afterFen)
+      && uncertainReplies.finalSnapshot.selectedPath.length === 2
+      && uncertainReplies.finalSnapshot.selectedPath[1]?.afterFen === conditionalChoice.afterFen
+      && uncertainReplies.beforeFirstClick.scrollLeft > 0
+      && uncertainReplies.afterFirstClick.scrollLeft === uncertainReplies.beforeFirstClick.scrollLeft
+      && uncertainReplies.beforeFirstClick.activeFrom === uncertainReplies.firstChoice.from
+      && uncertainReplies.beforeFirstClick.activeTo === uncertainReplies.firstChoice.to
+      && uncertainReplies.beforeFirstClick.activePromotion === uncertainReplies.firstChoice.promotion
+      && uncertainReplies.afterFirstClick.activeFrom === uncertainReplies.firstChoice.from
+      && uncertainReplies.afterFirstClick.activeTo === uncertainReplies.firstChoice.to
+      && uncertainReplies.afterFirstClick.activePromotion === uncertainReplies.firstChoice.promotion
+      && uncertainReplies.afterFirstClick.commitDisabled === false
+      && uncertainReplies.liveAfter.fen === uncertainReplies.liveBefore.fen
+      && JSON.stringify(uncertainReplies.liveAfter.history)
+        === JSON.stringify(uncertainReplies.liveBefore.history),
+    '显式点可能回应后才播放条件分支，快速换分支隔离旧代且实战不变',
+    uncertainRepliesError || `line=${uncertainReplies?.firstBranch?.lineId || '无'}`
+      + `→${uncertainReplies?.switched?.lineId || '无'}`
+      + `｜phase=${conditionalFinal?.phase || '无'}`
+      + `｜step=${conditionalFinal?.stepIndex ?? -1}/${conditionalFinal?.stepCount ?? -1}`
+      + `｜display=${conditionalFinal?.displayFen === conditionalChoice?.afterFen}`
+      + `｜paths=${conditionalPaths.map((path) => `${path.step}:${path.lineId === conditionalFinal?.lineId}`).join('/') || '无'}`
+      + `｜ids=${conditionalFinal?.ids?.every((id) => id === conditionalFinal?.lineId)}`
+      + `｜选路=${uncertainReplies?.finalSnapshot?.selectedPath?.length || 0}`
+      + `｜scroll=${uncertainReplies?.beforeFirstClick?.scrollLeft ?? -1}→${uncertainReplies?.afterFirstClick?.scrollLeft ?? -1}`
+      + `｜focus=${uncertainReplies?.beforeFirstClick?.activeFrom || '?'}-${uncertainReplies?.beforeFirstClick?.activeTo || '?'}`
+      + `→${uncertainReplies?.afterFirstClick?.activeFrom || '?'}-${uncertainReplies?.afterFirstClick?.activeTo || '?'}`
+      + `｜commit=${uncertainReplies?.afterFirstClick?.commitDisabled}`
+      + `｜非建议=${conditionalChoice?.suggested === false}`
+      + `｜实战未变=${uncertainReplies?.liveAfter?.fen === uncertainReplies?.liveBefore?.fen}`,
+  );
+
+  const clearAfter = uncertainReplies?.clearAfter;
+  record(
+    !!uncertainReplies
+      && uncertainReplies.clearBefore.enabled === true
+      && clearAfter?.preview?.phase === 'idle'
+      && clearAfter.preview.stepCount === 0
+      && clearAfter.preview.paths.length === 0
+      && clearAfter.preview.options.length === 0
+      && clearAfter.preview.boardReadOnly === 'false'
+      && clearAfter.preview.tabbableSquares > 0
+      && clearAfter.snapshot.selectedPath.length === 0
+      && clearAfter.snapshot.root.fen === uncertainReplies.clearBefore.live.fen
+      && clearAfter.repliesHidden === true
+      && clearAfter.clearDisabled === true
+      && clearAfter.commitDisabled === true
+      && clearAfter.coachState === 'idle'
+      && /先点一枚白棋/.test(clearAfter.coachTitle)
+      && clearAfter.activeIsRootCard === true
+      && clearAfter.live.fen === uncertainReplies.clearBefore.live.fen
+      && JSON.stringify(clearAfter.live.history)
+        === JSON.stringify(uncertainReplies.clearBefore.live.history),
+    '普通视图的「回到现在」会收起回应、恢复真棋盘且不改实战',
+    uncertainRepliesError || `phase=${clearAfter?.preview?.phase || '无'}`
+      + `｜选路=${clearAfter?.snapshot?.selectedPath?.length ?? -1}`
+      + `｜回应隐藏=${clearAfter?.repliesHidden}`
+      + `｜Tab=${clearAfter?.preview?.tabbableSquares ?? -1}`
+      + `｜coach=${clearAfter?.coachState || '无'}`
+      + `｜焦点回根=${clearAfter?.activeIsRootCard}`
+      + `｜实战未变=${clearAfter?.live?.fen === uncertainReplies?.clearBefore?.live?.fen}`,
+  );
+
   const futurePreviewProtocol = await evalJs(`(() => {
     const board = document.getElementById('board');
     return !!board
@@ -3763,9 +4311,9 @@ async function main() {
   })()`);
   if (!futurePreviewProtocol) {
     const detail = '主棋盘未声明 data-future-preview 与完整 data-preview-* 协议';
-    record(false, '选路会有限播放“你走 → 强回应”并停在真实预演局面', detail);
+    record(false, '选择首步会有限播放并停在等待可能回应的真实局面', detail);
     record(false, '快速切换路线会隔离 line-id，旧动画不能回写新预演', detail);
-    record(false, '减少动态模式直接投影两拍最终局面且不改实战', detail);
+    record(false, '减少动态模式分别静态投影首步与显式条件回应且不改实战', detail);
   } else {
     let normalPreview = null;
     let normalPreviewError = '';
@@ -3808,13 +4356,11 @@ async function main() {
         while (performance.now() - startedAt < 3200) {
           final = read();
           samples.push(final);
-          if (final.active === 'active' && final.phase === 'settled') break;
+          if (final.active === 'active' && final.phase === 'await-reply') break;
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
         final = read();
         const you = afterSelect.selectedPath[0] || null;
-        const reply = afterSelect.selectedPath[1] || afterSelect.suggestedPath[0] || null;
-        const strongReply = you ? (window.__test.rankedReplies(you.afterFen, 2)[0] || null) : null;
         document.getElementById('exploreReset')?.click();
         await Promise.resolve();
         const afterRealReset = read();
@@ -3826,7 +4372,7 @@ async function main() {
         const liveAfterInvalidMove = window.__test.state();
         return {
           selected, initial, afterSelect, liveBefore, liveAfter: window.__test.state(),
-          elapsed: performance.now() - startedAt, samples, final, you, reply, strongReply,
+          elapsed: performance.now() - startedAt, samples, final, you,
           afterRealReset, liveAfterRealReset, reselected, beforeInvalidMove,
           invalidAccepted, afterInvalidMove, liveAfterInvalidMove,
         };
@@ -3839,9 +4385,7 @@ async function main() {
     );
     const normalPaths = normalPreview?.final?.paths || [];
     const normalYou = normalPreview?.you;
-    const normalReply = normalPreview?.reply;
-    const normalStrong = normalPreview?.strongReply;
-    const normalFinalFen = normalReply?.afterFen || normalYou?.afterFen || '';
+    const normalFinalFen = normalYou?.afterFen || '';
     const normalLiveFen = normalPreview?.liveBefore?.fen || '';
     const resetBoard = normalPreview?.afterRealReset;
     const invalidBoard = normalPreview?.afterInvalidMove;
@@ -3854,33 +4398,25 @@ async function main() {
           && invalidBoard.phase === 'idle'
           && invalidBoard.lineId === ''
           && invalidBoard.displayFen === normalLiveFen);
-    const normalPathsExact = normalPaths.length === 2
-      && ['you', 'reply'].every((step) => {
-        const actual = normalPaths.find((path) => path.step === step);
-        const expected = step === 'you' ? normalYou : normalReply;
-        return !!actual && !!expected
-          && actual.lineId === normalPreview.final.lineId
-          && actual.from === expected.from && actual.to === expected.to;
-      });
+    const normalPathsExact = normalPaths.length === 1
+      && normalPaths[0]?.step === 'you'
+      && normalPaths[0]?.lineId === normalPreview?.final?.lineId
+      && normalPaths[0]?.from === normalYou?.from
+      && normalPaths[0]?.to === normalYou?.to;
     record(
       !!normalPreview
         && normalPreview.selected === true
-        && normalMotionSteps.size === 2
+        && normalMotionSteps.size === 1
         && normalMotionSteps.has('you')
-        && normalMotionSteps.has('reply')
         && normalPreview.samples.every((sample) => sample.motions.length <= 1)
         && normalPreview.final.active === 'active'
-        && normalPreview.final.phase === 'settled'
-        && normalPreview.final.stepCount === 2
+        && normalPreview.final.phase === 'await-reply'
+        && normalPreview.final.stepCount === 1
         && normalPreview.final.lineId.length > 0
         && normalPreview.final.rootFen === normalPreview.liveBefore.fen
         && normalPreview.final.displayFen === normalFinalFen
         && normalPreview.final.motions.length === 0
         && normalPathsExact
-        && normalStrong?.from === normalReply?.from
-        && normalStrong?.to === normalReply?.to
-        && (normalStrong?.promotion || '') === (normalReply?.promotion || '')
-        && normalStrong?.after === normalReply?.afterFen
         && renderedPiecesMatchFen(normalPreview.final.pieces, normalFinalFen)
         && normalPreview.liveAfter.fen === normalPreview.liveBefore.fen
         && JSON.stringify(normalPreview.liveAfter.history) === JSON.stringify(normalPreview.liveBefore.history)
@@ -3898,7 +4434,7 @@ async function main() {
         && invalidProtocolConsistent
         && normalPreview.liveAfterInvalidMove?.fen === normalLiveFen
         && JSON.stringify(normalPreview.liveAfterInvalidMove?.history) === JSON.stringify(normalPreview.liveBefore.history),
-      '选路会有限播放“你走 → 强回应”，回到现在/非法着后主盘与实战同源',
+      '选择首步会有限播放并等待可能回应，回到现在/非法着后主盘与实战同源',
       normalPreviewError || `steps=${[...normalMotionSteps].join('→') || '无'}`
         + `｜phase=${normalPreview?.final?.phase || '无'}`
         + `｜display=${normalPreview?.final?.displayFen === normalFinalFen}`
@@ -3955,7 +4491,7 @@ async function main() {
         let final = switched;
         while (performance.now() - startedAt < 3200) {
           final = read();
-          if (final.active === 'active' && final.phase === 'settled') break;
+          if (final.active === 'active' && final.phase === 'await-reply') break;
           await new Promise((resolve) => setTimeout(resolve, 20));
         }
         final = read();
@@ -3969,9 +4505,7 @@ async function main() {
       rapidPreviewError = error?.message || String(error);
     }
     const rapidYou = rapidPreview?.secondRoute?.selectedPath?.[0];
-    const rapidReply = rapidPreview?.secondRoute?.selectedPath?.[1]
-      || rapidPreview?.secondRoute?.suggestedPath?.[0];
-    const rapidFinalFen = rapidReply?.afterFen || rapidYou?.afterFen || '';
+    const rapidFinalFen = rapidYou?.afterFen || '';
     record(
       !!rapidPreview
         && rapidPreview.firstSelected === true
@@ -3984,8 +4518,8 @@ async function main() {
         && rapidPreview.staleFinally === 0
         && rapidPreview.switched.ids.every((id) => id === rapidPreview.secondLineId)
         && rapidPreview.final.ids.every((id) => id === rapidPreview.secondLineId)
-        && rapidPreview.final.phase === 'settled'
-        && rapidPreview.final.stepCount === 2
+        && rapidPreview.final.phase === 'await-reply'
+        && rapidPreview.final.stepCount === 1
         && rapidPreview.final.displayFen === rapidFinalFen
         && renderedPiecesMatchFen(rapidPreview.final.pieces, rapidFinalFen)
         && rapidPreview.liveAfter.fen === rapidPreview.liveBefore.fen
@@ -4018,7 +4552,11 @@ async function main() {
       await send('Emulation.setEmulatedMedia', {
         features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
       });
-      await sleep(80);
+      for (let i = 0; i < 30; i++) {
+        const phase = await evalJs("document.getElementById('board')?.dataset.previewPhase || ''");
+        if (phase === 'await-reply') break;
+        await sleep(40);
+      }
       const switched = await evalJs(`(() => {
         const board = document.getElementById('board');
         return {
@@ -4044,33 +4582,49 @@ async function main() {
       })()`);
       const staticPreview = await evalJs(`(() => {
         const board = document.getElementById('board');
+        const readBoard = () => ({
+          active: board.dataset.futurePreview || '',
+          phase: board.dataset.previewPhase || '',
+          rootFen: board.dataset.previewRootFen || '',
+          displayFen: board.dataset.previewDisplayFen || '',
+          lineId: board.dataset.previewLineId || '',
+          stepIndex: Number(board.dataset.previewStepIndex || 0),
+          stepCount: Number(board.dataset.previewStepCount || 0),
+          motions: board.querySelectorAll('[data-future-motion-piece="true"]').length,
+          paths: [...board.querySelectorAll('[data-future-preview-step]')].map((path) => ({
+            lineId: path.dataset.previewLineId || '',
+            step: path.dataset.futurePreviewStep || '',
+            from: path.dataset.previewFrom || '',
+            to: path.dataset.previewTo || '',
+          })),
+          pieces: [...document.querySelectorAll('#boardPieces g.piece3d')].map((piece) => ({
+            sq: piece.dataset.sq || '', color: piece.dataset.color || '', type: piece.dataset.type || '',
+          })),
+        });
         window.__futureTest.rewind(0);
         const initial = window.__futureTest.snapshot();
         const liveBefore = window.__test.state();
         const key = initial.suggestedPath[0]?.afterFen || '';
         const selected = key ? window.__futureTest.selectNode(0, key) : false;
         const route = window.__futureTest.snapshot();
+        const firstBoard = readBoard();
+        const replyButton = [...document.querySelectorAll('[data-future-reply-option]')]
+          .find((button) => button.dataset.engineSuggested !== 'true')
+          || document.querySelector('[data-future-reply-option]');
+        const replyChoice = replyButton ? {
+          from: replyButton.dataset.from || '',
+          to: replyButton.dataset.to || '',
+          afterFen: replyButton.dataset.afterFen || '',
+        } : null;
+        replyButton?.click();
+        const conditionalRoute = window.__futureTest.snapshot();
+        const conditionalBoard = readBoard();
         return {
-          selected, route, liveBefore, liveAfter: window.__test.state(),
+          selected, route, replyClicked: !!replyButton, replyChoice, conditionalRoute,
+          liveBefore, liveAfter: window.__test.state(),
           reduced: matchMedia('(prefers-reduced-motion: reduce)').matches,
-          board: {
-            active: board.dataset.futurePreview || '',
-            phase: board.dataset.previewPhase || '',
-            rootFen: board.dataset.previewRootFen || '',
-            displayFen: board.dataset.previewDisplayFen || '',
-            lineId: board.dataset.previewLineId || '',
-            stepCount: Number(board.dataset.previewStepCount || 0),
-            motions: board.querySelectorAll('[data-future-motion-piece="true"]').length,
-            paths: [...board.querySelectorAll('[data-future-preview-step]')].map((path) => ({
-              lineId: path.dataset.previewLineId || '',
-              step: path.dataset.futurePreviewStep || '',
-              from: path.dataset.previewFrom || '',
-              to: path.dataset.previewTo || '',
-            })),
-            pieces: [...document.querySelectorAll('#boardPieces g.piece3d')].map((piece) => ({
-              sq: piece.dataset.sq || '', color: piece.dataset.color || '', type: piece.dataset.type || '',
-            })),
-          },
+          board: firstBoard,
+          conditionalBoard,
         };
       })()`);
       reducedPreview = { ...staticPreview, switchStarted, switched };
@@ -4085,28 +4639,28 @@ async function main() {
       try { await evalJs('window.__futureTest.rewind(0)'); } catch {}
     }
     const reducedYou = reducedPreview?.route?.selectedPath?.[0];
-    const reducedReply = reducedPreview?.route?.selectedPath?.[1]
-      || reducedPreview?.route?.suggestedPath?.[0];
-    const reducedFinalFen = reducedReply?.afterFen || reducedYou?.afterFen || '';
+    const reducedFinalFen = reducedYou?.afterFen || '';
     const reducedPaths = reducedPreview?.board?.paths || [];
+    const reducedConditionalReply = reducedPreview?.conditionalRoute?.selectedPath?.[1];
+    const reducedConditionalFen = reducedConditionalReply?.afterFen || '';
+    const reducedConditionalPaths = reducedPreview?.conditionalBoard?.paths || [];
     const switchedYou = reducedPreview?.switchStarted?.route?.selectedPath?.[0];
-    const switchedReply = reducedPreview?.switchStarted?.route?.selectedPath?.[1]
-      || reducedPreview?.switchStarted?.route?.suggestedPath?.[0];
-    const switchedFinalFen = switchedReply?.afterFen || switchedYou?.afterFen || '';
+    const switchedFinalFen = switchedYou?.afterFen || '';
     const switchedPaths = reducedPreview?.switched?.paths || [];
     record(
       !!reducedPreview
         && reducedPreview.switchStarted.selected === true
         && reducedPreview.switchStarted.phase === 'playing'
         && reducedPreview.switched.active === 'active'
-        && reducedPreview.switched.phase === 'reduced-static'
+        && reducedPreview.switched.phase === 'await-reply'
         && reducedPreview.switched.lineId === reducedPreview.switchStarted.lineId
         && reducedPreview.switched.rootFen === reducedPreview.switchStarted.liveBefore.fen
         && reducedPreview.switched.displayFen === switchedFinalFen
-        && reducedPreview.switched.stepIndex === 2
-        && reducedPreview.switched.stepCount === 2
+        && reducedPreview.switched.stepIndex === 1
+        && reducedPreview.switched.stepCount === 1
         && reducedPreview.switched.motions === 0
-        && switchedPaths.length === 2
+        && switchedPaths.length === 1
+        && switchedPaths[0]?.step === 'you'
         && switchedPaths.every((path) => path.lineId === reducedPreview.switched.lineId)
         && renderedPiecesMatchFen(reducedPreview.switched.pieces, switchedFinalFen)
         && reducedPreview.switched.liveAfter.fen === reducedPreview.switchStarted.liveBefore.fen
@@ -4115,28 +4669,42 @@ async function main() {
         && reducedPreview.reduced === true
         && reducedPreview.selected === true
         && reducedPreview.board.active === 'active'
-        && reducedPreview.board.phase === 'reduced-static'
+        && reducedPreview.board.phase === 'await-reply'
         && reducedPreview.board.rootFen === reducedPreview.liveBefore.fen
         && reducedPreview.board.displayFen === reducedFinalFen
         && reducedPreview.board.lineId.length > 0
-        && reducedPreview.board.stepCount === 2
+        && reducedPreview.board.stepIndex === 1
+        && reducedPreview.board.stepCount === 1
         && reducedPreview.board.motions === 0
-        && reducedPaths.length === 2
-        && ['you', 'reply'].every((step) => {
-          const path = reducedPaths.find((item) => item.step === step);
-          const expected = step === 'you' ? reducedYou : reducedReply;
-          return !!path && !!expected
-            && path.lineId === reducedPreview.board.lineId
-            && path.from === expected.from && path.to === expected.to;
-        })
+        && reducedPaths.length === 1
+        && reducedPaths[0]?.step === 'you'
+        && reducedPaths[0]?.lineId === reducedPreview.board.lineId
+        && reducedPaths[0]?.from === reducedYou?.from
+        && reducedPaths[0]?.to === reducedYou?.to
         && renderedPiecesMatchFen(reducedPreview.board.pieces, reducedFinalFen)
+        && reducedPreview.replyClicked === true
+        && reducedPreview.conditionalRoute?.selectedPath?.length === 2
+        && reducedPreview.conditionalBoard?.active === 'active'
+        && reducedPreview.conditionalBoard?.phase === 'conditional-static'
+        && reducedPreview.conditionalBoard?.displayFen === reducedConditionalFen
+        && reducedPreview.conditionalBoard?.stepIndex === 2
+        && reducedPreview.conditionalBoard?.stepCount === 2
+        && reducedPreview.conditionalBoard?.motions === 0
+        && reducedConditionalPaths.length === 2
+        && reducedConditionalPaths.every((path) => path.lineId === reducedPreview.conditionalBoard.lineId)
+        && reducedConditionalPaths.some((path) => path.step === 'you')
+        && reducedConditionalPaths.some((path) => path.step === 'reply'
+          && path.from === reducedPreview.replyChoice?.from
+          && path.to === reducedPreview.replyChoice?.to)
+        && renderedPiecesMatchFen(reducedPreview.conditionalBoard?.pieces, reducedConditionalFen)
         && reducedPreview.liveAfter.fen === reducedPreview.liveBefore.fen
         && JSON.stringify(reducedPreview.liveAfter.history) === JSON.stringify(reducedPreview.liveBefore.history),
-      '减少动态在播放中/选择前都直接投影两拍最终局面且不改实战',
+      '减少动态会静态停在首步，显式点回应后才投影两拍条件局面且不改实战',
       reducedPreviewError || `运行中=${reducedPreview?.switchStarted?.phase || '无'}→${reducedPreview?.switched?.phase || '无'}`
-        + `｜phase=${reducedPreview?.board?.phase || '无'}`
+        + `｜phase=${reducedPreview?.board?.phase || '无'}→${reducedPreview?.conditionalBoard?.phase || '无'}`
         + `｜motion=${reducedPreview?.board?.motions ?? -1}`
         + `｜paths=${reducedPaths.map((path) => path.step).join('/') || '无'}`
+        + `→${reducedConditionalPaths.map((path) => path.step).join('/') || '无'}`
         + `｜实战未变=${reducedPreview?.liveAfter?.fen === reducedPreview?.liveBefore?.fen}`,
     );
   }
@@ -4808,6 +5376,22 @@ async function main() {
       && wall <= 3000,
     'e4 后搜索 Worker 正常深搜并在 ≤3 秒应手',
     ai ? `外部秒表 ${wall}ms｜页面自计 ${ai.totalMs}ms｜走 ${ai.san}｜搜到 ${ai.depth} 层 ${ai.nodes} 节点` : '超时没应手');
+
+  const actualCoach = await evalJs('window.__test.coach()');
+  record(
+    actualCoach.state === 'outcome'
+      && actualCoach.title.includes(ai?.san || '')
+      && actualCoach.preview?.replySource === 'actual'
+      && actualCoach.preview?.reply?.san === ai?.san
+      && actualCoach.preview?.drawnReply === true
+      && actualCoach.outcome?.actualRank >= 0
+      && actualCoach.paths.some((path) => path.step === 'you')
+      && actualCoach.paths.some((path) => path.step === 'reply'),
+    '⑥ AI 实际应手后，助手用蓝线呈现真实结果而不是丢掉先前分析',
+    `state=${actualCoach.state}｜title=${actualCoach.title}`
+      + `｜reply=${actualCoach.preview?.reply?.san || '无'}/${actualCoach.preview?.replySource || '无'}`
+      + `｜rank=${actualCoach.outcome?.actualRank ?? '无'}`
+      + `｜paths=${actualCoach.paths.map((path) => path.step).join('/') || '无'}`);
 
   // AI 走的这步合不合法？拿棋谱在 node 里用 chess.js 独立重放一遍
   const st = await evalJs('window.__test.state()');

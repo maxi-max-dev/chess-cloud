@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#05060b" />
-<meta name="description" content="在一张可交互的棋局未来地图里查看国际象棋的真实下一步、强回应与路线后果。" />
+<meta name="description" content="在一张可交互的棋局未来地图里查看国际象棋的真实下一步、可能回应与路线后果。" />
 <title>国际象棋 · 棋路未来地图</title>
 <link rel="stylesheet" href="./future-map.css" />
 <style>
@@ -562,23 +562,23 @@
     vector-effect: non-scaling-stroke;
   }
   #board .future-preview-path[data-future-preview-step="you"] {
-    stroke: #f1c66b; stroke-width: 4.5; opacity: .78;
-    filter: drop-shadow(0 0 4px rgba(241,198,107,.55));
+    stroke: #79e6db; stroke-width: 4.5; opacity: .84;
+    filter: drop-shadow(0 0 4px rgba(121,230,219,.55));
   }
   #board .future-preview-path[data-future-preview-step="reply"] {
-    stroke: #79e6db; stroke-width: 4; opacity: .82;
+    stroke: #9abfff; stroke-width: 4; opacity: .84;
     stroke-dasharray: 7 5;
-    filter: drop-shadow(0 0 4px rgba(121,230,219,.55));
+    filter: drop-shadow(0 0 4px rgba(114,158,255,.5));
   }
   #board .future-preview-target {
     fill: rgba(5,10,15,.62); pointer-events: none;
     vector-effect: non-scaling-stroke;
   }
   #board .future-preview-target[data-preview-step="you"] {
-    stroke: #f1c66b; stroke-width: 3;
+    stroke: #79e6db; stroke-width: 3;
   }
   #board .future-preview-target[data-preview-step="reply"] {
-    stroke: #79e6db; stroke-width: 3;
+    stroke: #9abfff; stroke-width: 3;
   }
   #board .future-preview-number {
     fill: #f7fbff; font-size: 9px; font-weight: 800;
@@ -1170,7 +1170,8 @@
        role="grid" aria-label="国际象棋棋盘，白方在下"
        data-future-preview="idle" data-preview-phase="idle"
        data-preview-root-fen="" data-preview-display-fen=""
-       data-preview-line-id="" data-preview-step-index="0" data-preview-step-count="0">
+       data-preview-line-id="" data-preview-step-index="0" data-preview-step-count="0"
+       data-preview-certainty="none" data-preview-reply-count="0">
     <defs id="boardPieceDefs">
       <linearGradient id="board-white-main" x1="0" y1="0" x2="1" y2="1">
         <stop offset="0" stop-color="#fffef8"/>
@@ -1272,7 +1273,7 @@
     <g id="boardOverlay"></g>
   </svg>
   <div id="futureBoardBadge" class="future-board-badge" aria-live="polite" hidden>
-    <b>路线预演</b><span>你走 → 强回应</span>
+    <b>路线分析</b><span>先走你的选择，再挑一种可能回应</span>
   </div>
   <div id="status">正在算分叉…</div>
   <div class="row">
@@ -1286,19 +1287,19 @@
   <div id="stageHead">
     <span class="future-kicker">Future map · Analysis</span>
     <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
-    <div class="sub">第一列是当前全部真实下一步；点一条路线，棋盘同步预演对手强回应和直接后果。</div>
+    <div class="sub">第一列是你的选择；从第二列开始都是可能分支，点中后才继续条件预演。</div>
     <div class="future-map-legend" aria-label="未来地图图例">
       <span class="future-legend-key" data-kind="option">其他合法路线</span>
       <span class="future-legend-key" data-kind="selected">正在预演</span>
       <span class="future-legend-key" data-kind="played">实战历史</span>
-      <span class="future-legend-key" data-kind="engine">引擎强应</span>
+      <span class="future-legend-key" data-kind="engine">引擎分析建议</span>
       <span class="future-legend-key" data-kind="effect">吃子 / 威胁</span>
     </div>
     <div id="coachPanel" data-state="idle" aria-live="polite">
       <div id="coachLead">
         <span class="coach-kicker">路线影响</span>
         <b id="coachTitle">先点一枚白棋，或从地图选择路线</b>
-        <span id="coachExplain">棋盘会依次预演“你的一步 → 对手的强回应”，不会直接落子</span>
+        <span id="coachExplain">先播放你选的一步，再列出对手全部真实合法回应供你选择</span>
       </div>
       <div id="coachThreatStrip" aria-label="一步威胁提示"></div>
       <div id="coachMoves"></div>
@@ -1320,8 +1321,17 @@
       <span id="futureContextTitle" class="future-context-title">尚未选择路线</span>
       <span id="futureContextDetail" class="future-context-detail">金色为引擎建议，蓝色只表示你明确点开的假设路线；两者都不是概率。</span>
       <span id="futureEffects" class="future-effects" aria-label="这条路线的直接后果"></span>
+      <section id="futureReplyPanel" class="future-reply-panel" hidden aria-label="对手可能回应">
+        <div class="future-reply-heading">
+          <b>对手可能回应</b>
+          <span id="futureReplySummary">等待选择你的第一步</span>
+        </div>
+        <div id="futureReplyList" data-future-reply-list data-reply-count="0"
+             aria-label="第一步之后的全部可能回应"></div>
+      </section>
     </div>
     <div class="future-context-actions">
+      <button id="futureClear" type="button" disabled>回到现在</button>
       <button id="futureCommit" type="button" disabled>走这步</button>
     </div>
   </div>
@@ -1337,7 +1347,7 @@ import {
 // ─────────────────────────────────────────────── 常量
 const SYNC_DEPTH = 3;      // 缩略态只预备到这一层；计算仍全部在 Worker
 const DEEP_DEPTH = 4;      // 用户明确放大探索时，Worker 才渐进生长到这一层
-const AI_BUDGET_MS = 1300; // 给冷启动/调度留出余量；迭代加深到时交卷，应手硬上限 ≤3 秒
+const AI_BUDGET_MS = 1000; // 给冷启动/调度留出余量；迭代加深到时交卷，应手硬上限 ≤3 秒
 const COMPACT_AI_BUDGET_MS = 900;  // 手机/矮视口给渲染与触控留足余量，守住总应手 ≤3 秒
 const AI_WATCHDOG_MS = 2200; // Worker/JIT 再慢也在这里切到预存的合法保底步
 const BATCH_PARENTS = 400; // L4 渐进回传；完成后合并为一个真实 geometry，压低交互 draw call
@@ -2151,9 +2161,15 @@ function onAiMove(result) {
     requestId: pending?.id ?? -1,
     pv: fullPv,
   };
+  const coachPrediction = pendingCoachPrediction;
   selected = null;
   forkPreview = null;
   coachPreview = null;
+  coachModel = null;
+  coachActiveRank = null;
+  coachOutcome = null;
+  pendingCoachPrediction = null;
+  pendingCoachOutcome = null;
   branchPath = [];
   expanded = [];
   routeSelectionDepth = 0;
@@ -2161,8 +2177,8 @@ function onAiMove(result) {
   installPvGuide(fullPv, pending?.fen || '', pending?.id ?? -1, result.depth);
   renderBoard();
   const cloudGen = prepareCloud();
-  pendingCoachOutcome = pendingCoachPrediction ? {
-    prediction: pendingCoachPrediction,
+  pendingCoachOutcome = coachPrediction ? {
+    prediction: coachPrediction,
     actual: {
       san: mv.san,
       from: mv.from,
@@ -2238,7 +2254,7 @@ const CELL = 50;
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const PIECE_NAME = { k: '王', q: '后', r: '车', b: '象', n: '马', p: '兵' };
 let forkPreview = null;   // 分叉 hover 的单步预览
-let coachPreview = null;  // 棋子助手的“你一步 → 对手一步”动画
+let coachPreview = null;  // 棋子助手只画已明确的候选步；回应仅在实际发生后进入预演
 let futurePreviewPlayback = null;
 let futurePreviewEpoch = 0;
 let futurePreviewTimer = 0;
@@ -2280,24 +2296,36 @@ function syncFuturePreviewDataset() {
   boardEl.dataset.previewLineId = active ? futurePreviewPlayback.id : '';
   boardEl.dataset.previewStepIndex = active ? String(futurePreviewPlayback.index + 1) : '0';
   boardEl.dataset.previewStepCount = active ? String(futurePreviewPlayback.frames.length) : '0';
+  boardEl.dataset.previewCertainty = active
+    ? futurePreviewPlayback.frames.length > 1 ? 'conditional' : 'selected'
+    : 'none';
+  boardEl.dataset.previewReplyCount = active ? String(futurePreviewPlayback.replyCount) : '0';
   document.body.dataset.futureBoardPreview = active ? 'active' : 'idle';
   futureBoardBadgeEl.hidden = !active;
   if (active) {
     const current = futurePreviewPlayback.frames[futurePreviewPlayback.index];
-    futureBoardBadgeEl.querySelector('span').textContent =
-      futurePreviewPlayback.phase === 'settled' || futurePreviewPlayback.phase === 'reduced-static'
-        ? `停在 ${futurePreviewPlayback.steps.map((step) => step.san).join(' → ')}`
-        : `${current.role === 'you' ? '你走' : futurePreviewPlayback.replyLabel} ${current.move.san}`;
+    const phase = futurePreviewPlayback.phase;
+    const copy = phase === 'await-reply'
+      ? `你的 ${current.move.san} 已走完 · 对手有 ${futurePreviewPlayback.replyCount} 种可能回应`
+      : phase === 'terminal'
+        ? `你的 ${current.move.san} 已走完 · 对手没有合法回应`
+        : phase === 'conditional-settled' || phase === 'conditional-static'
+          ? `条件结果：假设对手走 ${current.move.san}`
+          : current.role === 'you'
+            ? `正在播放你的选择 ${current.move.san}`
+            : `正在播放假设回应 ${current.move.san}`;
+    futureBoardBadgeEl.querySelector('span').textContent = copy;
   }
+  syncFutureDepthInteractivity();
 }
 
-function cancelFutureBoardPreview(render = true) {
+function cancelFutureBoardPreview(render = true, sync = true) {
   futurePreviewEpoch++;
   clearTimeout(futurePreviewTimer);
   futurePreviewTimer = 0;
   const hadPreview = !!futurePreviewPlayback;
   futurePreviewPlayback = null;
-  syncFuturePreviewDataset();
+  if (sync) syncFuturePreviewDataset();
   if (render && hadPreview) renderBoard();
   return hadPreview;
 }
@@ -2338,12 +2366,12 @@ function armFuturePreviewStep(token) {
     if (!preview || preview.token !== token || preview.rootFen !== game.fen()) return;
     if (preview.index + 1 < preview.frames.length) {
       preview.index++;
-      preview.phase = 'playing';
+      preview.phase = preview.frames.length > 1 ? 'conditional-playing' : 'playing';
       renderBoard();
       armFuturePreviewStep(token);
       return;
     }
-    preview.phase = 'settled';
+    preview.phase = preview.finalPhase;
     futurePreviewTimer = 0;
     renderBoard();
   }, FUTURE_PREVIEW_STEP_MS);
@@ -2356,18 +2384,29 @@ function startFutureBoardPreview(moves) {
     cancelFutureBoardPreview();
     return false;
   }
-  cancelFutureBoardPreview(false);
+  // 换条件回应时会紧接着安装新 playback；中间不同步 idle，
+  // 否则会瞬间 disable 当前聚焦的回应按钮，导致键盘焦点掉回 body。
+  cancelFutureBoardPreview(false, false);
   const token = ++futurePreviewEpoch;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const hasExplicitReply = frames.length > 1;
+  let replyCount = 0;
+  try { replyCount = new Chess(frames[0].fen).moves().length; } catch {}
+  const finalPhase = hasExplicitReply
+    ? 'conditional-settled'
+    : replyCount > 0 ? 'await-reply' : 'terminal';
   futurePreviewPlayback = {
     token,
     id: `chess-line-${token}`,
     rootFen,
     steps: frames.map((frame) => ({ ...frame.move, role: frame.role })),
     frames,
-    replyLabel: columns[1]?.chosen === 0 ? '强回应' : '所选回应',
-    index: reduced ? frames.length - 1 : 0,
-    phase: reduced ? 'reduced-static' : 'playing',
+    replyCount,
+    finalPhase,
+    index: hasExplicitReply ? frames.length - 1 : 0,
+    phase: reduced
+      ? hasExplicitReply ? 'conditional-static' : finalPhase
+      : hasExplicitReply ? 'conditional-playing' : 'playing',
   };
   selected = null;
   forkPreview = null;
@@ -2562,13 +2601,16 @@ function renderBoard() {
     for (let f = 0; f < 8; f++) {
       const sq = FILES[f] + (8 - r);
       const dark = (r + f) % 2 === 1;
+      const actionable = !previewActive && !thinking && !game.isGameOver() && game.turn() === 'w'
+        && (liveBoard[r][f]?.color === 'w' || legal.includes(sq));
       const rect = svgElement('rect', {
         x: f * CELL, y: r * CELL, width: CELL, height: CELL,
         stroke: dark ? 'rgba(8,12,21,.34)' : 'rgba(236,242,255,.08)',
         'stroke-width': .55,
         'data-sq': sq,
         role: 'gridcell',
-        tabindex: (liveBoard[r][f]?.color === 'w' || legal.includes(sq)) ? 0 : -1,
+        tabindex: actionable ? 0 : -1,
+        'aria-disabled': String(!actionable),
         'aria-selected': sq === selected ? 'true' : 'false',
         'aria-label': sq,
       });
@@ -2592,7 +2634,8 @@ function renderBoard() {
       const piece = appendPieceModel(pc, sq, f, r);
       if (
         previewActive
-        && futurePreviewPlayback.phase === 'playing'
+        && (futurePreviewPlayback.phase === 'playing'
+          || futurePreviewPlayback.phase === 'conditional-playing')
         && sq === previewFrame.move.to
       ) {
         const [fromX, fromY] = squareXY(previewFrame.move.from);
@@ -2618,6 +2661,7 @@ function renderBoard() {
         + `实战未落子，共 ${boardPiecesEl.childElementCount} 枚棋子`
       : `国际象棋棋盘，${game.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${boardPiecesEl.childElementCount} 枚棋子`,
   );
+  boardEl.setAttribute('aria-readonly', String(previewActive));
 }
 
 function activateBoardSquare(sq) {
@@ -2733,8 +2777,12 @@ const futureContextEl = document.getElementById('forkFoot');
 const futureContextTitleEl = document.getElementById('futureContextTitle');
 const futureContextDetailEl = document.getElementById('futureContextDetail');
 const futureEffectsEl = document.getElementById('futureEffects');
+const futureClearEl = document.getElementById('futureClear');
 const futureCommitEl = document.getElementById('futureCommit');
-const FORK_IDLE_TEXT = '金色是引擎建议的连续路线；明确点开后才出现亮蓝主干。点路线只预演，确认后才落子。';
+const futureReplyPanelEl = document.getElementById('futureReplyPanel');
+const futureReplySummaryEl = document.getElementById('futureReplySummary');
+const futureReplyListEl = document.getElementById('futureReplyList');
+const FORK_IDLE_TEXT = '第一步由你选择；后面的金色只表示引擎建议优先检查，不代表对手一定会这样走。';
 const CARD_H = 44, CARD_GAP = 8, HEAD_H = 62;
 let forkScrollGen = 0;
 let forkStale = false;
@@ -2771,6 +2819,7 @@ function writeFutureContext({
   detail,
   effects = [],
   canCommit = routeSelectionDepth > 0,
+  canClear = routeSelectionDepth > 0,
 } = {}) {
   const labelEl = futureContextEl.querySelector('.future-context-label');
   if (labelEl) labelEl.textContent = label;
@@ -2782,6 +2831,7 @@ function writeFutureContext({
     || forkStale
     || game.turn() !== 'w'
     || game.isGameOver();
+  futureClearEl.disabled = !canClear || thinking || forkStale;
 }
 
 function routeMovesFromColumns(limit = columns.length) {
@@ -2791,23 +2841,156 @@ function routeMovesFromColumns(limit = columns.length) {
   });
 }
 
+function futureReplyFrontier() {
+  if (routeSelectionDepth < 1 || !columns[0]) return null;
+  const first = columns[0].ranked[columns[0].chosen];
+  const replyColumn = columns[1];
+  if (!first || !replyColumn || replyColumn.fen !== first.after) {
+    return first ? { first, parentFen: first.after, replies: [], terminal: true } : null;
+  }
+  return {
+    first,
+    parentFen: first.after,
+    replies: replyColumn.ranked,
+    terminal: replyColumn.ranked.length === 0,
+  };
+}
+
+function renderFutureReplyOptions() {
+  const previousScrollLeft = futureReplyListEl.scrollLeft;
+  const previousParentFen = futureReplyListEl.dataset.parentFen || '';
+  const activeReply = document.activeElement?.closest?.('[data-future-reply-option]');
+  const focusedReplyKey = activeReply && futureReplyListEl.contains(activeReply)
+    ? activeReply.dataset.key || ''
+    : '';
+  const frontier = futureReplyFrontier();
+  if (!frontier) {
+    futureReplyPanelEl.hidden = true;
+    futureReplyListEl.replaceChildren();
+    futureReplyListEl.dataset.replyCount = '0';
+    futureReplyListEl.dataset.parentFen = '';
+    futureReplyListEl.dataset.interactive = 'false';
+    futureReplyListEl.dataset.terminal = 'false';
+    return;
+  }
+  const selectedRank = routeSelectionDepth > 1 ? columns[1].chosen : -1;
+  futureReplyPanelEl.hidden = false;
+  futureReplyListEl.dataset.replyCount = String(frontier.replies.length);
+  futureReplyListEl.dataset.parentFen = frontier.parentFen;
+  futureReplyListEl.dataset.terminal = String(frontier.terminal);
+  futureReplySummaryEl.textContent = frontier.terminal
+    ? '0 种合法回应 · 这条第一步已结束棋局'
+    : `${frontier.replies.length} 种真实合法分支 · 金色只是一条分析建议`;
+  futureReplyListEl.innerHTML = frontier.replies.map((move, rank) => {
+    const suggested = rank === 0;
+    const selectedReply = rank === selectedRank;
+    const optionState = selectedReply
+      ? suggested ? '已选回应，也是建议回应' : '已选回应'
+      : suggested ? '建议回应，尚未选择' : '普通回应，尚未选择';
+    return `<button type="button" data-future-reply-option`
+      + ` data-rank="${rank}" data-key="${esc(futureMoveKey(move))}"`
+      + ` data-from="${esc(move.from)}" data-to="${esc(move.to)}"`
+      + ` data-promotion="${esc(move.promotion || '')}" data-after-fen="${esc(move.after)}"`
+      + ` data-branch-count="${futureBranchCount(move.after)}"`
+      + ` data-engine-suggested="${suggested}" data-selected="${selectedReply}"`
+      + ` aria-pressed="${selectedReply}"`
+      + ` aria-label="假设对手回应 ${esc(move.san)}，${optionState}，走后 ${futureBranchCount(move.after)} 个分支">`
+      + `<b>${esc(move.san)}</b><small>${selectedReply ? '已选假设回应' : suggested ? '建议优先检查' : `可能回应 ${rank + 1}/${frontier.replies.length}`}</small>`
+      + `</button>`;
+  }).join('');
+  syncFutureReplyInteractivity();
+  const sameParent = previousParentFen === frontier.parentFen;
+  if (sameParent && focusedReplyKey) {
+    const sameReply = [...futureReplyListEl.querySelectorAll('[data-future-reply-option]')]
+      .find((option) => option.dataset.key === focusedReplyKey);
+    if (sameReply && !sameReply.disabled) sameReply.focus({ preventScroll: true });
+  }
+  if (sameParent) futureReplyListEl.scrollLeft = previousScrollLeft;
+}
+
+function futureReplySelectionReady(frontier = futureReplyFrontier()) {
+  const preview = futurePreviewIsActive() ? futurePreviewPlayback : null;
+  if (!frontier || frontier.terminal || !preview || thinking || forkStale) return false;
+  if (preview.frames[0]?.fen !== frontier.parentFen) return false;
+  return futureDepthSelectable(1);
+}
+
+function futureDepthSelectable(parentDepth) {
+  const depth = Number(parentDepth);
+  if (!Number.isInteger(depth) || depth < 0 || depth > routeSelectionDepth
+    || thinking || forkStale) return false;
+  if (depth === 0) return true;
+  const preview = futurePreviewIsActive() ? futurePreviewPlayback : null;
+  const first = columns[0]?.ranked[columns[0].chosen];
+  if (!preview || !first || preview.frames[0]?.fen !== first.after) return false;
+  if (depth === 1) {
+    return preview.phase === 'await-reply'
+      || preview.phase === 'conditional-playing'
+      || preview.phase === 'conditional-settled'
+      || preview.phase === 'conditional-static';
+  }
+  const reply = routeSelectionDepth > 1
+    ? columns[1]?.ranked[columns[1].chosen]
+    : null;
+  if (!reply || preview.frames[1]?.fen !== reply.after) return false;
+  return preview.phase !== 'playing' && preview.phase !== 'conditional-playing';
+}
+
+function syncFutureReplyInteractivity() {
+  const interactive = futureReplySelectionReady();
+  futureReplyListEl.dataset.interactive = String(interactive);
+  for (const option of futureReplyListEl.querySelectorAll('[data-future-reply-option]')) {
+    option.disabled = !interactive;
+    option.setAttribute('aria-disabled', String(!interactive));
+    option.tabIndex = interactive ? 0 : -1;
+  }
+  return interactive;
+}
+
+function syncFutureDepthInteractivity() {
+  const syncControl = (control, depth) => {
+    const interactive = futureDepthSelectable(depth);
+    if (control.tagName === 'BUTTON') control.disabled = !interactive;
+    else control.toggleAttribute('disabled', !interactive);
+    control.dataset.disabled = String(!interactive);
+    control.setAttribute('aria-disabled', String(!interactive));
+    control.setAttribute('tabindex', interactive ? '0' : '-1');
+  };
+  for (const card of document.querySelectorAll('#fork g.card[data-col]')) {
+    syncControl(card, card.dataset.col);
+  }
+  for (const choice of document.querySelectorAll('#exploreChoices [data-explore-rank]')) {
+    syncControl(choice, choice.dataset.parentDepth);
+  }
+  for (const choice of document.querySelectorAll('#cloudTree2d [data-tree-rank]')) {
+    syncControl(choice, choice.dataset.parentDepth);
+  }
+  syncFutureReplyInteractivity();
+}
+
 function renderFutureContextIdle() {
   const explicit = routeMovesFromColumns(routeSelectionDepth);
-  const suggested = routeMovesFromColumns();
   if (explicit.length) {
-    const continuation = suggested.slice(explicit.length);
+    const frontier = futureReplyFrontier();
+    const firstOnly = explicit.length === 1;
     writeFutureContext({
-      title: `正在预演：${explicit.map((move) => move.san).join(' → ')}`,
-      detail: continuation.length
-        ? `蓝色是你选的 ${explicit.length} 步；后面的金色路线只是引擎建议，可继续点开。`
-        : '蓝色是你明确选择的假设路线；棋谱尚未改变。',
+      label: firstOnly ? '等待可能回应' : '条件路线',
+      title: firstOnly
+        ? `你选择：${explicit[0].san}`
+        : `假设对手这样走：${explicit.slice(0, 2).map((move) => move.san).join(' → ')}`,
+      detail: firstOnly
+        ? frontier?.terminal
+          ? '对手没有合法回应；这条第一步结束棋局，但仍需确认才会落子。'
+          : `这一步走后有 ${frontier?.replies.length || 0} 种真实合法回应；请从下方选择一种条件分支。`
+        : '第二步是你主动选择分析的假设回应，不代表真人或 AI 一定会这样走；实战尚未改变。',
       canCommit: true,
     });
     return;
   }
+  const suggested = routeMovesFromColumns();
   writeFutureContext({
     title: suggested.length
-      ? `建议先看：${suggested.slice(0, 3).map((move) => move.san).join(' → ')}`
+      ? `建议先看第一步：${suggested[0].san}`
       : '当前没有可继续展开的路线',
     detail: FORK_IDLE_TEXT,
     canCommit: false,
@@ -2846,6 +3029,7 @@ function markForkStale() {
 function resetForkTransient() {
   const gen = ++forkScrollGen;
   renderFutureContextIdle();
+  renderFutureReplyOptions();
   forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
   requestAnimationFrame(() => {
     if (gen === forkScrollGen) forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
@@ -2950,7 +3134,7 @@ function moveQuality(score, bestScore, white = true) {
 
 function replyDescription(reply) {
   if (!reply) return '对手没有合法回应';
-  let text = `对手强回应：${PIECE_NAME[reply.piece] || '棋子'}走 ${reply.san}`;
+  let text = `分析建议（未选择）：${PIECE_NAME[reply.piece] || '棋子'}走 ${reply.san}`;
   if (reply.captured) text += `，吃${PIECE_NAME[reply.captured] || '子'}`;
   if (reply.san.endsWith('#')) text += '并将死';
   else if (reply.san.endsWith('+')) text += '并将军';
@@ -2961,7 +3145,7 @@ function repliesFor(candidate) {
   if (!candidate?.after) return [];
   let replies = coachReplyCache.get(candidate.after);
   if (!replies) {
-    // 对手回应也往后看我方一次回手，避免把“吃完立刻被回吃”误称为最强回应。
+    // 对手回应也往后看我方一次回手，避免把“吃完立刻被回吃”误称为首要分析分支。
     replies = rankMoves(candidate.after, { depth: 2 });
     coachReplyCache.set(candidate.after, replies);
   }
@@ -3111,13 +3295,8 @@ function setCoachPreview(candidate) {
       to: candidate.to,
       promotion: candidate.promotion || '',
     },
-    reply: candidate.replies[0] ? {
-      san: candidate.replies[0].san,
-      from: candidate.replies[0].from,
-      to: candidate.replies[0].to,
-      promotion: candidate.replies[0].promotion || '',
-      piece: candidate.replies[0].piece,
-    } : null,
+    reply: null,
+    replySource: 'unselected-analysis',
   };
   return true;
 }
@@ -3126,7 +3305,7 @@ function renderCoachIdle() {
   coachPanelEl.dataset.state = 'idle';
   coachTitleEl.textContent = thinking ? '黑方正在思考' : '先点一枚白棋';
   coachExplainEl.textContent = thinking
-    ? '应手画出来后，会告诉你是否落在刚才预演的强回应里'
+    ? '实际应手出现后，会告诉你是否落在刚才重点分析的可能回应里'
     : '橙圈是当前攻击线；点棋后会核对落子后的合法吃法';
   renderThreatStrip();
   coachMovesEl.replaceChildren();
@@ -3155,7 +3334,8 @@ function coachCardHtml(candidate, active) {
     + ` data-threat-targets="${targets.join(',')}"`
     + ` data-reply-san="${esc(reply?.san || '')}" data-reply-from="${reply?.from || ''}"`
     + ` data-reply-to="${reply?.to || ''}" data-reply-piece="${reply?.piece || ''}"`
-    + ` data-reply-score="${reply?.score ?? ''}">`
+    + ` data-reply-score="${reply?.score ?? ''}"`
+    + ` data-reply-kind="${reply ? 'analysis-suggestion' : 'none'}" data-reply-selected="false">`
     + `<span class="coach-card-top"><span class="coach-san">${esc(candidate.san)}</span>`
     + `<span class="coach-quality">${candidate.quality.label}</span></span>`
     + `<span class="coach-situation" style="--situation-color:${candidate.situation.color}">${candidate.situation.label}</span>`
@@ -3180,11 +3360,12 @@ function renderCoachCandidate(candidate, { rerenderBoard = true } = {}) {
     .join('');
   const chips = candidate.replies.map((reply, index) =>
     `<span class="coach-reply-chip" data-rank="${index}" data-san="${esc(reply.san)}"`
-      + ` data-from="${reply.from}" data-to="${reply.to}" data-piece="${reply.piece}">`
+      + ` data-from="${reply.from}" data-to="${reply.to}" data-piece="${reply.piece}"`
+      + ` data-analysis-only="true" aria-label="分析建议，未选择的可能回应 ${esc(reply.san)}">`
       + `${index + 1}. ${PIECE_NAME[reply.piece] || '棋子'} ${esc(reply.san)}</span>`
   ).join('');
   coachReplyStripEl.innerHTML =
-    `<span>对手的强回应：</span>${chips}`
+    `<span>分析建议（均未选择回应）：</span>${chips}`
     + `<button type="button" data-coach-action="play" data-rank="${candidate.rank}">就走 ${esc(candidate.san)}</button>`;
   if (rerenderBoard) renderBoard();
   return true;
@@ -3294,6 +3475,7 @@ function presentCoachTerminal(move, prediction) {
       promotion: move.promotion || '',
     },
     reply: null,
+    replySource: 'terminal',
   };
   renderBoard();
   return true;
@@ -3329,9 +3511,9 @@ function presentCoachOutcome(outcome) {
   coachExplainEl.textContent = fallback
     ? `${outcome.reason || '搜索未完成'}，因此采用合法保底步；不把它冒充成预测命中`
     : forecastRank === 0
-      ? '命中预演的首要强回应'
+      ? '与首要分析分支一致'
       : forecastRank > 0
-        ? `落在预演的前三条强回应里（第 ${forecastRank + 1} 条）`
+        ? `落在预演的前三条可能回应里（第 ${forecastRank + 1} 条）`
         : '没出现在这次浅层预演的前三条，实际结果已用蓝线标出';
   renderThreatStrip();
   coachMovesEl.innerHTML =
@@ -3350,6 +3532,7 @@ function presentCoachOutcome(outcome) {
     id: `coach-${++coachPreviewGen}`,
     you: prediction.candidate,
     reply: actual,
+    replySource: 'actual',
   };
   pendingCoachOutcome = null;
   renderBoard();
@@ -3391,6 +3574,14 @@ function refreshColumnVisibility() {
 
 function renderFork(force = false, rebuild = true) {
   if (forkStale && !force) return false;
+  const activeForkControl = document.activeElement?.closest?.('#fork g.card, #fork g.more');
+  const activeForkFocus = activeForkControl && forkEl.contains(activeForkControl)
+    ? {
+        kind: activeForkControl.matches('g.card') ? 'card' : 'more',
+        col: activeForkControl.dataset.col || '',
+        idx: activeForkControl.dataset.idx || '',
+      }
+    : null;
   forkStale = false;
   forkHoverKey = '';
   forkWrap.inert = false;
@@ -3524,6 +3715,7 @@ function renderFork(force = false, rebuild = true) {
       const isPick = rank === c.chosen;
       const isExplicit = isPick && i < routeSelectionDepth;
       const isPv = rank === c.pvRank;
+      const canActivate = futureDepthSelectable(i);
       const col = cssColor(m.score, 1.25);
       const parentMove = i > 0
         ? columns[i - 1].ranked[columns[i - 1].chosen]
@@ -3535,7 +3727,9 @@ function renderFork(force = false, rebuild = true) {
         m.captured ? 'capture' : '',
         /[+#]/.test(m.san) ? 'check' : '',
       ].filter(Boolean).join(' ');
-      svg += `<g class="card" role="button" tabindex="0" data-col="${i}" data-idx="${rank}"`
+      svg += `<g class="card" role="button" tabindex="${canActivate ? 0 : -1}"`
+        + `${canActivate ? '' : ' disabled'} data-disabled="${!canActivate}"`
+        + ` aria-disabled="${!canActivate}" data-col="${i}" data-idx="${rank}"`
         + ` data-san="${esc(m.san)}" data-from="${esc(m.from)}" data-to="${esc(m.to)}"`
         + ` data-promotion="${esc(m.promotion || '')}" data-after="${esc(m.after)}"`
         + ` data-situation="${situation.key}" data-selected="${isPick}"`
@@ -3589,12 +3783,18 @@ function renderFork(force = false, rebuild = true) {
     if (i % 2 === 0) line += `<span class="num">${i / 2 + 1}.</span>`;
     line += (i === hist.length - 1 ? `<b>${hist[i]}</b>` : hist[i]) + ' ';
   }
-  const picked = columns.map((c) => c.ranked[c.chosen].san).join(' ');
+  const explicitMoves = routeMovesFromColumns(routeSelectionDepth);
+  const suggestedReply = routeSelectionDepth === 1 ? columns[1]?.ranked[0] : null;
   document.getElementById('moveLine').innerHTML =
     (line ? `实战：${line}` : '实战尚未落子。')
-    + (picked
-      ? `　▸　${routeSelectionDepth ? '正在预演' : '引擎建议'}：<b>${picked}</b>`
-      : '');
+    + (explicitMoves.length > 1
+      ? `　▸　条件分析：<b>${explicitMoves.slice(0, 2).map((move) => move.san).join(' → ')}</b>`
+      : explicitMoves.length === 1
+        ? `　▸　你选择：<b>${explicitMoves[0].san}</b>`
+          + (suggestedReply ? `；建议优先检查可能回应 ${suggestedReply.san}` : '')
+        : columns[0]
+          ? `　▸　引擎建议第一步：<b>${columns[0].ranked[columns[0].chosen].san}</b>`
+          : '');
 
   document.getElementById('btnPlayLine').disabled =
     !(routeSelectionDepth > 0
@@ -3604,10 +3804,20 @@ function renderFork(force = false, rebuild = true) {
       && !game.isGameOver());
   updateFutureMapDataset();
   renderFutureContextIdle();
+  renderFutureReplyOptions();
   syncCloudMap();
   if (selected && !thinking && (!coachModel || coachModel.fen !== game.fen())) {
     updateMoveCoach();
     renderBoard();
+  }
+  if (activeForkFocus) {
+    const replacement = activeForkFocus.kind === 'card'
+      ? [...forkEl.querySelectorAll('g.card')].find((card) =>
+          card.dataset.col === activeForkFocus.col && card.dataset.idx === activeForkFocus.idx)
+      : forkEl.querySelector(`g.more[data-col="${activeForkFocus.col}"]`);
+    if (replacement && replacement.getAttribute('aria-disabled') !== 'true') {
+      replacement.focus({ preventScroll: true });
+    }
   }
   return true;
 }
@@ -3662,7 +3872,7 @@ function syncExplorerFromFork(depth = routeSelectionDepth) {
   return true;
 }
 
-function syncForkFromExplorer() {
+function syncForkFromExplorer(explicitDepth = routeSelectionDepth) {
   if (routeSyncing) return false;
   let fen = game.fen();
   const nextPath = [];
@@ -3678,10 +3888,15 @@ function syncForkFromExplorer() {
   routeSyncing = true;
   branchPath = nextPath;
   expanded = expanded.slice(0, Math.max(1, nextPath.length));
-  routeSelectionDepth = nextPath.length;
+  const requestedDepth = Number(explicitDepth);
+  routeSelectionDepth = Number.isInteger(requestedDepth)
+    ? Math.max(0, Math.min(requestedDepth, nextPath.length))
+    : 0;
   renderFork();
   routeSyncing = false;
-  if (routeSelectionDepth > 0) startFutureBoardPreview(routeMovesFromColumns(2));
+  if (routeSelectionDepth > 0) {
+    startFutureBoardPreview(routeMovesFromColumns(Math.min(2, routeSelectionDepth)));
+  }
   else cancelFutureBoardPreview();
   return nextPath.length === explorerState.path.length;
 }
@@ -3699,12 +3914,12 @@ function alignFutureRootMove(move, explicit = false) {
   renderFork();
   // 棋盘点选时虽然仍是“建议预演”，2D/3D 也必须看同一条 e4/e3 路线。
   syncExplorerFromFork(1);
-  if (explicit) startFutureBoardPreview(routeMovesFromColumns(2));
+  if (explicit) startFutureBoardPreview(routeMovesFromColumns(1));
   return true;
 }
 
 function chooseForkBranch(i, rank, scrollNext = false) {
-  if (thinking || forkStale) return false;
+  if (!futureDepthSelectable(i)) return false;
   const chosen = columns[i] && columns[i].ranked[rank];
   if (!chosen) return false;
   branchPath = branchPath.slice(0, i);
@@ -3715,7 +3930,7 @@ function chooseForkBranch(i, rank, scrollNext = false) {
   renderFork();
   syncExplorerFromFork(routeSelectionDepth);
   showMoveDetails(columns[i], columns[i].ranked[rank], rank);
-  startFutureBoardPreview(routeMovesFromColumns(2));
+  startFutureBoardPreview(routeMovesFromColumns(Math.min(2, routeSelectionDepth)));
   if (scrollNext) scrollForkToward(i + 1);
   return true;
 }
@@ -3735,6 +3950,15 @@ forkEl.addEventListener('click', (ev) => {
 forkEl.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   if (activateForkTarget(ev.target)) ev.preventDefault();
+});
+
+futureReplyListEl.addEventListener('click', (event) => {
+  const option = event.target.closest?.('[data-future-reply-option]');
+  if (!option || option.disabled || !futureReplySelectionReady()
+    || routeSelectionDepth < 1 || !columns[1]) return;
+  const rank = Number(option.dataset.rank);
+  if (!Number.isInteger(rank) || !columns[1].ranked[rank]) return;
+  chooseForkBranch(1, rank, false);
 });
 
 function showMoveDetails(c, m, rank) {
@@ -3766,11 +3990,14 @@ function showMoveDetails(c, m, rank) {
     title: `${m.san} · 走后还有 ${replies} 个真实分支`,
     detail: `${situation.label}，${quality.label}；浅层排序第 ${rank + 1}/${c.ranked.length}`
       + (c.pvRank === rank ? ' · 位于已验证的引擎主变' : '')
-      + (isCurrentPosition ? '' : ' · 点击后可在全景/推演中继续深入'),
+      + (isCurrentPosition
+        ? ` · 下一步仍未知，请从下方 ${replies} 种可能回应中选择一条分析`
+        : ' · 这是条件假设，不代表对手一定会这样走'),
     effects,
-    canCommit: isCurrentPosition
-      && routeSelectionDepth > 0
-      && columns[0]?.ranked[columns[0].chosen]?.after === m.after,
+    canCommit: routeSelectionDepth > 0
+      && columns[0]?.fen === game.fen()
+      && (!isCurrentPosition
+        || columns[0]?.ranked[columns[0].chosen]?.after === m.after),
   });
 }
 
@@ -3803,6 +4030,30 @@ function commitFirstFutureMove(requireExplicit = false) {
 
 document.getElementById('btnPlayLine').onclick = () => commitFirstFutureMove(true);
 futureCommitEl.onclick = () => commitFirstFutureMove(true);
+
+function clearFutureRoute({ focus = true } = {}) {
+  if (thinking || forkStale) return false;
+  cancelFutureBoardPreview(false);
+  selected = null;
+  forkPreview = null;
+  coachPreview = null;
+  resetExplorer(false);
+  routeSelectionDepth = 0;
+  branchPath = [];
+  expanded = [];
+  renderFork();
+  renderExplorer();
+  renderBoard();
+  renderCoachIdle();
+  forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
+  if (focus) {
+    forkEl.querySelector('g.card[data-col="0"][data-selected="true"]')
+      ?.focus({ preventScroll: true });
+  }
+  return true;
+}
+
+futureClearEl.onclick = () => clearFutureRoute();
 
 // ─────────────────────────────────────────────── 全屏变体棋盘
 const exploreSquaresEl = document.getElementById('exploreSquares');
@@ -3953,6 +4204,7 @@ function renderExplorer() {
   }
   const side = fen.split(' ')[1] === 'w' ? '白方' : '黑方';
   const situation = last ? scoreSituation(last.score) : null;
+  const choicesInteractive = futureDepthSelectable(explorerState.path.length);
   exploreSummaryEl.innerHTML = last
     ? (explorerState.path.length >= EXPLORE_MAX_PLY
       ? `<b>已展开从当前局面向后的 ${EXPLORE_MAX_PLY} 步；点上方路径回退。</b><br>`
@@ -3966,9 +4218,12 @@ function renderExplorer() {
   exploreChoicesEl.innerHTML = explorerState.choices.map((move, rank) => {
     const situationNow = scoreSituation(move.score);
     const replies = explorerReplyCount(move.after);
-    return `<button type="button" data-explore-rank="${rank}" data-san="${esc(move.san)}"`
+    return `<button type="button" data-explore-rank="${rank}"`
+      + ` data-parent-depth="${explorerState.path.length}" data-san="${esc(move.san)}"`
       + ` data-from="${move.from}" data-to="${move.to}" data-after="${esc(move.after)}"`
       + ` data-replies="${replies}"`
+      + `${choicesInteractive ? '' : ' disabled'} aria-disabled="${!choicesInteractive}"`
+      + ` tabindex="${choicesInteractive ? 0 : -1}"`
       + ` style="--choice-color:${cssColor(move.score, 1.25)}">`
       + `<b>${esc(move.san)}</b><small>${PIECE_NAME[move.piece] || '棋子'} · ${situationNow.short}`
       + ` · 走后 ${replies} 个分支</small></button>`;
@@ -3979,7 +4234,9 @@ function renderExplorer() {
 
 function chooseExplorerMoveAt(parentDepth, rank) {
   ensureExplorerRoot();
-  const depth = Math.max(0, Math.min(Number(parentDepth) || 0, explorerState.path.length));
+  const depth = Number(parentDepth);
+  if (!Number.isInteger(depth) || depth < 0
+    || depth > explorerState.path.length || !futureDepthSelectable(depth)) return false;
   if (thinking || depth >= EXPLORE_MAX_PLY) return false;
   const prefix = explorerState.path.slice(0, depth);
   const parentFen = prefix.at(-1)?.after || explorerState.rootFen;
@@ -3993,7 +4250,7 @@ function chooseExplorerMoveAt(parentDepth, rank) {
     promotion: move.promotion || '', after: move.after,
     score: move.score, piece: move.piece, captured: move.captured || '',
   });
-  syncForkFromExplorer();
+  syncForkFromExplorer(depth + 1);
   renderExplorer();
   if (cloudViewMode === '3d') {
     focusExplorerNode();
@@ -4022,8 +4279,9 @@ function chooseExplorerRootAfter(after) {
 
 function rewindExplorer(depth) {
   const nextDepth = Math.max(0, Math.min(Number(depth) || 0, explorerState.path.length));
+  const nextExplicitDepth = Math.min(routeSelectionDepth, nextDepth);
   explorerState.path = explorerState.path.slice(0, nextDepth);
-  syncForkFromExplorer();
+  syncForkFromExplorer(nextExplicitDepth);
   renderExplorer();
   if (cloudViewMode === '3d') {
     focusExplorerNode();
@@ -4043,13 +4301,10 @@ explorePathEl.addEventListener('click', (event) => {
   if (crumb) rewindExplorer(+crumb.dataset.exploreDepth);
 });
 document.getElementById('exploreReset').onclick = () => {
-  cancelFutureBoardPreview();
-  resetExplorer(false);
-  routeSelectionDepth = 0;
-  branchPath = [];
-  expanded = [];
-  renderFork();
-  renderExplorer();
+  if (clearFutureRoute({ focus: false })) {
+    explorePathEl.querySelector('button[data-explore-depth="0"]')
+      ?.focus({ preventScroll: true });
+  }
 };
 
 // ─────────────────────────────────────────────── 二维聚焦树
@@ -4059,6 +4314,7 @@ function treeChoiceHtml(move, rank, parentDepth, parentFen, selected) {
   const replies = explorerReplyCount(move.after);
   const situation = scoreSituation(move.score);
   const explicit = selected && parentDepth < routeSelectionDepth;
+  const canActivate = futureDepthSelectable(parentDepth);
   const parentMove = parentDepth > 0 ? explorerState.path[parentDepth - 1] : null;
   const parentId = parentMove
     ? `future-${parentDepth}-${futureMoveKey(parentMove)}`
@@ -4084,7 +4340,9 @@ function treeChoiceHtml(move, rank, parentDepth, parentFen, selected) {
     + ` data-resolved="true" data-selected="${explicit}"`
     + ` data-suggested="${selected && !explicit}" data-engine="false"`
     + ` data-played="false" data-effect="${effects}"`
-    + ` aria-pressed="${selected}" style="--tree-color:${cssColor(move.score, 1.25)}">`
+    + `${canActivate ? '' : ' disabled'} aria-disabled="${!canActivate}"`
+    + ` tabindex="${canActivate ? 0 : -1}" aria-pressed="${selected}"`
+    + ` style="--tree-color:${cssColor(move.score, 1.25)}">`
     + `<b>${esc(move.san)}</b>`
     + `<small>${PIECE_NAME[move.piece] || '棋子'} · ${situation.short}</small>`
     + `<span class="tree2d-branch-badge">走后 <span class="tree2d-branch-count">${replies}</span> 个分支`
@@ -4189,6 +4447,7 @@ function renderCloudTree2d() {
   const renderKey = [
     explorerState.rootFen,
     ...explorerState.path.map((move) => move.after),
+    `explicit:${routeSelectionDepth}`,
     thinking ? 'thinking' : 'ready',
   ].join('|');
   if (tree2dRenderKey === renderKey && tree2dBodyEl.childElementCount > 0) {
@@ -4864,12 +5123,16 @@ motionPreference.addEventListener('change', (event) => {
   if (
     reducedMotion
     && futurePreviewIsActive()
-    && futurePreviewPlayback.phase === 'playing'
+    && (futurePreviewPlayback.phase === 'playing'
+      || futurePreviewPlayback.phase === 'conditional-playing')
   ) {
     clearTimeout(futurePreviewTimer);
     futurePreviewTimer = 0;
-    futurePreviewPlayback.index = futurePreviewPlayback.frames.length - 1;
-    futurePreviewPlayback.phase = 'reduced-static';
+    const conditional = futurePreviewPlayback.frames.length > 1;
+    futurePreviewPlayback.index = conditional ? futurePreviewPlayback.frames.length - 1 : 0;
+    futurePreviewPlayback.phase = conditional
+      ? 'conditional-static'
+      : futurePreviewPlayback.finalPhase;
     renderBoard();
   }
 });
@@ -5582,6 +5845,8 @@ function coachSnapshot() {
       from: card.dataset.replyFrom || '',
       to: card.dataset.replyTo || '',
       piece: card.dataset.replyPiece || '',
+      kind: card.dataset.replyKind || 'none',
+      selected: card.dataset.replySelected === 'true',
       score: card.dataset.replyScore === '' || card.dataset.replyScore === undefined
         ? null
         : Number(card.dataset.replyScore),
@@ -5624,8 +5889,16 @@ function coachSnapshot() {
       from: chip.dataset.from || '',
       to: chip.dataset.to || '',
       piece: chip.dataset.piece || '',
+      analysisOnly: chip.dataset.analysisOnly === 'true',
     })),
     paths,
+    preview: coachPreview ? {
+      lineId: coachPreview.id || '',
+      replySource: coachPreview.replySource || '',
+      you: coachPreview.you ? { ...coachPreview.you } : null,
+      reply: coachPreview.reply ? { ...coachPreview.reply } : null,
+      drawnReply: paths.some((path) => path.step === 'reply'),
+    } : null,
     modelTotal: coachModel?.total || 0,
     activeRank: coachActiveRank,
     outcome: coachOutcome ? {
@@ -5766,6 +6039,7 @@ function futureSnapshot() {
       : selectedMoves;
   const activeEnginePath = !!pvGuide && pvGuide.rootFen === game.fen();
   const engineMoves = activeEnginePath ? pvGuide.moves : [];
+  const replyFrontier = futureReplyFrontier();
   const renderedRoot = cloudViewMode === '2d' ? cloudTree2dEl : cloudLabelsEl;
   const renderedEdges = cloudViewMode === '2d'
     ? renderedRoot.querySelectorAll('[data-future-edge]').length
@@ -5792,6 +6066,17 @@ function futureSnapshot() {
       path: previewMoves.map((move, index) =>
         futureMoveSnapshot(move, index + 1, index < routeSelectionDepth ? 'selected' : 'suggested')),
     },
+    frontier: replyFrontier ? {
+      parentFen: replyFrontier.parentFen,
+      side: 'b',
+      count: replyFrontier.replies.length,
+      terminal: replyFrontier.terminal,
+      candidates: replyFrontier.replies.map((move, rank) => ({
+        ...futureMoveSnapshot(move, 2, rank === 0 ? 'suggested' : 'option'),
+        suggested: rank === 0,
+        selected: routeSelectionDepth > 1 && rank === columns[1]?.chosen,
+      })),
+    } : null,
     enginePath: {
       verified: activeEnginePath,
       sourceFen: activeEnginePath ? pvGuide.rootFen : '',
@@ -5813,7 +6098,8 @@ function selectFutureNode(parentDepth, key) {
   const requestedDepth = Number(parentDepth);
   if (!Number.isInteger(requestedDepth)
     || requestedDepth < 0
-    || requestedDepth > explorerState.path.length) return false;
+    || requestedDepth > explorerState.path.length
+    || !futureDepthSelectable(requestedDepth)) return false;
   const depth = requestedDepth;
   const parentFen = depth === 0
     ? explorerState.rootFen

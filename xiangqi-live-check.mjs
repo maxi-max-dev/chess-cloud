@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 51;
+const EXPECTED_RESULTS = 58;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -404,6 +404,48 @@ function auditBranches(fen, branches) {
   return { ok: problems.length === 0, problems };
 }
 
+function auditReplyOptions(fen, options) {
+  const problems = [];
+  let position;
+  let legal = [];
+  try {
+    position = parseFen(fen);
+    legal = generateLegalMoves(position);
+  } catch (error) {
+    return { ok: false, legalCount: 0, problems: [`回应根 FEN 无法解析：${error?.message || error}`] };
+  }
+  const expected = new Map(legal.map((move) => {
+    const child = applyMove(position, move, { validate: false });
+    return [
+      `${move.fromIndex}-${move.toIndex}`,
+      {
+        move,
+        afterFen: toFen(child),
+        branchCount: generateLegalMoves(child).length,
+      },
+    ];
+  }));
+  const seen = new Set();
+  for (const option of options || []) {
+    const key = `${option.from}-${option.to}`;
+    const truth = expected.get(key);
+    if (!truth) problems.push(`DOM 含非法回应 ${key}`);
+    if (seen.has(key)) problems.push(`DOM 回应重复 ${key}`);
+    seen.add(key);
+    if (truth && !sameFen(option.afterFen, truth.afterFen)) problems.push(`${key} after FEN 不同源`);
+    if (truth && Number(option.branchCount) !== truth.branchCount) {
+      problems.push(`${key} 走后分叉 ${option.branchCount}≠${truth.branchCount}`);
+    }
+  }
+  if ((options || []).length !== legal.length) {
+    problems.push(`DOM ${options?.length || 0} 条≠棋核 ${legal.length} 条`);
+  }
+  for (const key of expected.keys()) {
+    if (!seen.has(key)) problems.push(`DOM 漏回应 ${key}`);
+  }
+  return { ok: problems.length === 0, legalCount: legal.length, problems };
+}
+
 function replayPreviewLine(rootFen, line) {
   try {
     let position = parseFen(rootFen);
@@ -596,7 +638,7 @@ async function futureContractAudit() {
     5000,
     '统一未来地图建议路线',
   );
-  const state = await evaluate(`(() => {
+  const state = await evaluate(`(async () => {
     const initial = window.__futureTest.snapshot();
     const liveBefore = window.__xiangqiTest.fen;
     const card = document.querySelector(
@@ -604,23 +646,36 @@ async function futureContractAudit() {
     );
     const key = card ? card.dataset.from + '-' + card.dataset.to : '';
     const selected = window.__futureTest.selectNode(0, key);
-    const afterSelect = window.__futureTest.snapshot();
+    const afterFirst = window.__futureTest.snapshot();
     const liveAfterSelect = window.__xiangqiTest.fen;
+    const board = document.querySelector('#board[data-future-preview]');
+    const started = performance.now();
+    while (performance.now() - started < 2200 && board?.dataset.previewPhase !== 'await-reply') {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const reply = afterFirst.frontier.candidates.find((candidate) => !candidate.suggested)
+      || afterFirst.frontier.candidates[0] || null;
+    const selectedReply = reply ? window.__futureTest.selectNode(1, reply.key) : false;
+    const afterReply = window.__futureTest.snapshot();
     window.__futureTest.setMode('overview-3d');
     const overview = window.__futureTest.snapshot();
     window.__futureTest.setMode('tree-2d');
     const tree = window.__futureTest.snapshot();
     window.__futureTest.rewind();
-    return { initial, liveBefore, selected, afterSelect, liveAfterSelect, overview, tree };
-  })()`);
+    return {
+      initial, liveBefore, selected, afterFirst, liveAfterSelect,
+      reply, selectedReply, afterReply, overview, tree,
+    };
+  })()`, true);
   const rootCount = generateLegalMoves(parseFen(state.initial.root.fen)).length;
-  const selectedFens = state.afterSelect.selectedPath.map((step) => step.afterFen);
-  const selectedStep = state.afterSelect.selectedPath[0];
+  const firstFens = state.afterFirst.selectedPath.map((step) => step.afterFen);
+  const selectedFens = state.afterReply.selectedPath.map((step) => step.afterFen);
+  const selectedStep = state.afterFirst.selectedPath[0];
   const firstTransition = selectedStep
     ? legalTransition(state.initial.root.fen, selectedStep.afterFen)
     : [];
-  const replyTransition = selectedStep
-    ? legalTransition(selectedStep.afterFen, state.afterSelect.preview.fen)
+  const replyTransition = selectedStep && state.reply
+    ? legalTransition(selectedStep.afterFen, state.reply.afterFen)
     : [];
   record(
     state.initial.schema === 1
@@ -629,36 +684,424 @@ async function futureContractAudit() {
       && state.initial.suggestedPath.length === 1
       && state.initial.root.branchCount === rootCount
       && state.selected === true
-      && selectedFens.length === 1
+      && firstFens.length === 1
       && firstTransition.length === 1
       && selectedStep.branchCount
         === generateLegalMoves(parseFen(selectedStep.afterFen)).length
-      && state.afterSelect.preview.depth === 2
-      && state.afterSelect.preview.path[0].role === 'selected'
-      && state.afterSelect.preview.path[1].role === 'engine'
+      && state.afterFirst.preview.depth === 1
+      && state.afterFirst.preview.path.length === 1
+      && state.afterFirst.preview.path[0].role === 'selected'
+      && sameFen(state.afterFirst.preview.fen, selectedStep.afterFen)
+      && state.afterFirst.frontier.parentFen === selectedStep.afterFen
+      && state.afterFirst.frontier.count
+        === generateLegalMoves(parseFen(selectedStep.afterFen)).length
+      && state.afterFirst.frontier.candidates.length === state.afterFirst.frontier.count
+      && state.afterFirst.frontier.candidates.filter((candidate) => candidate.suggested).length === 1
+      && state.selectedReply === true
+      && selectedFens.length === 2
+      && state.afterReply.preview.depth === 2
+      && state.afterReply.preview.path.every((step) => step.role === 'selected')
       && replyTransition.length === 1
+      && sameFen(state.afterReply.preview.fen, state.reply.afterFen)
       && sameFen(state.liveAfterSelect, state.liveBefore)
       && state.overview.mode === 'overview-3d'
       && state.tree.mode === 'tree-2d'
-      && sameFen(state.overview.preview.fen, state.afterSelect.preview.fen)
-      && sameFen(state.tree.preview.fen, state.afterSelect.preview.fen)
+      && sameFen(state.overview.preview.fen, state.afterReply.preview.fen)
+      && sameFen(state.tree.preview.fen, state.afterReply.preview.fen)
       && JSON.stringify(state.overview.selectedPath.map((step) => step.afterFen))
         === JSON.stringify(selectedFens)
       && JSON.stringify(state.tree.selectedPath.map((step) => step.afterFen))
         === JSON.stringify(selectedFens),
     '统一未来地图契约：推荐不冒充选路，2D/3D 共用预演且不改实战',
     `根=${rootCount}｜初始选路=${state.initial.selectedPath.length}`
-      + `｜选择后=${selectedFens.length}｜合法强应=${replyTransition.length === 1}`
+      + `｜首选后=${firstFens.length}｜显式回应后=${selectedFens.length}`
+      + `｜合法条件边=${replyTransition.length === 1}`
       + `｜模式=${state.overview.mode}→${state.tree.mode}`
       + `｜实战未变=${sameFen(state.liveAfterSelect, state.liveBefore)}`,
   );
 }
 
+async function uncertainReplyAudit() {
+  let state = null;
+  let errorText = '';
+  try {
+    await setViewport(390, 844);
+    await send('Emulation.setEmulatedMedia', {
+      features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+    });
+    state = await evaluate(`(async () => {
+      const board = document.querySelector('#board[data-future-preview]');
+      const read = () => {
+        const list = document.querySelector('[data-future-reply-list]');
+        return {
+          phase: board?.dataset.previewPhase || '',
+          rootFen: board?.dataset.previewRootFen || '',
+          displayFen: board?.dataset.previewDisplayFen || '',
+          lineId: board?.dataset.previewLineId || '',
+          stepIndex: Number(board?.dataset.previewStepIndex || 0),
+          stepCount: Number(board?.dataset.previewStepCount || 0),
+          motions: [...(board?.querySelectorAll('[data-future-motion-piece="true"]') || [])].map((node) => ({
+            lineId: node.dataset.previewLineId || '',
+            step: node.dataset.previewStep || '',
+          })),
+          paths: [...(board?.querySelectorAll('[data-future-preview-step]') || [])].map((node) => ({
+            lineId: node.dataset.previewLineId || '',
+            step: node.dataset.futurePreviewStep || '',
+            from: node.dataset.previewFrom || '',
+            to: node.dataset.previewTo || '',
+          })),
+          pieces: [...(board?.querySelectorAll('.piece') || [])].map((piece) => ({
+            square: piece.dataset.square,
+            side: piece.dataset.side,
+            piece: piece.dataset.piece,
+          })),
+          enabledSquares: board?.querySelectorAll('.square:not(:disabled)').length ?? -1,
+          replyCount: Number(list?.dataset.replyCount ?? -1),
+          replyText: list?.textContent?.replace(/\\s+/g, ' ').trim() || '',
+          replyLayout: (() => {
+            const heading = list?.querySelector('.future-reply-heading')?.getBoundingClientRect();
+            const options = list?.querySelector('.future-reply-options')?.getBoundingClientRect();
+            const panel = list?.getBoundingClientRect();
+            return heading && options && panel ? {
+              panelWidth: panel.width,
+              headingWidth: heading.width,
+              headingBottom: heading.bottom,
+              optionsTop: options.top,
+            } : null;
+          })(),
+          options: [...document.querySelectorAll('[data-future-reply-option]')].map((option) => ({
+            from: Number(option.dataset.from),
+            to: Number(option.dataset.to),
+            afterFen: option.dataset.afterFen || '',
+            branchCount: Number(option.dataset.branchCount),
+            suggested: option.dataset.engineSuggested === 'true',
+            text: (option.textContent || '').replace(/\\s+/g, ' ').trim(),
+            aria: option.getAttribute('aria-label') || '',
+            tag: option.tagName,
+            disabled: !!option.disabled,
+          })),
+        };
+      };
+      window.__futureTest.rewind();
+      const card = document.querySelector(
+        '#branchGrid .branch-node[data-reply-from]:not([data-reply-from=""])'
+      );
+      const liveBefore = {
+        fen: window.__xiangqiTest.fen,
+        pathLength: window.__xiangqiTest.pathLength,
+      };
+      const cardKey = card ? String(card.dataset.from) + '-' + String(card.dataset.to) : '';
+      card?.focus({ preventScroll: true });
+      const selectionStarted = performance.now();
+      card?.click();
+      const keyboardFocus = {
+        elapsedMs: performance.now() - selectionStarted,
+        activeKey: document.activeElement?.matches?.('#branchGrid button[data-from][data-to]')
+          ? String(document.activeElement.dataset.from) + '-' + String(document.activeElement.dataset.to)
+          : '',
+        activeIsBody: document.activeElement === document.body,
+        replyListLive: document.querySelector('[data-future-reply-list]')?.getAttribute('aria-live'),
+      };
+      const afterSelect = window.__futureTest.snapshot();
+      const immediate = read();
+      const samples = [];
+      const start = performance.now();
+      let awaited = read();
+      while (performance.now() - start < 2200) {
+        awaited = read();
+        samples.push(awaited);
+        if (awaited.phase === 'await-reply') break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const beforeIdleWait = read();
+      await new Promise((resolve) => setTimeout(resolve, 900));
+      const afterIdleWait = read();
+      const choices = afterIdleWait.options;
+      const chosen = choices.find((option) => !option.suggested) || choices[0] || null;
+      const target = [...document.querySelectorAll('[data-future-reply-option]')].find((option) =>
+        Number(option.dataset.from) === chosen?.from && Number(option.dataset.to) === chosen?.to);
+      const replyScroller = document.querySelector('.future-reply-options');
+      if (replyScroller) replyScroller.scrollLeft = Math.min(96, replyScroller.scrollWidth);
+      target?.focus({ preventScroll: true });
+      const beforeReplyClick = {
+        scrollLeft: replyScroller?.scrollLeft || 0,
+        activeFrom: document.activeElement?.dataset?.from || '',
+        activeTo: document.activeElement?.dataset?.to || '',
+      };
+      target?.click();
+      const replacementScroller = document.querySelector('.future-reply-options');
+      const afterReplyClick = {
+        scrollLeft: replacementScroller?.scrollLeft || 0,
+        activeFrom: document.activeElement?.dataset?.from || '',
+        activeTo: document.activeElement?.dataset?.to || '',
+      };
+      const branchStart = performance.now();
+      let final = read();
+      while (performance.now() - branchStart < 2200) {
+        final = read();
+        if (final.phase === 'conditional-settled') break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      final = read();
+      const liveAfter = {
+        fen: window.__xiangqiTest.fen,
+        pathLength: window.__xiangqiTest.pathLength,
+      };
+      const finalSnapshot = window.__futureTest.snapshot();
+      const clearControl = document.getElementById('xqClearPreview');
+      const clearBefore = {
+        enabled: !!clearControl && !clearControl.disabled,
+        live: { ...liveAfter },
+      };
+      clearControl?.focus({ preventScroll: true });
+      clearControl?.click();
+      const clearAfter = {
+        preview: read(),
+        snapshot: window.__futureTest.snapshot(),
+        live: {
+          fen: window.__xiangqiTest.fen,
+          pathLength: window.__xiangqiTest.pathLength,
+        },
+        repliesHidden: document.querySelector('[data-future-reply-list]')?.hidden,
+        clearDisabled: clearControl?.disabled,
+        commitDisabled: document.getElementById('xqCommit')?.disabled,
+        activeKey: document.activeElement?.matches?.('#branchGrid button[data-from][data-to]')
+          ? String(document.activeElement.dataset.from) + '-' + String(document.activeElement.dataset.to)
+          : '',
+      };
+      return {
+        cardFound: !!card,
+        cardKey,
+        keyboardFocus,
+        afterSelect,
+        immediate,
+        samples,
+        beforeIdleWait,
+        afterIdleWait,
+        chosen,
+        beforeReplyClick,
+        afterReplyClick,
+        final,
+        finalSnapshot,
+        liveBefore,
+        liveAfter,
+        clearBefore,
+        clearAfter,
+      };
+    })()`, true);
+  } catch (error) {
+    errorText = error?.message || String(error);
+  }
+
+  const selected = state?.afterSelect?.selectedPath?.[0];
+  const awaited = state?.afterIdleWait;
+  const motionRoles = new Set(
+    (state?.samples || []).flatMap((sample) => sample.motions.map((motion) => motion.step)),
+  );
+  const firstPath = awaited?.paths?.[0];
+  record(
+    !!state
+      && state.cardFound
+      && !!selected
+      && state.immediate.phase === 'playing'
+      && state.immediate.options.length > 0
+      && state.immediate.options.every((option) => option.disabled)
+      && awaited.phase === 'await-reply'
+      && awaited.stepIndex === 1
+      && awaited.stepCount === 1
+      && sameFen(awaited.rootFen, state.liveBefore.fen)
+      && sameFen(awaited.displayFen, selected.afterFen)
+      && awaited.lineId
+      && awaited.paths.length === 1
+      && firstPath?.step === 'you'
+      && firstPath?.lineId === awaited.lineId
+      && firstPath?.from === selected.from
+      && firstPath?.to === selected.to
+      && motionRoles.has('you')
+      && !motionRoles.has('reply')
+      && state.samples.every((sample) => sample.motions.length <= 1)
+      && state.beforeIdleWait.phase === 'await-reply'
+      && state.beforeIdleWait.lineId === awaited.lineId
+      && sameFen(state.beforeIdleWait.displayFen, awaited.displayFen)
+      && awaited.enabledSquares === 0
+      && renderedPiecesMatchFen(selected.afterFen, awaited.pieces)
+      && sameFen(state.liveAfter.fen, state.liveBefore.fen)
+      && state.liveAfter.pathLength === state.liveBefore.pathLength,
+    '选第一步后只播放该步并稳定等待回应，未选择不能自动推进',
+    errorText || `phase=${awaited?.phase || '无'}｜motions=${[...motionRoles].join('/') || '无'}`
+      + `｜paths=${awaited?.paths?.map((path) => path.step).join('/') || '无'}`
+      + `｜实战未变=${sameFen(state?.liveAfter?.fen, state?.liveBefore?.fen)}`,
+  );
+
+  record(
+    !!state
+      && !!state.cardKey
+      && state.keyboardFocus.activeKey === state.cardKey
+      && state.keyboardFocus.activeIsBody === false
+      && state.keyboardFocus.replyListLive === null
+      && state.keyboardFocus.elapsedMs <= 500,
+    '键盘选首步保留焦点，回应列表不重复整块朗读且同步建表不卡住界面',
+    errorText || `focus=${state?.keyboardFocus?.activeKey || '无'}/${state?.cardKey || '无'}`
+      + `｜aria-live=${state?.keyboardFocus?.replyListLive ?? '无'}`
+      + `｜${(state?.keyboardFocus?.elapsedMs ?? -1).toFixed(1)}ms`,
+  );
+
+  const options = awaited?.options || [];
+  const optionAudit = auditReplyOptions(selected?.afterFen || '', options);
+  const suggested = options.filter((option) => option.suggested);
+  record(
+    !!state
+      && optionAudit.ok
+      && awaited.replyCount === options.length
+      && options.length === optionAudit.legalCount
+      && options.every((option) => option.tag === 'BUTTON' && !option.disabled)
+      && suggested.length === 1
+      && /建议/.test(suggested[0]?.text || '')
+      && /建议/.test(suggested[0]?.aria || '')
+      && options.filter((option) => !option.suggested).every((option) => /可能|假设/.test(option.aria))
+      && /(?:可能|假设)回应/.test(awaited.replyText)
+      && !/(?:确定|必然)回应/.test(awaited.replyText)
+      && awaited.replyLayout?.headingWidth >= awaited.replyLayout?.panelWidth * 0.7
+      && awaited.replyLayout?.headingBottom <= awaited.replyLayout?.optionsTop + 1,
+    '回应面板完整渲染全部合法候选，金色引擎回应只是一项建议',
+    errorText || (optionAudit.ok
+      ? `DOM/属性/棋核=${options.length}｜建议=${suggested.length}｜条件文案=${awaited?.replyText || '无'}`
+      : optionAudit.problems.slice(0, 5).join('；')),
+  );
+
+  const final = state?.final;
+  const chosen = state?.chosen;
+  const chosenFrom = Number.isInteger(chosen?.from) ? indexToSquare(chosen.from) : '';
+  const chosenTo = Number.isInteger(chosen?.to) ? indexToSquare(chosen.to) : '';
+  record(
+    !!state
+      && !!chosen
+      && final.phase === 'conditional-settled'
+      && final.lineId
+      && final.lineId !== awaited.lineId
+      && final.stepIndex === 2
+      && final.stepCount === 2
+      && sameFen(final.displayFen, chosen.afterFen)
+      && final.motions.length === 0
+      && final.paths.length === 2
+      && final.paths.every((path) => path.lineId === final.lineId)
+      && final.paths.some((path) => path.step === 'you')
+      && final.paths.some((path) => path.step === 'reply'
+        && path.from === chosenFrom && path.to === chosenTo)
+      && renderedPiecesMatchFen(chosen.afterFen, final.pieces)
+      && state.finalSnapshot.selectedPath.length === 2
+      && sameFen(state.finalSnapshot.selectedPath[1]?.afterFen, chosen.afterFen)
+      && state.beforeReplyClick.scrollLeft > 0
+      && state.afterReplyClick.scrollLeft === state.beforeReplyClick.scrollLeft
+      && state.beforeReplyClick.activeFrom === String(chosen.from)
+      && state.beforeReplyClick.activeTo === String(chosen.to)
+      && state.afterReplyClick.activeFrom === String(chosen.from)
+      && state.afterReplyClick.activeTo === String(chosen.to)
+      && sameFen(state.liveAfter.fen, state.liveBefore.fen)
+      && state.liveAfter.pathLength === state.liveBefore.pathLength,
+    '显式点可能回应后才播放条件分支并停在同源局面，实战保持不变',
+    errorText || `phase=${final?.phase || '无'}｜line=${awaited?.lineId || '无'}→${final?.lineId || '无'}`
+      + `｜选择=${chosenFrom || '?'}→${chosenTo || '?'}`
+      + `｜scroll=${state?.beforeReplyClick?.scrollLeft ?? -1}→${state?.afterReplyClick?.scrollLeft ?? -1}`
+      + `｜focus=${state?.beforeReplyClick?.activeFrom || '?'}-${state?.beforeReplyClick?.activeTo || '?'}`
+      + `→${state?.afterReplyClick?.activeFrom || '?'}-${state?.afterReplyClick?.activeTo || '?'}`
+      + `｜实战未变=${sameFen(state?.liveAfter?.fen, state?.liveBefore?.fen)}`,
+  );
+
+  const clearAfter = state?.clearAfter;
+  record(
+    !!state
+      && state.clearBefore.enabled === true
+      && clearAfter?.preview?.phase === 'idle'
+      && clearAfter.preview.stepCount === 0
+      && clearAfter.preview.replyCount === 0
+      && clearAfter.preview.options.length === 0
+      && clearAfter.preview.enabledSquares > 0
+      && clearAfter.snapshot.selectedPath.length === 0
+      && clearAfter.repliesHidden === true
+      && clearAfter.clearDisabled === true
+      && clearAfter.commitDisabled === true
+      && clearAfter.activeKey === state.cardKey
+      && sameFen(clearAfter.live.fen, state.clearBefore.live.fen)
+      && clearAfter.live.pathLength === state.clearBefore.live.pathLength,
+    '中国象棋「回到现在」会收起回应、恢复真棋盘且把焦点送回原分叉',
+    errorText || `phase=${clearAfter?.preview?.phase || '无'}`
+      + `｜选路=${clearAfter?.snapshot?.selectedPath?.length ?? -1}`
+      + `｜回应隐藏=${clearAfter?.repliesHidden}`
+      + `｜焦点=${clearAfter?.activeKey || '无'}/${state?.cardKey || '无'}`
+      + `｜实战未变=${sameFen(clearAfter?.live?.fen, state?.clearBefore?.live?.fen)}`,
+  );
+
+  let terminalCase = null;
+  let terminalError = '';
+  try {
+    const terminalFen = 'RR1k5/9/9/9/9/9/9/3K5/9/9 w - - 0 1';
+    await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(terminalFen)})`);
+    await waitFor(
+      `[...document.querySelectorAll('#branchGrid .branch-node')]
+        .some((node) => node.textContent.includes('车八平六'))`,
+      5000,
+      '一步终局候选',
+    );
+    terminalCase = await evaluate(`(async () => {
+      const board = document.querySelector('#board[data-future-preview]');
+      const card = [...document.querySelectorAll('#branchGrid .branch-node')]
+        .find((node) => node.textContent.includes('车八平六'));
+      card?.click();
+      const started = performance.now();
+      while (performance.now() - started < 2200 && board?.dataset.previewPhase !== 'terminal') {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      const list = document.querySelector('[data-future-reply-list]');
+      return {
+        found: !!card,
+        phase: board?.dataset.previewPhase || '',
+        stepCount: Number(board?.dataset.previewStepCount || 0),
+        replyCount: Number(list?.dataset.replyCount ?? -1),
+        options: document.querySelectorAll('[data-future-reply-option]').length,
+        copy: [
+          document.getElementById('xqFutureTitle')?.textContent || '',
+          document.getElementById('xqFutureDetail')?.textContent || '',
+          document.getElementById('boardPreviewCopy')?.textContent || '',
+        ].join(' '),
+        snapshot: window.__futureTest.snapshot(),
+      };
+    })()`, true);
+  } catch (error) {
+    terminalError = error?.message || String(error);
+  }
+  record(
+    !!terminalCase
+      && terminalCase.found
+      && terminalCase.phase === 'terminal'
+      && terminalCase.stepCount === 1
+      && terminalCase.replyCount === 0
+      && terminalCase.options === 0
+      && terminalCase.snapshot.frontier?.terminal === true
+      && terminalCase.snapshot.frontier?.candidates?.length === 0
+      && !/(?:等待选择|从 0 种|选择回应)/.test(terminalCase.copy),
+    '第一步已终局时停在 terminal，不伪造“从 0 种回应中选择”',
+    terminalError || `phase=${terminalCase?.phase || '无'}｜回应=${terminalCase?.replyCount ?? -1}`
+      + `｜文案=${terminalCase?.copy || '无'}`,
+  );
+  try { await evaluate('window.__xiangqiTest.reset()'); } catch {}
+  try {
+    await waitFor(
+      `document.querySelectorAll('#branchGrid .branch-node').length === 44
+        && !!document.querySelector('#branchGrid .branch-node[data-reply-from]:not([data-reply-from=""])')`,
+      12000,
+      '终局夹具后恢复起始分叉',
+    );
+  } catch {}
+  try { await setViewport(1440, 900); } catch {}
+  try { await evaluate('window.scrollTo(0, 0)'); } catch {}
+}
+
 async function futureBoardPlaybackAudit() {
   const names = [
-    '点任意路线会有限次播放“我的一步→黑方强回应”，最终主盘投影同源且实战不变',
-    '快速切换路线以 line-id 隔离旧预演，最终只保留最后选择',
-    '减少动态时不播放预演动画，但主盘直接停在同源最终投影',
+    '点第一步只播放一拍并停在等待回应，主盘投影同源且实战不变',
+    '快速切换第一步以 line-id 隔离旧预演，最终只保留最后选择',
+    '减少动态时首步静态等待，显式回应后才显示两拍条件结果',
   ];
   const protocol = await evaluate(`(() => {
     const board = document.querySelector('#board[data-future-preview]');
@@ -724,7 +1167,7 @@ async function futureBoardPlaybackAudit() {
         lineId: board?.dataset.previewLineId || '',
       };
     })()`);
-    const settled = await waitSettled(['settled']);
+    const settled = await waitSettled(['await-reply']);
     const ended = await evaluate(`(() => {
       const board = document.querySelector('#board[data-future-preview]');
       const steps = [...board.querySelectorAll('[data-future-preview-step]')].map((node) => ({
@@ -770,7 +1213,7 @@ async function futureBoardPlaybackAudit() {
   }
   const normalSamples = normal?.ended.samples || [];
   const normalRoles = [...new Set(normalSamples.map((sample) => sample.step))].sort();
-  const normalFinite = normalSamples.length >= 2 && normalSamples.every((sample) => {
+  const normalFinite = normalSamples.length >= 1 && normalSamples.every((sample) => {
     const iterations = String(sample.iterationCount).split(',').map(Number);
     const durations = String(sample.duration).split(',').map((value) => parseFloat(value));
     return sample.animationName !== 'none'
@@ -780,28 +1223,28 @@ async function futureBoardPlaybackAudit() {
   record(
     !!normal?.replay
       && !!normal.settled
-      && normal.ended.phase === 'settled'
-      && normal.ended.stepCount === 2
-      && normal.ended.stepIndex === 2
+      && normal.ended.phase === 'await-reply'
+      && normal.ended.stepCount === 1
+      && normal.ended.stepIndex === 1
       && normal.ended.lineId
-      && normal.ended.steps.length === 2
+      && normal.ended.steps.length === 1
       && normal.ended.steps.every((step) => step.lineId === normal.ended.lineId)
       && normal.ended.readonly.enabledSquares === 0
       && normal.ended.readonly.routeTargetFound
       && normal.ended.readonly.routeTargetDisabled
-      && normalRoles.join(',') === 'reply,you'
+      && normalRoles.join(',') === 'you'
       && normalFinite
       && normal.ended.running === 0
       && sameFen(normal.ended.rootFen, normal.started.before.fen)
-      && sameFen(normal.ended.displayFen, normal.replay.finalFen)
-      && renderedPiecesMatchFen(normal.replay.finalFen, normal.ended.pieces)
+      && sameFen(normal.ended.displayFen, normal.replay.firstFen)
+      && renderedPiecesMatchFen(normal.replay.firstFen, normal.ended.pieces)
       && sameFen(normal.ended.fen, normal.started.before.fen)
       && normal.ended.pathLength === normal.started.before.pathLength,
     names[0],
     normalError || (normal
       ? `phase=${normal.ended.phase}｜steps=${normalRoles.join('→')}｜line=${normal.ended.lineId}`
         + `｜主盘只读=${normal.ended.readonly.enabledSquares === 0}/${normal.ended.readonly.routeTargetDisabled}`
-        + `｜投影同源=${sameFen(normal.ended.displayFen, normal.replay?.finalFen)}`
+        + `｜投影同源=${sameFen(normal.ended.displayFen, normal.replay?.firstFen)}`
         + `｜实战未变=${sameFen(normal.ended.fen, normal.started.before.fen)}`
       : '预演没有产生可核对结果'),
   );
@@ -859,7 +1302,7 @@ async function futureBoardPlaybackAudit() {
       card?.click();
       return { line, lineId: board.dataset.previewLineId || '' };
     })()`);
-    const settled = await waitSettled(['settled']);
+    const settled = await waitSettled(['await-reply']);
     const ended = await evaluate(`(() => {
       const board = document.querySelector('#board[data-future-preview]');
       const steps = [...board.querySelectorAll('[data-future-preview-step]')].map((node) => ({
@@ -910,15 +1353,14 @@ async function futureBoardPlaybackAudit() {
       && rapid.replaySame.animationAgeMs < 55
       && rapid.second.lineId
       && rapid.replaySame.lineId !== rapid.second.lineId
-      && rapid.ended.phase === 'settled'
+      && rapid.ended.phase === 'await-reply'
       && rapid.ended.lineId === rapid.second.lineId
-      && rapid.ended.steps.length === 2
+      && rapid.ended.steps.length === 1
       && rapid.ended.steps.every((step) => step.lineId === rapid.second.lineId)
-      && !rapid.ended.samples.some((sample) =>
-        [rapid.first.lineId, rapid.replaySame.lineId].includes(sample.lineId)
-          && sample.step === 'reply')
-      && sameFen(rapid.ended.displayFen, rapid.replay.finalFen)
-      && renderedPiecesMatchFen(rapid.replay.finalFen, rapid.ended.pieces)
+      && rapid.ended.steps[0]?.step === 'you'
+      && !rapid.ended.samples.some((sample) => sample.step === 'reply')
+      && sameFen(rapid.ended.displayFen, rapid.replay.firstFen)
+      && renderedPiecesMatchFen(rapid.replay.firstFen, rapid.ended.pieces)
       && sameFen(rapid.ended.fen, rapid.first.before.fen)
       && rapid.ended.pathLength === rapid.first.before.pathLength,
     names[1],
@@ -1029,6 +1471,45 @@ async function futureBoardPlaybackAudit() {
           .filter((animation) => animation.playState === 'running').length,
       };
     })()`);
+    const chosen = await evaluate(`(() => {
+      const option = [...document.querySelectorAll('[data-future-reply-option]')]
+        .find((node) => node.dataset.engineSuggested !== 'true')
+        || document.querySelector('[data-future-reply-option]');
+      const result = option ? {
+        from: Number(option.dataset.from),
+        to: Number(option.dataset.to),
+        afterFen: option.dataset.afterFen || '',
+      } : null;
+      option?.click();
+      return result;
+    })()`);
+    await sleep(100);
+    const conditional = await evaluate(`(() => {
+      const board = document.querySelector('#board[data-future-preview]');
+      const pieces = [...board.querySelectorAll('.piece')].map((piece) => ({
+        square: piece.dataset.square,
+        side: piece.dataset.side,
+        piece: piece.dataset.piece,
+      }));
+      return {
+        fen: window.__xiangqiTest.fen,
+        pathLength: window.__xiangqiTest.pathLength,
+        phase: board.dataset.previewPhase,
+        displayFen: board.dataset.previewDisplayFen,
+        lineId: board.dataset.previewLineId,
+        stepIndex: Number(board.dataset.previewStepIndex),
+        stepCount: Number(board.dataset.previewStepCount),
+        motions: board.querySelectorAll('[data-future-motion-piece="true"]').length,
+        paths: [...board.querySelectorAll('[data-future-preview-step]')].map((node) => ({
+          step: node.dataset.futurePreviewStep,
+          lineId: node.dataset.previewLineId || '',
+        })),
+        pieces,
+        selectedPath: window.__futureTest.snapshot().selectedPath,
+        running: board.getAnimations({ subtree: true })
+          .filter((animation) => animation.playState === 'running').length,
+      };
+    })()`);
     reduced = {
       switchStarted,
       switched,
@@ -1036,6 +1517,8 @@ async function futureBoardPlaybackAudit() {
       started,
       ended,
       replay: replayPreviewLine(started.before.fen, started.line),
+      chosen,
+      conditional,
     };
   } catch (error) {
     reducedError = error?.message || String(error);
@@ -1048,34 +1531,51 @@ async function futureBoardPlaybackAudit() {
     !!reduced?.replay
       && !!reduced.switchReplay
       && reduced.switchStarted.phase === 'playing'
-      && reduced.switched.phase === 'reduced-static'
+      && reduced.switched.phase === 'await-reply'
       && reduced.switched.lineId === reduced.switchStarted.lineId
-      && reduced.switched.stepCount === 2
-      && reduced.switched.stepIndex === 2
+      && reduced.switched.stepCount === 1
+      && reduced.switched.stepIndex === 1
       && reduced.switched.motions === 0
       && reduced.switched.running === 0
-      && reduced.switched.paths.length === 2
+      && reduced.switched.paths.length === 1
+      && reduced.switched.paths[0]?.step === 'you'
       && reduced.switched.paths.every((step) => step.lineId === reduced.switched.lineId)
-      && sameFen(reduced.switched.displayFen, reduced.switchReplay.finalFen)
+      && sameFen(reduced.switched.displayFen, reduced.switchReplay.firstFen)
       && sameFen(reduced.switched.fen, reduced.switchStarted.before.fen)
       && reduced.switched.pathLength === reduced.switchStarted.before.pathLength
-      && reduced.ended.phase === 'reduced-static'
-      && reduced.ended.stepCount === 2
-      && reduced.ended.stepIndex === 2
+      && reduced.ended.phase === 'await-reply'
+      && reduced.ended.stepCount === 1
+      && reduced.ended.stepIndex === 1
       && reduced.ended.running === 0
       && reduced.ended.samples.every((sample) => sample.animationName === 'none')
-      && reduced.ended.paths.length === 2
+      && reduced.ended.paths.length === 1
+      && reduced.ended.paths[0]?.step === 'you'
       && reduced.ended.paths.every((step) => step.lineId === reduced.ended.lineId)
-      && sameFen(reduced.ended.displayFen, reduced.replay.finalFen)
-      && renderedPiecesMatchFen(reduced.replay.finalFen, reduced.ended.pieces)
+      && sameFen(reduced.ended.displayFen, reduced.replay.firstFen)
+      && renderedPiecesMatchFen(reduced.replay.firstFen, reduced.ended.pieces)
       && sameFen(reduced.ended.fen, reduced.started.before.fen)
-      && reduced.ended.pathLength === reduced.started.before.pathLength,
+      && reduced.ended.pathLength === reduced.started.before.pathLength
+      && !!reduced.chosen
+      && reduced.conditional.phase === 'conditional-static'
+      && reduced.conditional.lineId !== reduced.ended.lineId
+      && reduced.conditional.stepCount === 2
+      && reduced.conditional.stepIndex === 2
+      && reduced.conditional.motions === 0
+      && reduced.conditional.running === 0
+      && reduced.conditional.paths.length === 2
+      && reduced.conditional.paths.every((step) => step.lineId === reduced.conditional.lineId)
+      && reduced.conditional.paths.map((step) => step.step).sort().join(',') === 'reply,you'
+      && sameFen(reduced.conditional.displayFen, reduced.chosen.afterFen)
+      && renderedPiecesMatchFen(reduced.chosen.afterFen, reduced.conditional.pieces)
+      && reduced.conditional.selectedPath.length === 2
+      && sameFen(reduced.conditional.fen, reduced.started.before.fen)
+      && reduced.conditional.pathLength === reduced.started.before.pathLength,
     names[2],
     reducedError || (reduced
       ? `运行中切换=${reduced.switchStarted.phase}→${reduced.switched.phase}`
-        + `｜phase=${reduced.ended.phase}｜motions=${reduced.ended.samples.length}`
-        + `｜投影同源=${sameFen(reduced.ended.displayFen, reduced.replay?.finalFen)}`
-        + `｜实战未变=${sameFen(reduced.ended.fen, reduced.started.before.fen)}`
+        + `｜首步=${reduced.ended.phase}｜条件=${reduced.conditional.phase}`
+        + `｜投影同源=${sameFen(reduced.conditional.displayFen, reduced.chosen?.afterFen)}`
+        + `｜实战未变=${sameFen(reduced.conditional.fen, reduced.started.before.fen)}`
       : '减少动态预演没有产生可核对结果'),
   );
 }
@@ -1098,6 +1598,8 @@ async function futureRaceAndOverviewAudit() {
       selectedAfterFen: snapshot.selectedPath[0]?.afterFen || '',
       title: document.getElementById('xqFutureTitle').textContent,
       replyReady: !!card?.dataset.replyFrom,
+      phase: document.querySelector('#board').dataset.previewPhase,
+      lineId: document.querySelector('#board').dataset.previewLineId,
     };
   })()`);
   await waitFor(
@@ -1105,37 +1607,59 @@ async function futureRaceAndOverviewAudit() {
       '#branchGrid .branch-node[data-selected="true"][data-reply-from]:not([data-reply-from=""])'
     )`,
     12000,
-    '提前选路后的 Worker 强回应',
+    '提前选路后的 Worker 回应建议',
+  );
+  await waitFor(
+    `document.querySelector('#board')?.dataset.previewPhase === 'await-reply'`,
+    3000,
+    '提前选路首拍稳定',
   );
   const resolved = await evaluate(`(() => {
     const snapshot = window.__futureTest.snapshot();
+    const board = document.querySelector('#board');
     return {
       liveFen: window.__xiangqiTest.fen,
       previewDepth: snapshot.preview.depth,
       previewFen: snapshot.preview.fen,
       path: snapshot.preview.path,
+      selectedPathLength: snapshot.selectedPath.length,
+      suggested: snapshot.frontier.candidates.filter((candidate) => candidate.suggested),
+      replyCount: snapshot.frontier.count,
+      phase: board.dataset.previewPhase,
+      lineId: board.dataset.previewLineId,
+      stepCount: Number(board.dataset.previewStepCount),
+      paths: [...board.querySelectorAll('[data-future-preview-step]')]
+        .map((node) => node.dataset.futurePreviewStep),
       title: document.getElementById('xqFutureTitle').textContent,
     };
   })()`);
   const selectedStep = resolved.path[0];
-  const replyTransition = selectedStep
-    ? legalTransition(selectedStep.afterFen, resolved.previewFen)
-    : [];
+  const replyCount = selectedStep
+    ? generateLegalMoves(parseFen(selectedStep.afterFen)).length
+    : 0;
   record(
     early.key
       && early.selectedPathLength === 1
       && !early.replyReady
       && early.previewDepth === 1
       && sameFen(early.liveFen, early.beforeFen)
-      && resolved.previewDepth === 2
-      && resolved.path[1]?.role === 'engine'
-      && replyTransition.length === 1
+      && resolved.previewDepth === 1
+      && resolved.selectedPathLength === 1
+      && resolved.path.length === 1
+      && resolved.path[0]?.role === 'selected'
+      && sameFen(resolved.previewFen, early.selectedAfterFen)
+      && resolved.replyCount === replyCount
+      && resolved.suggested.length === 1
+      && resolved.phase === 'await-reply'
+      && resolved.stepCount === 1
+      && resolved.paths.join(',') === 'you'
+      && resolved.lineId === early.lineId
       && !resolved.title.includes('无合法应手')
       && sameFen(resolved.liveFen, early.beforeFen),
-    '分叉 Worker 回包前先选路线，回应就绪后会升级同一预演且不改实战',
+    '分叉 Worker 晚到只补金色回应建议，不自动选中、推进或重播',
     `提前=${early.previewDepth}层/${early.replyReady ? '已有回应' : '未有回应'}`
       + `｜回包后=${resolved.previewDepth}层`
-      + `｜合法强应=${replyTransition.length === 1}`
+      + `｜建议=${resolved.suggested.length}｜line未变=${resolved.lineId === early.lineId}`
       + `｜实战未变=${sameFen(resolved.liveFen, early.beforeFen)}`,
   );
 
@@ -1145,6 +1669,47 @@ async function futureRaceAndOverviewAudit() {
     document.getElementById('xqOverview').scrollIntoView({ block: 'center' });
   })()`);
   await sleep(120);
+  const overviewClearFocus = await evaluate(`(async () => {
+    const first = document.querySelector('#xqOverviewSvg [data-overview-key]');
+    const key = first?.dataset.overviewKey || '';
+    const liveBefore = window.__xiangqiTest.fen;
+    first?.focus({ preventScroll: true });
+    first?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const started = performance.now();
+    while (performance.now() - started < 2400) {
+      if (document.getElementById('board')?.dataset.previewPhase === 'await-reply') break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const clear = document.getElementById('xqClearPreview');
+    clear?.focus({ preventScroll: true });
+    clear?.click();
+    const active = document.activeElement?.closest?.('[data-overview-key]');
+    const rect = active?.getBoundingClientRect();
+    return {
+      key,
+      phase: document.getElementById('board')?.dataset.previewPhase || '',
+      selectedDepth: window.__futureTest.snapshot().selectedPath.length,
+      activeKey: active?.dataset.overviewKey || '',
+      activeVisible: !!rect && rect.width > 0 && rect.height > 0,
+      mode: document.querySelector('[data-future-map]')?.dataset.mode || '',
+      clearDisabled: clear?.disabled,
+      liveUnchanged: window.__xiangqiTest.fen === liveBefore,
+    };
+  })()`, true);
+  record(
+    overviewClearFocus.key
+      && overviewClearFocus.phase === 'idle'
+      && overviewClearFocus.selectedDepth === 0
+      && overviewClearFocus.activeKey === overviewClearFocus.key
+      && overviewClearFocus.activeVisible
+      && overviewClearFocus.mode === 'overview-3d'
+      && overviewClearFocus.clearDisabled === true
+      && overviewClearFocus.liveUnchanged,
+    '全景模式「回到现在」把焦点恢复到可见的同一路线节点',
+    `phase=${overviewClearFocus.phase}｜mode=${overviewClearFocus.mode}`
+      + `｜focus=${overviewClearFocus.activeKey || '无'}/${overviewClearFocus.key || '无'}`
+      + ` visible=${overviewClearFocus.activeVisible}｜实战未变=${overviewClearFocus.liveUnchanged}`,
+  );
   const overviewBefore = await evaluate(`(() => {
     const host = document.getElementById('xqOverview');
     const svg = document.getElementById('xqOverviewSvg');
@@ -1224,13 +1789,17 @@ async function futureRaceAndOverviewAudit() {
 }
 
 async function futureColorRoleAudit() {
+  await evaluate(`(() => {
+    window.__futureTest.setMode('tree-2d');
+    window.__futureTest.rewind();
+  })()`);
   await waitFor(
-    `!!document.querySelector('#branchGrid .branch-node.suggested')`,
+    `!!document.querySelector('#branchGrid .branch-node.suggested[data-selected="false"]')`,
     5000,
-    '金色建议节点',
+    '未选择的金色建议节点',
   );
   const suggested = await evaluate(`(() => {
-    const node = document.querySelector('#branchGrid .branch-node.suggested');
+    const node = document.querySelector('#branchGrid .branch-node.suggested[data-selected="false"]');
     const probe = document.createElement('span');
     probe.style.color = 'var(--gold)';
     document.body.appendChild(probe);
@@ -1240,6 +1809,45 @@ async function futureColorRoleAudit() {
     const channels = (color) => (color.match(/[\\d.]+/g) || []).slice(0, 3).join(',');
     return { border, expected, hueMatches: channels(border) === channels(expected) };
   })()`);
+  const replyColors = await evaluate(`(async () => {
+    const root = document.querySelector(
+      '#branchGrid .branch-node[data-reply-from]:not([data-reply-from=""])'
+    );
+    root?.click();
+    const board = document.querySelector('#board[data-future-preview]');
+    const started = performance.now();
+    while (performance.now() - started < 2200 && board?.dataset.previewPhase !== 'await-reply') {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const gold = document.querySelector(
+      '[data-future-reply-option][data-engine-suggested="true"][data-selected="false"]'
+    );
+    const blueChoice = [...document.querySelectorAll('[data-future-reply-option]')]
+      .find((node) => node.dataset.engineSuggested !== 'true');
+    const goldBefore = gold ? getComputedStyle(gold).borderColor : '';
+    blueChoice?.click();
+    const selectedReply = document.querySelector(
+      '[data-future-reply-option][data-selected="true"]'
+    );
+    const blueProbe = document.createElement('span');
+    blueProbe.style.color = 'var(--future-blue)';
+    document.body.appendChild(blueProbe);
+    const expectedBlue = getComputedStyle(blueProbe).color;
+    blueProbe.remove();
+    const rgb = (color) => (color.match(/[\\d.]+/g) || []).slice(0, 3).map(Number);
+    const [r = 0, g = 0, b = 0] = rgb(goldBefore);
+    return {
+      goldFound: !!gold,
+      goldStillUnselected: gold?.dataset.selected === 'false',
+      goldBorder: goldBefore,
+      goldWarm: r > g && g > b,
+      choiceSuggested: blueChoice?.dataset.engineSuggested || '',
+      selectedFound: !!selectedReply,
+      selectedBorder: selectedReply ? getComputedStyle(selectedReply).borderColor : '',
+      expectedBlue,
+      selectedSuggested: selectedReply?.dataset.engineSuggested || '',
+    };
+  })()`, true);
   const fixture = '3kr4/9/9/9/9/R3R4/9/9/9/5K3 w - - 0 1';
   await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(fixture)})`);
   await waitFor(
@@ -1263,10 +1871,19 @@ async function futureColorRoleAudit() {
   })()`);
   record(
     suggested.hueMatches
+      && replyColors.goldFound
+      && replyColors.goldStillUnselected
+      && replyColors.goldWarm
+      && replyColors.choiceSuggested === 'false'
+      && replyColors.selectedFound
+      && replyColors.selectedBorder === replyColors.expectedBlue
+      && replyColors.selectedSuggested === 'false'
       && selected.effect.includes('capture')
       && selected.border === selected.expected,
-    '统一颜色角色：未选建议保持金色，选中的吃子路线仍以蓝色选路为最高优先级',
+    '统一颜色角色：未选建议保持金色，显式回应和吃子路线都以蓝色选路为最高优先级',
     `建议=${suggested.border}/${suggested.expected}`
+      + `｜回应建议=${replyColors.goldBorder}/${replyColors.goldStillUnselected}`
+      + `｜显式回应=${replyColors.selectedBorder}/${replyColors.expectedBlue}`
       + `｜选中吃子=${selected.border}/${selected.expected}`,
   );
   await evaluate('window.__xiangqiTest.reset()');
@@ -2341,6 +2958,7 @@ async function main() {
   const initialFen = await initialAudit();
   await futureRaceAndOverviewAudit();
   await futureContractAudit();
+  await uncertainReplyAudit();
   await futureBoardPlaybackAudit();
   await futureColorRoleAudit();
   const beforeMove = await selectPawnWithoutMoving();
