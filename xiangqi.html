@@ -499,6 +499,10 @@
                 markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill="#b92f2b" stroke="none"></path>
               </marker>
+              <marker id="threatArrowHeadCompact" viewBox="0 0 10 10" refX="8.2" refY="5"
+                markerWidth="3.6" markerHeight="3.6" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#b92f2b" stroke="none"></path>
+              </marker>
             </defs>
             <g id="threatPaths"></g>
           </svg>
@@ -990,13 +994,18 @@ function renderThreatOverlay() {
     const distance = Math.hypot(dx, dy) || 1;
     const xUnit = dx / distance;
     const yUnit = dy / distance;
+    const minimumLine = Math.max(1.6, Math.min(3.2, distance * .22));
+    const paddingScale = Math.min(1, Math.max(0, distance - minimumLine) / (5.2 + 6.1));
+    const sourcePadding = 5.2 * paddingScale;
+    const targetPadding = 6.1 * paddingScale;
     const line = document.createElementNS(namespace, 'line');
     line.classList.add('threat-path');
-    line.setAttribute('x1', String(source.x + xUnit * 5.2));
-    line.setAttribute('y1', String(source.y + yUnit * 5.2));
-    line.setAttribute('x2', String(target.x - xUnit * 6.1));
-    line.setAttribute('y2', String(target.y - yUnit * 6.1));
-    line.setAttribute('marker-end', 'url(#threatArrowHead)');
+    line.setAttribute('x1', String(source.x + xUnit * sourcePadding));
+    line.setAttribute('y1', String(source.y + yUnit * sourcePadding));
+    line.setAttribute('x2', String(target.x - xUnit * targetPadding));
+    line.setAttribute('y2', String(target.y - yUnit * targetPadding));
+    line.setAttribute('marker-end',
+      distance < 16 ? 'url(#threatArrowHeadCompact)' : 'url(#threatArrowHead)');
     line.dataset.threatArrow = 'true';
     line.dataset.from = coord(attacker);
     line.dataset.to = coord(detail.square);

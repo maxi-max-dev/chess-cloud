@@ -74,7 +74,7 @@ node xiangqi-live-check.mjs
 当前本地期望：
 
 - 国际象棋：**90/90**
-- 中国象棋：**37/37**
+- 中国象棋：**38/38**
 
 两条脚本都会自己起本地静态服务和无头 Chrome。国际象棋脚本的本地目标已经改为
 `chess.html`；中国象棋脚本会从根首页实际点击两张卡，验证路由后再进入 `xiangqi.html`。
@@ -121,7 +121,7 @@ node xiangqi-self-play.mjs
 | `xiangqi-engine.js` | 中国象棋规则、唯一评估函数、排序、威胁、搜索与 PV |
 | `xiangqi-worker.js` | 中国象棋搜索 / 分叉 / 分析 Worker 入口 |
 | `xiangqi-verify.mjs` | 中国象棋 19 项棋核 / 搜索裁判 |
-| `xiangqi-live-check.mjs` | 中国象棋 37 项真 Chrome / 路由 / 威胁可视化 / 手机裁判 |
+| `xiangqi-live-check.mjs` | 中国象棋 38 项真 Chrome / 路由 / 威胁可视化 / 手机裁判 |
 | `xiangqi-self-play.mjs` | 中国象棋固定 10 局稳定性审计 |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | 对外说明 / 决策边界 / 历史记录 |
 
@@ -327,7 +327,7 @@ xiangqi-worker.js
 - search 合法 PV、真实根分叉、时限与 `depth=0,pv=[]`；
 - 候选会看对方强回应与一步合法回吃，不把开局送炮换马排第一。
 
-`xiangqi-live-check.mjs` 用 `EXPECTED_RESULTS = 37` 锁定 37 项，覆盖：
+`xiangqi-live-check.mjs` 用 `EXPECTED_RESULTS = 38` 锁定 38 项，覆盖：
 
 - 根首页两张卡可实际点击；
 - 起始 32 枚棋、红 16 / 黑 16、90 个交互点；
@@ -354,7 +354,10 @@ xiangqi-worker.js
 - 最终审查发现同步二次 render 会在首帧前销毁危险环 pulse，旧动效断言又会把无动画元素默认的
   `animationIterationCount=1` 误判为通过。加强为必须出现真实 animation 名 / 对象，并加入
   箭头几何可见性、多目标切换和横屏完整首屏后，旧实现按预期为 **35/37**；保留棋子 DOM 生命周期
-  并收紧横屏后完整 **37/37**。没有改 `verify.mjs` 或删旧项。
+  并收紧横屏后完整 **37/37**。
+- 第二次审查用相邻一格的 `e5→e4` 证明固定 `5.2 + 6.1` 缩进会让短线反向；新增夹具后旧实现
+  按预期为 **37/38**。箭头改为按中心距离动态缩进，短线使用紧凑 marker，最终 **38/38**。
+  没有改 `verify.mjs` 或删旧项。
 - 国际象棋历史反向验证的详细过程保留在 `PROGRESS.md`；`verify.mjs` 没有被放宽。
 
 加新验收时：
@@ -401,7 +404,7 @@ xiangqi-worker.js
 | 中国象棋起始 perft 1/2/3/4 | 44 / 1,920 / 79,666 / 3,290,240 |
 | `npm test` | 国际 8/8 + 中国 19/19 + 门户 16/16 |
 | `node live-check.mjs` | 90/90 |
-| `node xiangqi-live-check.mjs` | 37/37 |
+| `node xiangqi-live-check.mjs` | 38/38 |
 | 国际路径线程 | L1–L4 全在 cloud Worker；主线程只建 geometry |
 | 国际路径生命周期 | 缩略 L3 / 明确放大 L4 / 收起释放 / 再放大完整重建 |
 | 国际空闲渲染 | 静置 rAF +0、WebGL frame +0 |
@@ -427,7 +430,7 @@ xiangqi-worker.js
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `06c9d33c946722bd2e6bfe0d4b13e304a89de61873a06eaace49a5a093459cd4` |
 
-上一运行版本线上中国象棋为 **31/31**；本轮发布后必须以新文件哈希和 **37/37** 重新确认。
+上一运行版本线上中国象棋为 **31/31**；本轮发布后必须以新文件哈希和 **38/38** 重新确认。
 国际象棋第一次线上运行是 **89/90**：横滑后的自动化触摸停在第 2 步；
 没有改实现或裁判，原样复跑为 **90/90**，同一项真实走到第 3 步。它目前表现为
 scroll-snap / CDP 触摸竞态而非稳定产品错误；若再次出现，先检查真实命中和滚动稳定时机，
@@ -511,9 +514,9 @@ git rev-list --left-right --count origin/main...main
 - 最新本地：
   - `npm test`：**8/8 + 19/19 + 16/16**
   - `node live-check.mjs`：**90/90**
-  - `node xiangqi-live-check.mjs`：**37/37**
+  - `node xiangqi-live-check.mjs`：**38/38**
   - 中国象棋 10 局：844 plies、4 终局 / 6 capped、五类错误全 0、最大搜索 23.0ms
 - 中国象棋规则边界已在页面和文档明示：没有历史状态，不判长将 / 长捉 / 复杂循环；
   威胁是几何攻击线；当前不是职业级引擎。
 - 本轮中国象棋视觉 / 威胁层等待提交发布；发布完成后必须在本节写入提交、七个运行文件哈希与
-  线上 **37/37**，不能沿用上一版本的 `195bfe7` 结论。
+  线上 **38/38**，不能沿用上一版本的 `195bfe7` 结论。

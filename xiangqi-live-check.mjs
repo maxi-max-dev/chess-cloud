@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 37;
+const EXPECTED_RESULTS = 38;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -808,6 +808,56 @@ async function threatAndZoomAudit() {
     media: '',
     features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
   });
+
+  const adjacentFixture = '4k4/9/9/9/4p4/4R4/9/9/9/3K5 w - - 0 1';
+  const adjacentExpected = getThreats(adjacentFixture);
+  await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(adjacentFixture)})`);
+  await evaluate(`document.querySelector('#board .piece[data-square="e4"]').closest('.square').click()`);
+  await waitFor(
+    `document.querySelectorAll('#threatOverlay [data-from="e5"][data-to="e4"]').length === 1`,
+    3000,
+    '相邻攻击箭头',
+  );
+  await sleep(120);
+  const adjacentLine = await evaluate(`(() => {
+    const line = document.querySelector('#threatOverlay [data-from="e5"][data-to="e4"]');
+    const style = getComputedStyle(line);
+    return {
+      x1: Number(line.getAttribute('x1')),
+      y1: Number(line.getAttribute('y1')),
+      x2: Number(line.getAttribute('x2')),
+      y2: Number(line.getAttribute('y2')),
+      marker: line.getAttribute('marker-end') || '',
+      display: style.display,
+      visibility: style.visibility,
+      opacity: Number(style.opacity),
+    };
+  })()`);
+  const adjacentSource = point('e5');
+  const adjacentTarget = point('e4');
+  const adjacentExpectedDx = adjacentTarget.x - adjacentSource.x;
+  const adjacentExpectedDy = adjacentTarget.y - adjacentSource.y;
+  const adjacentActualDx = adjacentLine.x2 - adjacentLine.x1;
+  const adjacentActualDy = adjacentLine.y2 - adjacentLine.y1;
+  const adjacentCenterDistance = Math.hypot(adjacentExpectedDx, adjacentExpectedDy);
+  const adjacentLength = Math.hypot(adjacentActualDx, adjacentActualDy);
+  const adjacentDirection = (adjacentExpectedDx * adjacentActualDx + adjacentExpectedDy * adjacentActualDy)
+    / (adjacentCenterDistance * (adjacentLength || 1));
+  record(
+    adjacentExpected.length === 1
+      && adjacentExpected[0].square === 'e4'
+      && adjacentExpected[0].attackers.join(',') === 'e5'
+      && adjacentDirection >= .98
+      && adjacentLength >= adjacentCenterDistance * .15
+      && adjacentLength < adjacentCenterDistance
+      && adjacentLine.marker.includes('threatArrowHead')
+      && adjacentLine.display !== 'none'
+      && adjacentLine.visibility !== 'hidden'
+      && adjacentLine.opacity > 0,
+    '相邻一格的真实攻击箭头仍朝向目标且非零可见',
+    `e5→e4｜长度=${adjacentLength.toFixed(2)}/${adjacentCenterDistance.toFixed(2)}`
+      + `｜方向=${adjacentDirection.toFixed(2)}｜marker=${adjacentLine.marker}`,
+  );
 
   await evaluate(`window.__xiangqiTest.reset()`);
   const initialThreats = getThreats(START_FEN);

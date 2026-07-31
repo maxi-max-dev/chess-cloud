@@ -111,7 +111,7 @@ node xiangqi-self-play.mjs
 
 - `npm test`：国际象棋 **8/8**、中国象棋 **19/19**、门户 **16/16**；
 - `node live-check.mjs`：**90/90**；
-- `node xiangqi-live-check.mjs`：**37/37**；
+- `node xiangqi-live-check.mjs`：**38/38**；
 - `node xiangqi-self-play.mjs`：10 局、844 plies，4 局真实终局、6 局达到测试上限；
   `illegalMoves / fenMismatches / pvFailures / branchFailures / threatFailures` 全为 0，
   单次搜索最大 23.0ms。
@@ -123,7 +123,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
-当前本地版本已完成国际象棋 **90/90**、中国象棋 **37/37** 回归；发布状态与运行文件哈希见
+当前本地版本已完成国际象棋 **90/90**、中国象棋 **38/38** 回归；发布状态与运行文件哈希见
 `HANDOFF.md`。
 
 作者 Max
