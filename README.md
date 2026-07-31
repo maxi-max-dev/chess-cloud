@@ -120,4 +120,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
+双棋种运行版本 `195bfe7` 已发布；七个运行文件与线上逐字节一致，最近一次线上复验为
+国际象棋 **90/90**、中国象棋 **31/31**。
+
 作者 Max
