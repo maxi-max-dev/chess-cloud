@@ -444,6 +444,176 @@ function auditExplorerPreview(snapshot) {
   };
 }
 
+function auditTree2d(snapshot) {
+  const problems = [];
+  let nodeCount = 0;
+  if (!snapshot?.rootFen) return { ok: false, problems: ['没有根 FEN'], nodeCount };
+  if (snapshot.rootFen !== snapshot.gameFen) {
+    problems.push('树根 FEN 不是当前实战 FEN');
+  }
+  const expectedRoot = count(snapshot.rootFen, 1);
+  if (snapshot.rootCount !== expectedRoot) {
+    problems.push(`根分支 ${snapshot.rootCount}≠${expectedRoot}`);
+  }
+  for (const level of snapshot.levels || []) {
+    const expectedParent =
+      level.depth === 1
+        ? snapshot.rootFen
+        : snapshot.path[level.depth - 2]?.after;
+    if (level.parentFen !== expectedParent) {
+      problems.push(`L${level.depth} 父 FEN 没接上`);
+    }
+    let expectedCards = null;
+    try {
+      const parent = new Chess(level.parentFen);
+      const legal = parent.moves({ verbose: true });
+      expectedCards = count(level.parentFen, 1);
+      const expectedMoveSet = legal.map((move) =>
+        `${move.from}:${move.to}:${move.promotion || ''}:${move.san}:${move.after}`).sort();
+      const actualMoveSet = level.cards.map((node) =>
+        `${node.from}:${node.to}:${node.promotion || ''}:${node.san}:${node.after}`).sort();
+      if (JSON.stringify(actualMoveSet) !== JSON.stringify(expectedMoveSet)) {
+        problems.push(`L${level.depth} 节点集合有重复、遗漏或伪造走法`);
+      }
+    } catch (error) {
+      problems.push(`L${level.depth} 父 FEN 无法计数：${error.message}`);
+    }
+    if (
+      expectedCards !== null
+      && (level.cardCount !== expectedCards || level.claimedTotal !== expectedCards)
+    ) {
+      problems.push(
+        `L${level.depth} DOM/标题/合法数=${level.cardCount}/${level.claimedTotal}/${expectedCards}`,
+      );
+    }
+    if (level.edgeCount !== level.cardCount) {
+      problems.push(`L${level.depth} 入边/卡片=${level.edgeCount}/${level.cardCount}`);
+    }
+    const shouldSelect = level.depth <= snapshot.path.length ? 1 : 0;
+    if (level.selectedCards !== shouldSelect || level.selectedEdges !== shouldSelect) {
+      problems.push(
+        `L${level.depth} 选中卡/边=${level.selectedCards}/${level.selectedEdges}，应为 ${shouldSelect}`,
+      );
+    }
+    if (shouldSelect) {
+      const selected = level.cards.find((node) => node.selected);
+      const step = snapshot.path[level.depth - 1];
+      if (
+        !selected
+        || !step
+        || selected.after !== step.after
+        || selected.from !== step.from
+        || selected.to !== step.to
+        || selected.san !== step.san
+        || selected.edgeSelected !== true
+      ) {
+        problems.push(`L${level.depth} 高亮节点/入边不是主路径对应走法`);
+      }
+    }
+    for (const node of level.cards) {
+      nodeCount++;
+      if (node.parentFen !== level.parentFen || node.depth !== level.depth) {
+        problems.push(`L${level.depth} ${node.san} 的父 FEN/层号错误`);
+      }
+      if (node.visible && (!node.badgeVisible || !node.edgeVisible)) {
+        problems.push(
+          `L${level.depth} ${node.san} 可见卡的分叉徽章/入边不可见=${node.badgeVisible}/${node.edgeVisible}`,
+        );
+      }
+      try {
+        const replay = new Chess(node.parentFen);
+        const played = replay.move({
+          from: node.from,
+          to: node.to,
+          ...(node.promotion ? { promotion: node.promotion } : {}),
+        });
+        if (!played || played.san !== node.san || replay.fen() !== node.after) {
+          problems.push(`L${level.depth} ${node.san} 的 SAN/FEN 不能独立重放`);
+        }
+        const expectedBranches = count(node.after, 1);
+        if (
+          node.branchCount !== expectedBranches
+          || !node.branchText.includes(String(expectedBranches))
+        ) {
+          problems.push(
+            `L${level.depth} ${node.san} 走后分支 ${node.branchCount}≠${expectedBranches}`,
+          );
+        }
+      } catch (error) {
+        problems.push(`L${level.depth} ${node.san} 重放异常：${error.message}`);
+      }
+    }
+  }
+  if (snapshot.full && snapshot.path.length > 0) {
+    if (snapshot.pathConnectors.length !== snapshot.path.length) {
+      problems.push(
+        `连续主干 ${snapshot.pathConnectors.length} 段，应为路径 ${snapshot.path.length} 段`,
+      );
+    }
+    for (let index = 0; index < snapshot.path.length; index++) {
+      const depth = index + 1;
+      const step = snapshot.path[index];
+      const connector = snapshot.pathConnectors.find((link) => link.depth === depth);
+      const selected = snapshot.levels
+        .find((level) => level.depth === depth)
+        ?.cards.find((node) => node.selected);
+      const source = depth === 1
+        ? snapshot.rootRect
+        : snapshot.levels
+          .find((level) => level.depth === depth - 1)
+          ?.cards.find((node) => node.selected)?.rect;
+      const expectedFromFen = depth === 1 ? snapshot.rootFen : snapshot.path[index - 1].after;
+      const close = (actual, expected) =>
+        Number.isFinite(actual) && Number.isFinite(expected) && Math.abs(actual - expected) <= 2;
+      if (
+        !connector
+        || !connector.drawn
+        || connector.fromFen !== expectedFromFen
+        || connector.toFen !== step.after
+        || !source
+        || !selected
+        || !close(connector.from.x, source.x + source.w / 2)
+        || !close(connector.from.y, source.bottom)
+        || !close(connector.to.x, selected.rect.x + selected.rect.w / 2)
+        || !close(connector.to.y, selected.rect.y)
+      ) {
+        problems.push(`主路径第 ${depth} 段没有从上一节点连续画到选中节点`);
+      }
+    }
+  }
+  const frontierCount = snapshot.levels.at(-1)?.cardCount || 0;
+  if (
+    snapshot.mode === '2d'
+    && (
+      !snapshot.hud.stats.includes(`已选 ${snapshot.path.length} 步`)
+      || !snapshot.hud.stats.includes(`当前层 ${frontierCount} 个可选分支`)
+      || !snapshot.hud.count.includes(`${frontierCount}`)
+    )
+  ) {
+    problems.push(`2D HUD 没有同步路径 ${snapshot.path.length} / 当前层 ${frontierCount}`);
+  }
+  try {
+    const replay = new Chess(snapshot.rootFen);
+    for (const step of snapshot.path) {
+      const played = replay.move({
+        from: step.from,
+        to: step.to,
+        ...(step.promotion ? { promotion: step.promotion } : {}),
+      });
+      if (!played || played.san !== step.san || replay.fen() !== step.after) {
+        problems.push(`主路径第 ${step.depth} 步没有连续接上`);
+        break;
+      }
+    }
+    if (replay.fen() !== snapshot.renderedFen) {
+      problems.push('树的 renderedFen 与主路径重放不一致');
+    }
+  } catch (error) {
+    problems.push(`主路径重放异常：${error.message}`);
+  }
+  return { ok: problems.length === 0, problems, nodeCount };
+}
+
 function explorerPreviewOk(audit) {
   return audit.exactFen
     && audit.boundsOk
@@ -605,7 +775,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 77;
+const EXPECTED_RESULTS = 82;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -773,6 +943,24 @@ async function clickSelector(selector) {
   await clickAt(center.x, center.y);
   await settleLayout();
   return true;
+}
+
+async function clickSelectorHit(selector) {
+  const quoted = JSON.stringify(selector);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const center = await selectorCenter(selector);
+    if (!center) return false;
+    const hit = await evalJs(`(() => {
+      const expected = document.querySelector(${quoted});
+      const actual = document.elementFromPoint(${center.x}, ${center.y});
+      return !!expected && actual?.closest('button') === expected;
+    })()`);
+    if (!hit) continue;
+    await clickAt(center.x, center.y);
+    await settleLayout();
+    return true;
+  }
+  return false;
 }
 
 async function touchSelector(selector) {
@@ -1290,6 +1478,484 @@ async function runCoachChecks() {
           + `｜终局=${terminalAudit.coach.state}/${terminalAudit.coach.title}`
           + `｜键盘=${keyboardAudit.selected}/${keyboardAudit.activePressed}`);
   await clickSelector('#btnReset');
+}
+
+async function runTree2dChecks() {
+  await evalJs('window.__test.reset()');
+  await waitCloudPreview();
+
+  // ① 缩略态也必须有明确入口；每张节点卡的下一层数量由 Node 独立重放后对撞。
+  const previewGameBefore = await evalJs('window.__test.state()');
+  const switchedToTree = await clickSelector('#cloudMode');
+  await sleep(180);
+  const previewTree = await evalJs('window.__test.tree2d()');
+  const previewAudit = auditTree2d(previewTree);
+  const terminalLoaded = await evalJs(
+    `window.__test.loadFen('7k/5Q2/6K1/8/8/8/8/8 w - - 0 1')`,
+  );
+  await waitCloudPreview();
+  const terminalTree = await evalJs('window.__test.tree2d()');
+  const terminalTreeAudit = auditTree2d(terminalTree);
+  const mateNode = terminalTree.levels[0]?.cards.find((node) => node.san === 'Qg7#');
+  await evalJs('window.__test.reset()');
+  await waitCloudPreview();
+  const switchedBack3d = await clickSelector('#cloudMode');
+  await sleep(180);
+  const preview3d = await evalJs('window.__test.tree2d()');
+  record(
+    switchedToTree
+      && previewTree.mode === '2d'
+      && previewTree.tree.visible
+      && previewTree.canvas.visible === false
+      && previewTree.canvas.pointerEvents === 'none'
+      && previewTree.modeButton.visible
+      && previewTree.modeButton.pressed === 'true'
+      && previewTree.modeButton.rect.h >= 43.9
+      && previewTree.levels.length === 1
+      && previewTree.levels[0].cardCount === count(previewTree.rootFen, 1)
+      && previewAudit.ok
+      && previewTree.gameFen === previewGameBefore.fen
+      && JSON.stringify(previewTree.gameHistory) === JSON.stringify(previewGameBefore.history)
+      && terminalLoaded
+      && terminalTreeAudit.ok
+      && mateNode?.branchCount === 0
+      && mateNode?.branchText.includes('0')
+      && switchedBack3d
+      && preview3d.mode === '3d'
+      && preview3d.modeButton.pressed === 'false'
+      && preview3d.tree.visible === false
+      && preview3d.canvas.visible,
+    '② 3D 缩略图可切成真实 2D 树；根走法与每张卡的走后分叉数都能独立对账',
+    previewAudit.ok
+      ? `根 ${previewTree.rootCount} 条｜${previewAudit.nodeCount} 张节点逐一对账`
+        + `｜将死节点 ${mateNode?.san || '缺失'} 后 ${mateNode?.branchCount ?? '？'} 条`
+        + `｜canvas ${previewTree.canvas.visible ? '可见' : '隐藏且不可点'}｜切回 ${preview3d.mode}`
+      : [...previewAudit.problems, ...terminalTreeAudit.problems].slice(0, 5).join('；'));
+
+  // ② 从完整 L4 切到 2D 必须真的释放 L4；重新放大 2D 也不能暗中续算 WebGL。
+  const full3d = await openCloudAndWait();
+  const switchedFullToTree = await clickSelector('#cloudMode');
+  const released = await waitCloudPreview();
+  await waitCloudRenderIdle();
+  const idleBefore = await evalJs(
+    '({ raf: window.__rafAudit.read(), render: window.__test.renderStats(), tree: window.__test.tree2d() })',
+  );
+  await sleep(700);
+  const idleAfter = await evalJs(
+    '({ raf: window.__rafAudit.read(), render: window.__test.renderStats(), tree: window.__test.tree2d() })',
+  );
+  const closedTree = await clickSelector('#cloudClose');
+  await waitCloudPreview();
+  const reopenedTree = await clickSelector('#cloudOpen');
+  await sleep(350);
+  const directTreeCloud = await evalJs('window.__cloudStats()');
+  const directTree = await evalJs('window.__test.tree2d()');
+  const directRender = await evalJs('window.__test.renderStats()');
+  const restartedDeep = await evalJs(`(() => {
+    window.__test.setCloudMode('3d');
+    return window.__test.tree2d().mode === '3d';
+  })()`);
+  const partialDeep = await evalJs('window.__cloudStats()');
+  const cancelledDeep = await evalJs(`(() => {
+    window.__test.setCloudMode('2d');
+    return window.__test.tree2d().mode === '2d';
+  })()`);
+  const cancelledPreview = await waitCloudPreview();
+  await sleep(700);
+  const afterLateWindow = await evalJs('window.__cloudStats()');
+  const rapidSwitch = await evalJs(`(() => {
+    window.__test.setCloudMode('3d');
+    const reset = window.__test.reset();
+    const cloudBefore = window.__cloudStats();
+    const chosen = window.__test.chooseExplorer(0);
+    const pathBefore = window.__test.explorer().path;
+    window.__test.setCloudMode('2d');
+    const pathAfter = window.__test.explorer().path;
+    return {
+      reset,
+      chosen,
+      cloudBefore,
+      pathBefore,
+      pathAfter,
+      modeAfter: window.__test.tree2d().mode,
+    };
+  })()`);
+  await waitCloudPreview();
+  await settleLayout();
+  const rapidSettledTree = await evalJs('window.__test.tree2d()');
+  const rapidSettledAudit = auditTree2d(rapidSettledTree);
+  const lifecycleChecks = {
+    full3d: full3d.depth === 4 && full3d.layers.some((layer) => layer.depth === 4),
+    switchedFullToTree,
+    released:
+      hasExactCloudDepths(released, 3)
+      && released.deepPending
+      && !released.growing,
+    treeVisible:
+      idleBefore.tree.mode === '2d'
+      && idleBefore.tree.full
+      && idleBefore.tree.tree.visible,
+    idle:
+      idleAfter.raf.fired === idleBefore.raf.fired
+      && idleAfter.raf.pending === 0
+      && idleAfter.render.rendererFrame === idleBefore.render.rendererFrame
+      && idleAfter.render.scheduled === false,
+    reopened: closedTree && reopenedTree && directTree.full && directTree.mode === '2d',
+    directL3:
+      directTreeCloud.depth === 3
+      && directTreeCloud.deepPending
+      && !directTreeCloud.growing
+      && !directTreeCloud.layers.some((layer) => layer.depth === 4),
+    noGpuResize:
+      directRender.pixelWidth === idleBefore.render.pixelWidth
+      && directRender.pixelHeight === idleBefore.render.pixelHeight
+      && directRender.dpr === idleBefore.render.dpr,
+    partialStarted: restartedDeep && partialDeep.growing && partialDeep.depth >= 3,
+    partialCancelled:
+      cancelledDeep
+      && hasExactCloudDepths(cancelledPreview, 3)
+      && cancelledPreview.deepPending
+      && !afterLateWindow.layers.some((layer) => layer.depth === 4)
+      && afterLateWindow.growing === false,
+    rapidPathPreserved:
+      rapidSwitch.reset
+      && rapidSwitch.chosen
+      && rapidSwitch.cloudBefore.growing
+      && rapidSwitch.cloudBefore.depth < 3
+      && rapidSwitch.pathBefore.length === 1
+      && JSON.stringify(rapidSwitch.pathAfter) === JSON.stringify(rapidSwitch.pathBefore)
+      && rapidSwitch.modeAfter === '2d'
+      && JSON.stringify(rapidSettledTree.path.map((step) => step.after))
+        === JSON.stringify(rapidSwitch.pathBefore.map((step) => step.after))
+      && rapidSettledAudit.ok,
+  };
+  record(
+    Object.values(lifecycleChecks).every(Boolean),
+    '② 2D 树不会加载 L4 或偷偷重绘；从 3D 切入会释放最重一层',
+    `3D ${full3d.layers.map((l) => l.depth).join('/')} → 2D ${released.layers.map((l) => l.depth).join('/')}`
+      + `｜700ms rAF +${idleAfter.raf.fired - idleBefore.raf.fired}`
+      + ` / WebGL +${idleAfter.render.rendererFrame - idleBefore.render.rendererFrame}`
+      + `｜2D 重开 depth/growing=${directTreeCloud.depth}/${directTreeCloud.growing}`
+      + `｜隐藏 canvas ${idleBefore.render.pixelWidth}×${idleBefore.render.pixelHeight}`
+      + `→${directRender.pixelWidth}×${directRender.pixelHeight}`
+      + `｜L4 中途 depth/growing=${partialDeep.depth}/${partialDeep.growing}`
+      + `｜L3 未到先切 2D 保留路径=${rapidSwitch.pathAfter.map((step) => step.san).join('→') || '无'}`
+      + `｜失败条件 ${
+        Object.entries(lifecycleChecks).filter(([, ok]) => !ok).map(([key]) => key).join(',') || '无'
+      }`);
+
+  // ③ 连点两层，再从第一层换兄弟：树、右侧逐格棋盘和路径 FEN 同源，但实战完全不动。
+  const gameBeforePath = await evalJs(
+    '({ state: window.__test.state(), ai: window.__test.ai(), pending: window.__test.aiPending() })',
+  );
+  const firstTreeClick = await clickSelectorHit(
+    '#cloudTree2d button.tree2d-choice[data-parent-depth="0"][data-tree-rank="3"]',
+  );
+  const secondTreeClick = await clickSelectorHit(
+    '#cloudTree2d button.tree2d-choice[data-parent-depth="1"][data-tree-rank="0"]',
+  );
+  const deepTree = await evalJs('window.__test.tree2d()');
+  const deepTreeAudit = auditTree2d(deepTree);
+  const deepExplorer = await evalJs('window.__test.explorer()');
+  const deepPreviewAudit = auditExplorerPreview(deepExplorer);
+  const panBefore = deepTree.levels.at(-1)?.scroller?.scrollLeft || 0;
+  const pannedRight = await clickSelectorHit(
+    '#cloudTree2d .tree2d-level.is-frontier button[data-tree-pan="1"]',
+  );
+  const panAfter = await evalJs(
+    'window.__test.tree2d().levels.at(-1)?.scroller?.scrollLeft || 0',
+  );
+  const gameAfterPath = await evalJs(
+    '({ state: window.__test.state(), ai: window.__test.ai(), pending: window.__test.aiPending() })',
+  );
+  const oldFirstAfter = deepTree.path[0]?.after || '';
+  const changedAncestor = await clickSelectorHit(
+    '#cloudTree2d button.tree2d-choice[data-parent-depth="0"][data-tree-rank="1"]',
+  );
+  const switchedTree = await evalJs('window.__test.tree2d()');
+  const switchedTreeAudit = auditTree2d(switchedTree);
+  const preservedPath = JSON.stringify(switchedTree.path);
+  const switchedPathTo3d = await clickSelector('#cloudMode');
+  const pathIn3d = await evalJs('window.__test.tree2d()');
+  const routeIn3d = await evalJs('window.__test.cloudMap()');
+  const switchedPathBack2d = await clickSelector('#cloudMode');
+  await settleLayout();
+  const pathBack2d = await evalJs('window.__test.tree2d()');
+  const pathBack2dAudit = auditTree2d(pathBack2d);
+  record(
+    firstTreeClick
+      && secondTreeClick
+      && deepTree.path.length === 2
+      && deepTree.levels.length === 3
+      && deepTreeAudit.ok
+      && deepTree.renderedFen === deepExplorer.renderedFen
+      && explorerPreviewOk(deepPreviewAudit)
+      && pannedRight
+      && panAfter > panBefore + 10
+      && deepExplorer.gameFen === gameBeforePath.state.fen
+      && JSON.stringify(gameAfterPath.state.history) === JSON.stringify(gameBeforePath.state.history)
+      && gameAfterPath.state.fen === gameBeforePath.state.fen
+      && gameAfterPath.ai === gameBeforePath.ai
+      && gameAfterPath.pending === gameBeforePath.pending
+      && changedAncestor
+      && switchedTree.path.length === 1
+      && switchedTree.path[0].after !== oldFirstAfter
+      && switchedTree.levels.length === 2
+      && switchedTreeAudit.ok
+      && switchedPathTo3d
+      && pathIn3d.mode === '3d'
+      && JSON.stringify(pathIn3d.path) === preservedPath
+      && routeIn3d.routePoints === pathIn3d.path.length + 1
+      && switchedPathBack2d
+      && pathBack2d.mode === '2d'
+      && JSON.stringify(pathBack2d.path) === preservedPath
+      && pathBack2dAudit.ok,
+    '② 2D 树可逐层选路和回到旧层换分支；连接线、分叉数与变体棋盘保持同一 FEN',
+    deepTreeAudit.ok && switchedTreeAudit.ok
+      ? `路径 ${deepTree.path.map((step) => step.san).join(' → ')}`
+        + `｜DOM 节点 ${deepTreeAudit.nodeCount}｜换首步后 ${switchedTree.path[0]?.san}`
+        + `｜分支箭头 ${Math.round(panBefore)}→${Math.round(panAfter)}`
+        + `｜2D→3D→2D 保留 ${pathBack2d.path.map((step) => step.san).join(' → ')}`
+        + `｜实战未动=${gameAfterPath.state.fen === gameBeforePath.state.fen}`
+      : [...deepTreeAudit.problems, ...switchedTreeAudit.problems, ...pathBack2dAudit.problems]
+        .slice(0, 6).join('；'));
+
+  const preparedMobileDepth = await clickSelectorHit(
+    '#cloudTree2d button.tree2d-choice[data-parent-depth="1"][data-tree-rank="0"]',
+  );
+
+  // ④ 390px 真触摸：节点和入口可命中、同层能横滑；全屏树与底部变体棋盘互不遮挡。
+  const closedForMobile = await touchSelector('#cloudClose');
+  await waitCloudPreview();
+  const desktopTreeLayout = await evalJs(`(() => {
+    const box = (selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    return { cloud: box('#cloudPanel'), board: box('#boardPanel') };
+  })()`);
+  await setViewport(1280, 800, 'landscapePrimary');
+  const shortDesktopTreeLayout = await evalJs(`(() => {
+    const box = (selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    };
+    return { cloud: box('#cloudPanel'), board: box('#boardPanel') };
+  })()`);
+  await setViewport(390, 844, 'portraitPrimary');
+  await selectorCenter('#cloudMode');
+  const mobileTreeBefore = await evalJs('window.__test.tree2d()');
+  const branchSwipe = await evalJs(`(() => {
+    const scroller = document.querySelector('#cloudTree2d .tree2d-level.is-frontier .tree2d-branch-scroll');
+    if (!scroller) return null;
+    scroller.scrollLeft = 0;
+    const r = scroller.getBoundingClientRect();
+    return {
+      before: scroller.scrollLeft,
+      from: { x: r.right - 18, y: r.top + Math.min(52, r.height / 2) },
+      to: { x: r.left + 18, y: r.top + Math.min(52, r.height / 2) },
+    };
+  })()`);
+  if (branchSwipe) await swipeTouch(branchSwipe.from, branchSwipe.to, 12);
+  const branchScrollAfter = await evalJs(
+    'document.querySelector("#cloudTree2d .tree2d-level.is-frontier .tree2d-branch-scroll")?.scrollLeft || 0',
+  );
+  const selectedThirdMobile = await touchSelector(
+    '#cloudTree2d button.tree2d-choice[data-parent-depth="2"][data-tree-rank="0"]',
+  );
+  const mobileThirdTree = await evalJs('window.__test.tree2d()');
+  const mobileThirdAudit = auditTree2d(mobileThirdTree);
+  const mobileLayout = await evalJs('window.__test.layout()');
+  const openedMobileTree = await touchSelector('#cloudOpen');
+  const verticalSwipe = await evalJs(`(() => {
+    const scroller = document.getElementById('tree2dScroll');
+    scroller.scrollTop = 0;
+    const r = scroller.getBoundingClientRect();
+    return {
+      before: scroller.scrollTop,
+      scrollHeight: scroller.scrollHeight,
+      clientHeight: scroller.clientHeight,
+      from: { x: r.left + r.width / 2, y: r.bottom - 28 },
+      to: { x: r.left + r.width / 2, y: r.top + 64 },
+    };
+  })()`);
+  if (verticalSwipe?.scrollHeight > verticalSwipe?.clientHeight) {
+    await swipeTouch(verticalSwipe.from, verticalSwipe.to, 12);
+  }
+  const mobileFullTree = await evalJs('window.__test.tree2d()');
+  const mobileFullBoxes = await evalJs(`(() => {
+    const rect = (selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect();
+      return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+    };
+    const controls = [...document.querySelectorAll('#cloudControls button')]
+      .filter((button) => getComputedStyle(button).display !== 'none')
+      .map((button) => {
+        const r = button.getBoundingClientRect();
+        const x = (r.left + r.right) / 2, y = (r.top + r.bottom) / 2;
+        return {
+          id: button.id, w: r.width, h: r.height,
+          inside: x >= 0 && x <= innerWidth && y >= 0 && y <= innerHeight,
+          hit: document.elementFromPoint(x, y)?.closest('button') === button,
+        };
+      });
+    return {
+      tree: rect('#cloudTree2d'),
+      explorer: rect('#cloudExplorer'),
+      controls,
+      rootClientW: document.documentElement.clientWidth,
+      rootScrollW: document.documentElement.scrollWidth,
+    };
+  })()`);
+  const safeAreaBoxes = await evalJs(`(() => {
+    const root = document.documentElement;
+    const simulated = {
+      '--safe-top': '47px',
+      '--safe-right': '44px',
+      '--safe-bottom': '34px',
+      '--safe-left': '20px',
+    };
+    for (const [name, value] of Object.entries(simulated)) root.style.setProperty(name, value);
+    const box = (selector) => {
+      const r = document.querySelector(selector).getBoundingClientRect();
+      return { top: r.top, right: r.right, bottom: r.bottom, left: r.left };
+    };
+    const controlBottom = Math.max(...[...document.querySelectorAll('#cloudControls button')]
+      .filter((button) => getComputedStyle(button).display !== 'none')
+      .map((button) => button.getBoundingClientRect().bottom));
+    const snapshot = {
+      tree: box('#cloudTree2d'),
+      explorer: box('#cloudExplorer'),
+      controlBottom,
+      viewport: { w: innerWidth, h: innerHeight },
+    };
+    for (const name of Object.keys(simulated)) root.style.removeProperty(name);
+    return snapshot;
+  })()`);
+  const visibleMobileCards = mobileTreeBefore.levels
+    .flatMap((level) => level.cards)
+    .filter((card) => card.visible);
+  const frontierVisibleAfterVerticalSwipe = mobileFullTree.levels.at(-1)?.cards.some((card) =>
+    card.rect.bottom > mobileFullTree.tree.rect.y
+    && card.rect.y < mobileFullTree.tree.rect.bottom);
+  record(
+    preparedMobileDepth
+      && closedForMobile
+      && mobileTreeBefore.mode === '2d'
+      && mobileTreeBefore.tree.visible
+      && mobileTreeBefore.modeButton.visible
+      && mobileTreeBefore.modeButton.rect.w >= 43.9
+      && mobileTreeBefore.modeButton.rect.h >= 43.9
+      && desktopTreeLayout.cloud.bottom <= desktopTreeLayout.board.top + 1
+      && shortDesktopTreeLayout.cloud.bottom <= shortDesktopTreeLayout.board.top + 1
+      && visibleMobileCards.length > 0
+      && visibleMobileCards.every((card) => card.rect.w >= 43.9 && card.rect.h >= 43.9)
+      && mobileTreeBefore.levels.at(-1).scroller.scrollWidth
+        > mobileTreeBefore.levels.at(-1).scroller.clientWidth
+      && branchScrollAfter > (branchSwipe?.before || 0) + 10
+      && selectedThirdMobile
+      && mobileThirdTree.path.length === 3
+      && mobileThirdTree.levels.length === 3
+      && mobileThirdAudit.ok
+      && mobileLayout.root.scrollW <= mobileLayout.root.clientW + 1
+      && openedMobileTree
+      && mobileFullTree.full
+      && verticalSwipe.scrollHeight > verticalSwipe.clientHeight
+      && mobileFullTree.tree.scrollTop > verticalSwipe.before + 10
+      && frontierVisibleAfterVerticalSwipe
+      && mobileFullBoxes.tree.bottom <= mobileFullBoxes.explorer.y + 1
+      && mobileFullBoxes.controls.length === 2
+      && mobileFullBoxes.controls.every((button) =>
+        button.w >= 43.9 && button.h >= 43.9 && button.inside && button.hit)
+      && mobileFullBoxes.rootScrollW <= mobileFullBoxes.rootClientW + 1
+      && safeAreaBoxes.controlBottom <= safeAreaBoxes.tree.top + 1
+      && safeAreaBoxes.tree.bottom <= safeAreaBoxes.explorer.top + 1
+      && safeAreaBoxes.tree.left >= 20 - 1
+      && safeAreaBoxes.tree.right <= safeAreaBoxes.viewport.w - 44 + 1
+      && safeAreaBoxes.explorer.bottom <= safeAreaBoxes.viewport.h - 34 + 1,
+    '④ 手机缩略树可真实横滑且节点 ≥44px；全屏树与变体棋盘不遮挡',
+    `可见节点 ${visibleMobileCards.length}｜最小高 ${
+      visibleMobileCards.length ? Math.min(...visibleMobileCards.map((card) => card.rect.h)).toFixed(1) : 0
+    }`
+      + `｜桌面间距 ${Math.round(desktopTreeLayout.board.top - desktopTreeLayout.cloud.bottom)}`
+      + ` / ${Math.round(shortDesktopTreeLayout.board.top - shortDesktopTreeLayout.cloud.bottom)}`
+      + `｜横滑 ${branchSwipe?.before || 0}→${Math.round(branchScrollAfter)}`
+      + `｜触摸走到第 ${mobileThirdTree.path.length} 步`
+      + `｜纵滑 ${verticalSwipe.before}→${Math.round(mobileFullTree.tree.scrollTop)}`
+      + `｜全屏树 bottom ${Math.round(mobileFullBoxes.tree.bottom)}`
+      + ` / 棋盘区 top ${Math.round(mobileFullBoxes.explorer.y)}`
+      + `｜刘海模拟 controls/tree/explorer=${Math.round(safeAreaBoxes.controlBottom)}`
+      + `/${Math.round(safeAreaBoxes.tree.top)}..${Math.round(safeAreaBoxes.tree.bottom)}`
+      + `/${Math.round(safeAreaBoxes.explorer.top)}`
+      + `｜控件 ${mobileFullBoxes.controls.length} 个全命中`);
+
+  await touchSelector('#cloudClose');
+  await waitCloudPreview();
+  await evalJs('window.__test.reset()');
+  await waitCloudPreview();
+  const thinking2d = await evalJs(`(() => {
+    const played = window.__test.tryMove('e2', 'e4');
+    return {
+      played,
+      state: window.__test.state(),
+      tree: window.__test.tree2d(),
+      explorer: window.__test.explorer(),
+      staleChoiceExists: !!document.querySelector('#cloudTree2d button[data-tree-rank]'),
+    };
+  })()`);
+  let settled2d = null;
+  for (let i = 0; i < 160; i++) {
+    settled2d = await evalJs(`({
+      state: window.__test.state(),
+      ai: window.__test.ai(),
+    })`);
+    if (
+      settled2d.ai?.painted
+      && !settled2d.state.thinking
+      && settled2d.state.history.length === 2
+    ) break;
+    await sleep(40);
+  }
+  await waitCloudPreview();
+  const settledTree2d = await evalJs('window.__test.tree2d()');
+  const settledExplorer2d = await evalJs('window.__test.explorer()');
+  const settledTree2dAudit = auditTree2d(settledTree2d);
+  const settledExplorer2dAudit = auditExplorerPreview(settledExplorer2d);
+  record(
+    thinking2d.played
+      && thinking2d.state.thinking
+      && thinking2d.tree.thinking
+      && thinking2d.tree.tree.inert
+      && thinking2d.tree.busy === 'true'
+      && thinking2d.tree.levels.length === 0
+      && thinking2d.tree.hud.stats.includes('等待')
+      && thinking2d.explorer.thinking
+      && thinking2d.explorer.inert
+      && thinking2d.explorer.busy === 'true'
+      && thinking2d.explorer.choices.length === 0
+      && !thinking2d.staleChoiceExists
+      && settled2d?.ai?.painted
+      && settled2d?.state?.history.length === 2
+      && settledTree2d.thinking === false
+      && settledTree2d.tree.inert === false
+      && settledTree2d.busy === 'false'
+      && settledTree2d.rootFen === settled2d.state.fen
+      && settledTree2d.gameFen === settled2d.state.fen
+      && settledTree2dAudit.ok
+      && settledExplorer2d.thinking === false
+      && settledExplorer2d.inert === false
+      && settledExplorer2d.busy === 'false'
+      && settledExplorer2d.renderedFen === settled2d.state.fen
+      && explorerPreviewOk(settledExplorer2dAudit),
+    '② 2D 树在 AI 思考时禁用旧分支，真实应手绘制后再按新 FEN 重建',
+    `思考态 tree=${thinking2d.tree.busy}/${thinking2d.tree.levels.length}层`
+      + ` explorer=${thinking2d.explorer.busy}/${thinking2d.explorer.choices.length}项`
+      + `｜完成棋谱 ${JSON.stringify(settled2d?.state?.history || [])}`
+      + `｜新根对账=${settledTree2dAudit.ok}/${explorerPreviewOk(settledExplorer2dAudit)}`);
+
+  await touchSelector('#cloudMode');
+  await evalJs('window.__test.reset()');
+  await waitCloudPreview();
 }
 
 async function runMobileChecks() {
@@ -2296,9 +2962,15 @@ async function main() {
   await send('Page.bringToFront');
 
   // 用户不会等第四层云长满才落子：首屏一能操作就立刻走，AI 仍必须守住 3 秒。
-  const coldCloud = await evalJs('window.__cloudStats()');
   const coldStartedAt = Date.now();
-  const coldPlayed = await evalJs(`window.__test.tryMove('e2','e4')`);
+  const coldStart = await evalJs(`(() => {
+    const reset = window.__test.reset();
+    const cloud = window.__cloudStats();
+    const played = window.__test.tryMove('e2', 'e4');
+    return { reset, cloud, played };
+  })()`);
+  const coldCloud = coldStart.cloud;
+  const coldPlayed = coldStart.played;
   let coldAi = null, coldState = null;
   while (Date.now() - coldStartedAt < 6000) {
     const current = await evalJs('({ ai: window.__test.ai(), state: window.__test.state() })');
@@ -2315,7 +2987,8 @@ async function main() {
     coldReplayOk = replay.fen() === coldState?.fen && coldState?.history?.length === 2;
   } catch {}
   record(
-    coldCloud.growing === true
+    coldStart.reset
+      && coldCloud.growing === true
       && coldCloud.depth < 4
       && coldPlayed === true
       && !!coldAi
@@ -3216,6 +3889,7 @@ async function main() {
   console.log(`走过两回合的截图: ${SHOT2}`);
 
   await closeCloudAndWaitPreview();
+  await runTree2dChecks();
   await runMobileChecks();
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');

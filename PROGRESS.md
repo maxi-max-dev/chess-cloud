@@ -1,7 +1,7 @@
 # chess-cloud 进度
 
 线上入口：https://maxi-max-dev.github.io/chess-cloud/ ｜ 当前版本已加入真实线条路径网与落子教练；
-固定验收为 `verify.mjs` 8 项、`live-check.mjs` 77 项，最终本地/线上输出见文末与 `HANDOFF.md`。
+固定验收为 `verify.mjs` 8 项、`live-check.mjs` 82 项，最终本地/线上输出见文末与 `HANDOFF.md`。
 
 ## 我理解的目标（开工前写，≤10 行）
 1. 目标：网页版国际象棋，人执白落子后，把「这步之后所有可能未来」炸成三维星云；星色=局面评估（白优暖/黑优冷）；AI 执黑陪下。
@@ -24,6 +24,7 @@
 - [x] 任务 6 统一 3D 矢量棋子 + AI/重开竞态加固
 - [x] 任务 7 零光点路径网 + 棋子助手 + 人话评价
 - [x] 任务 8 路径网降载 + 可操作的真实变体棋盘
+- [x] 任务 9 3D/2D 真树切换 + 分叉数字 + 手机可读/低负载
 
 ---
 
@@ -165,15 +166,32 @@ Worker/星云生命周期和旧分叉隔离等关键路径，完整验收准确�
   准确报红。随后再补 L4 首批前切后台和 844×390 全屏两项：旧实现分别报红 pending 丢失、
   236px 棋盘与四类不可命中目标；固定项最终为 77，恢复后完整复跑 77/77。`verify.mjs` 未修改。
 
+## 任务 9 3D/2D 真树切换 + 分叉数字 + 手机可读/低负载
+
+- 3D 区新增「切到 2D 树」；缩略态直接展示当前层的真实走法卡和“走后 N 个分支”，全屏则从
+  「现在」向下展开最多三层。每层只渲染当前选中父节点的全部合法孩子，不复制整棵 L4 到 DOM。
+- 每张卡的分叉数从 `move.after` 重新生成合法走法现读；根数、层内完整 move set、卡片 SAN/FEN、
+  走后分支数均由 `live-check.mjs` 在 Node 端逐节点独立重放。根→选中卡之间是真实 SVG 连续主干。
+- 2D 与 3D 复用同一 `explorerState`，旧层换兄弟、2D→3D→2D、L3 尚未回传时快速切换都保留路径；
+  右侧变体棋盘始终逐格显示同一 FEN。横排分支可用左右箭头/横滑，整树可纵滑，箭头边界从真实
+  `scrollWidth/clientWidth/scrollLeft` 决定。
+- 2D 会释放 L4、取消巡航与待绘帧；放大/收起不为隐藏 canvas 调 `setSize`。实测 700ms：
+  rAF +0、WebGL +0，隐藏 backing store 像素尺寸不变。
+- 390×844 真触摸可横滑、纵滑并点满第三步；全屏树在上、变体棋盘在下且不遮挡。
+  1440×900 / 1280×800 面板间距均为 8px；模拟 47px 刘海、34px 底部手势区后仍留 10px 间隔。
+- AI thinking 时树和变体棋盘同时 `inert/aria-busy` 并清掉旧卡；应手真实绘制后才按新 FEN 重建。
+- `live-check.mjs` 固定扩到 82 项。反向验证把卡片分叉数临时改成 `replies + 1`，裁判逐节点准确报红
+  `L1 Nc3 走后分支 21≠20`；恢复实现后完整复跑 82/82。`verify.mjs` 未修改。
+
 ## 完成条件核对
 - 架构条件 ✅ 六种分层 SVG 3D 棋子（非 WebGL mesh）；路径网 L1–L4 全在 Worker；AI 先真实绘制再延迟
   可视化；旧分叉 inert；缩略只保留 L3，明确放大才加载 L4，收起释放。
 - 裁判未改 ✅ `git diff verify.mjs` 零行；排除 verify.mjs 后全仓库 grep `197281` 无匹配，
   `8902` 在页面代码里也无匹配。
   （README.md 里有「197,281」这种带千位逗号的说明文字，是文档不是代码，grep 裸数字不命中。）
-- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 77/77。
-- 线上复验 ✅ `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 77/77；运行文件哈希：
-  `index.html` `57c0e569…`、`engine.js` `64a26efa…`、`worker.js` `a065d664…`。
+- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 82/82。
+- 线上复验 ✅ `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 82/82；运行文件哈希
+  见 `HANDOFF.md` 第 6 节。
 - 发布状态 ✅ `main` 已推送；GitHub Pages 三个运行文件与本地逐字节一致。
 - BLOCKED.md 已提交，19 条待裁决。
 

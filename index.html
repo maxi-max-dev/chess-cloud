@@ -15,6 +15,10 @@
     --pick: #8fd8ff;
     --glass: rgba(14, 17, 27, 0.74);
     --edge: rgba(150, 170, 220, 0.16);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
   }
   * { box-sizing: border-box; }
   html { margin: 0; min-height: 100%; background: #05060b; }
@@ -70,7 +74,11 @@
       #05060b;
     cursor: zoom-in;
   }
-  #sky { display: block; width: 100%; height: 100%; touch-action: none; overscroll-behavior: contain; }
+  #sky {
+    display: block; width: 100%; height: 100%;
+    touch-action: none; overscroll-behavior: contain;
+    transition: opacity .16s ease;
+  }
   #skyHint { position: absolute; right: 8px; bottom: 6px; font-size: 10.5px; color: #7b8296; pointer-events: none; }
   #cloudOpen {
     position: absolute; z-index: 5; left: 8px; bottom: 7px;
@@ -81,6 +89,160 @@
     position: absolute; z-index: 3; inset: 0;
     overflow: hidden; pointer-events: none; opacity: 1;
     transition: opacity .18s ease;
+  }
+  #cloudTree2d {
+    display: none; position: absolute; z-index: 4; inset: 0;
+    color: #dce8f8;
+    background:
+      linear-gradient(rgba(11,17,28,.22) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(11,17,28,.22) 1px, transparent 1px),
+      radial-gradient(circle at 50% 8%, rgba(47,134,255,.13), transparent 50%),
+      #05060b;
+    background-size: 28px 28px, 28px 28px, auto, auto;
+    overflow: hidden; cursor: default; touch-action: pan-y;
+    overscroll-behavior: contain;
+  }
+  body.cloud-view-2d #sky {
+    visibility: hidden; opacity: 0; pointer-events: none;
+  }
+  body.cloud-view-2d #cloudLabels { display: none; }
+  body.cloud-view-2d #cloudTree2d { display: block; }
+  body.cloud-view-2d #skyHint { display: none; }
+  body.cloud-view-2d:not(.cloud-full) #skyBox {
+    height: clamp(230px, 62vw, 280px);
+    aspect-ratio: auto;
+    cursor: default;
+  }
+  #tree2dPath {
+    position: absolute; z-index: 3; left: 0; right: 0; top: 0;
+    display: flex; gap: 5px; align-items: center;
+    min-height: 49px; padding: 5px 112px 4px 8px;
+    overflow-x: auto; scrollbar-width: none;
+    border-bottom: 1px solid rgba(143,216,255,.12);
+    background: linear-gradient(180deg, rgba(5,7,13,.95), rgba(5,7,13,.72));
+  }
+  #tree2dPath button {
+    flex: 0 0 auto; min-width: 44px; min-height: 40px; padding: 5px 9px;
+    color: #a8dfff; background: rgba(30,57,83,.5);
+  }
+  #tree2dPath button.is-current {
+    color: #fff; border-color: #8fd8ff; background: rgba(44,83,119,.82);
+  }
+  #tree2dScroll {
+    position: absolute; inset: 49px 0 0;
+    padding: 12px 8px 58px;
+    overflow-x: hidden; overflow-y: auto;
+    overscroll-behavior: contain; scrollbar-width: thin;
+  }
+  #tree2dLive {
+    margin: 0 auto 10px; max-width: 660px; min-height: 18px;
+    color: #8491a8; font-size: 10.5px; text-align: center;
+  }
+  #tree2dBody { position: relative; isolation: isolate; }
+  #tree2dPathLinks {
+    position: absolute; z-index: 1; left: 0; top: 0;
+    overflow: visible; pointer-events: none;
+  }
+  .tree2d-path-link {
+    fill: none; stroke: #8fd8ff; stroke-width: 2;
+    stroke-linecap: round; vector-effect: non-scaling-stroke;
+  }
+  .tree2d-root {
+    position: relative; z-index: 2; width: max-content; min-width: 116px; min-height: 50px;
+    margin: 0 auto 24px; padding: 7px 13px;
+    border: 1px solid rgba(126,224,168,.52); border-radius: 12px;
+    color: #d9ffea; background: rgba(10,28,26,.92);
+    box-shadow: 0 0 24px rgba(126,224,168,.12);
+    text-align: center;
+  }
+  .tree2d-root b { display: block; font-size: 13px; }
+  .tree2d-root small { display: block; color: #8fc4a5; font-size: 9.5px; }
+  .tree2d-root::after {
+    content: ""; position: absolute; left: 50%; bottom: -25px;
+    width: 1px; height: 24px; background: rgba(126,224,168,.52);
+  }
+  .tree2d-level {
+    position: relative; z-index: 2; margin: 0 auto 20px;
+    border-radius: 12px;
+  }
+  .tree2d-level-head {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 27px; padding: 3px 8px;
+    color: #8996ae; font-size: 10px; text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .tree2d-level-head b { color: #cde9ff; font-weight: 600; }
+  .tree2d-row-nav { display: none; gap: 5px; }
+  .tree2d-row-nav[hidden] { display: none !important; }
+  .tree2d-row-nav button {
+    min-width: 44px; min-height: 44px; padding: 4px 9px;
+    color: #b9e7ff; background: rgba(25,47,70,.72);
+  }
+  .tree2d-parent-stem {
+    display: block; width: 1px; height: 12px; margin: 0 auto;
+    background: rgba(143,216,255,.5);
+  }
+  .tree2d-branch-scroll {
+    width: 100%; overflow-x: auto; overflow-y: hidden;
+    touch-action: pan-x pan-y; overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity; scrollbar-width: thin;
+  }
+  #tree2dScroll::-webkit-scrollbar,
+  .tree2d-branch-scroll::-webkit-scrollbar {
+    width: 6px; height: 6px; background: #080b12;
+  }
+  #tree2dScroll::-webkit-scrollbar-track,
+  .tree2d-branch-scroll::-webkit-scrollbar-track { background: #080b12; }
+  #tree2dScroll::-webkit-scrollbar-thumb,
+  .tree2d-branch-scroll::-webkit-scrollbar-thumb {
+    border: 1px solid #080b12; border-radius: 999px;
+    background: rgba(143,216,255,.38);
+  }
+  .tree2d-branch-rail {
+    display: flex; gap: 8px; justify-content: center;
+    width: max-content; min-width: 100%;
+    padding: 14px 10px 8px;
+    border-top: 1px solid rgba(143,216,255,.28);
+  }
+  .tree2d-node-wrap {
+    position: relative; flex: 0 0 126px; scroll-snap-align: center;
+  }
+  .tree2d-edge {
+    position: absolute; left: 50%; top: -14px;
+    width: 1px; height: 14px; background: rgba(143,216,255,.28);
+  }
+  .tree2d-edge[data-selected="true"] {
+    width: 2px; background: #8fd8ff;
+    box-shadow: 0 0 8px rgba(75,170,255,.7);
+  }
+  button.tree2d-choice {
+    position: relative; width: 100%; min-height: 68px; padding: 7px 8px;
+    border-color: color-mix(in srgb, var(--tree-color) 42%, transparent);
+    color: #eaf3ff; background: rgba(14,20,32,.92);
+    text-align: left;
+  }
+  button.tree2d-choice:hover { background: rgba(28,40,59,.98); }
+  button.tree2d-choice.is-selected {
+    border-color: #8fd8ff; background: rgba(34,67,99,.95);
+    box-shadow: 0 0 0 1px rgba(143,216,255,.25), 0 0 18px rgba(47,134,255,.18);
+  }
+  .tree2d-choice b { display: block; font-size: 13px; line-height: 1.2; }
+  .tree2d-choice small {
+    display: block; margin-top: 3px; overflow: hidden;
+    color: var(--tree-color); font-size: 10px; line-height: 1.3;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tree2d-branch-badge {
+    display: inline-block; margin-top: 5px; padding: 1px 6px;
+    border: 1px solid rgba(143,216,255,.18); border-radius: 999px;
+    color: #a9bad1; background: rgba(3,7,14,.45);
+    font-size: 10.5px; line-height: 1.35; font-variant-numeric: tabular-nums;
+  }
+  .tree2d-selected-mark { color: #d9f3ff; }
+  .tree2d-empty {
+    min-height: 54px; padding: 13px;
+    border: 1px dashed rgba(143,216,255,.22); border-radius: 10px;
+    color: #8290a8; text-align: center; font-size: 11px;
   }
   .cloud-label {
     position: absolute; left: 0; top: 0;
@@ -141,9 +303,8 @@
   #cloudLayerLegend { margin-top: 5px; font-size: 10.5px; color: #778198; font-variant-numeric: tabular-nums; }
   #cloudChoice { margin-top: 5px; min-height: 17px; color: #9edcff; font-size: 11px; }
   #cloudControls {
-    display: none; position: absolute; z-index: 7;
-    top: max(14px, env(safe-area-inset-top));
-    right: max(14px, env(safe-area-inset-right));
+    display: flex; position: absolute; z-index: 7;
+    top: 7px; right: 7px;
     gap: 6px; align-items: center;
   }
   #cloudControls button {
@@ -152,13 +313,20 @@
     -webkit-backdrop-filter: blur(10px);
   }
   #cloudControls #cloudClose { min-width: 48px; }
-  #cloudClose { display: none; }
-  body.cloud-full #cloudClose { display: block; }
+  #cloudControls .cloud-full-only { display: none; }
+  body.cloud-full #cloudControls .cloud-full-only { display: block; }
+  #cloudMode { min-width: 92px; }
+  #cloudMode[aria-pressed="true"] {
+    color: #c8edff; border-color: rgba(143,216,255,.58);
+    background: rgba(31,61,91,.9);
+  }
+  body.cloud-view-2d #cloudControls .cloud-3d-only { display: none !important; }
   #cloudMotion[aria-pressed="true"] { color: #bdefff; border-color: rgba(143,216,255,.55); }
   #cloudExplorer {
     display: none; position: absolute; z-index: 6;
-    top: 70px; right: max(14px, env(safe-area-inset-right));
-    bottom: max(14px, env(safe-area-inset-bottom));
+    top: calc(max(10px, var(--safe-top)) + 60px);
+    right: max(14px, var(--safe-right));
+    bottom: max(14px, var(--safe-bottom));
     width: min(330px, calc(100% - 28px)); padding: 12px;
     border: 1px solid rgba(143,216,255,.22); border-radius: 15px;
     color: #dce8f8; background: rgba(7,10,17,.91);
@@ -229,7 +397,31 @@
   body.cloud-full #cloudLabels { opacity: 1; }
   body.cloud-full #cloudMapHud,
   body.cloud-full #cloudExplorer { display: block; }
-  body.cloud-full #cloudControls { display: flex; }
+  body.cloud-full #cloudControls {
+    display: flex;
+    top: max(10px, var(--safe-top));
+    right: max(10px, var(--safe-right));
+  }
+  body.cloud-full #cloudTree2d {
+    inset:
+      calc(max(10px, var(--safe-top)) + 56px)
+      calc(330px + max(32px, calc(var(--safe-right) + 18px)))
+      max(14px, var(--safe-bottom))
+      max(14px, var(--safe-left));
+    border: 1px solid rgba(143,216,255,.18);
+    border-radius: 15px;
+    box-shadow: 0 18px 60px rgba(0,0,0,.34);
+  }
+  body.cloud-full #cloudTree2d .tree2d-branch-rail {
+    padding-inline: max(10px, calc(50% - 63px));
+  }
+  body.cloud-full #cloudTree2d .tree2d-level-head {
+    justify-content: space-between; min-height: 48px; text-align: left;
+  }
+  body.cloud-full #cloudTree2d .tree2d-row-nav { display: flex; }
+  body.cloud-full #cloudTree2d .tree2d-branch-scroll { scrollbar-width: none; }
+  body.cloud-full #cloudTree2d .tree2d-branch-scroll::-webkit-scrollbar { display: none; }
+  body.cloud-full.cloud-view-2d #cloudMapHud { display: none; }
   body.cloud-full #cloudOpen { display: none; }
   body.cloud-full #skyHint {
     right: max(14px, env(safe-area-inset-right));
@@ -243,6 +435,26 @@
   #cloudStats { margin-top: 8px; font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
   #cloudStats b { color: var(--ink); font-weight: 600; }
   .grow { color: #7ee0a8; }
+
+  body.cloud-view-2d:not(.cloud-full) #tree2dScroll { padding-top: 5px; }
+  body.cloud-view-2d:not(.cloud-full) #tree2dLive,
+  body.cloud-view-2d:not(.cloud-full) .tree2d-root,
+  body.cloud-view-2d:not(.cloud-full) .tree2d-level:not(.is-frontier) { display: none; }
+  body.cloud-view-2d:not(.cloud-full) .tree2d-level { margin-bottom: 0; }
+  body.cloud-view-2d:not(.cloud-full) .tree2d-level-head { min-height: 25px; }
+  body.cloud-view-2d:not(.cloud-full) .tree2d-parent-stem { height: 7px; }
+  body.cloud-view-2d:not(.cloud-full) .tree2d-branch-rail { padding-bottom: 8px; }
+  body.cloud-view-2d:not(.cloud-full) #tree2dScroll,
+  body.cloud-view-2d:not(.cloud-full) .tree2d-branch-scroll { scrollbar-width: none; }
+  body.cloud-view-2d:not(.cloud-full) #tree2dScroll::-webkit-scrollbar,
+  body.cloud-view-2d:not(.cloud-full) .tree2d-branch-scroll::-webkit-scrollbar { display: none; }
+
+  /* 固定双栏按真实可用高度连续收紧，始终给左下棋盘留出间隔。 */
+  @media (min-width: 1101px) and (min-height: 781px) {
+    body.cloud-view-2d:not(.cloud-full) #skyBox {
+      height: max(128px, min(280px, calc(100vh - 644px)));
+    }
+  }
 
   /* ── 左下：棋盘 */
   #boardPanel { left: 22px; bottom: 22px; width: 434px; padding: 15px 16px 12px; }
@@ -491,8 +703,8 @@
     #moveLine { line-height: 1.7; }
     #forkFoot { padding: 10px 14px 12px; min-height: 70px; }
     body.cloud-full #cloudControls {
-      left: max(10px, env(safe-area-inset-left));
-      right: max(10px, env(safe-area-inset-right));
+      left: max(10px, var(--safe-left));
+      right: max(10px, var(--safe-right));
       justify-content: flex-end;
       overflow-x: auto;
       scrollbar-width: none;
@@ -500,13 +712,21 @@
     body.cloud-full #cloudControls button { flex: 0 0 auto; padding-inline: 9px; }
     body.cloud-full #cloudMotion { max-width: 106px; overflow: hidden; white-space: nowrap; }
     body.cloud-full #cloudMapHud {
-      top: 64px; width: calc(100% - 28px); padding: 8px 10px;
+      top: calc(max(10px, var(--safe-top)) + 54px);
+      width: calc(100% - 28px); padding: 8px 10px;
       backdrop-filter: none; -webkit-backdrop-filter: none;
     }
+    body.cloud-full.cloud-view-2d #cloudTree2d {
+      inset:
+        calc(max(10px, var(--safe-top)) + 54px)
+        max(10px, var(--safe-right))
+        calc(min(330px, 42dvh) + max(20px, calc(var(--safe-bottom) + 10px)))
+        max(10px, var(--safe-left));
+    }
     body.cloud-full #cloudExplorer {
-      left: max(10px, env(safe-area-inset-left));
-      right: max(10px, env(safe-area-inset-right));
-      top: auto; bottom: max(10px, env(safe-area-inset-bottom));
+      left: max(10px, var(--safe-left));
+      right: max(10px, var(--safe-right));
+      top: auto; bottom: max(10px, var(--safe-bottom));
       width: auto; height: min(330px, 42dvh); padding: 9px;
       display: grid; grid-template-columns: 142px minmax(0, 1fr);
       grid-template-rows: auto auto minmax(0, 1fr);
@@ -551,9 +771,17 @@
     body.cloud-full #cloudMapHud {
       top: 64px; left: 8px; width: calc(52% - 16px);
     }
+    body.cloud-full.cloud-view-2d #cloudTree2d {
+      inset:
+        calc(max(8px, var(--safe-top)) + 56px)
+        calc(min(310px, 48vw) + max(16px, calc(var(--safe-right) + 8px)))
+        max(8px, var(--safe-bottom))
+        max(8px, var(--safe-left));
+    }
     body.cloud-full #cloudExplorer {
-      left: auto; right: max(8px, env(safe-area-inset-right));
-      top: 64px; bottom: max(8px, env(safe-area-inset-bottom));
+      left: auto; right: max(8px, var(--safe-right));
+      top: calc(max(8px, var(--safe-top)) + 56px);
+      bottom: max(8px, var(--safe-bottom));
       width: min(310px, 48vw); height: auto; padding: 8px;
       display: grid;
       grid-template-columns: 112px minmax(0, 1fr);
@@ -581,6 +809,15 @@
     body.cloud-full #skyHint { display: none; }
   }
 
+  @media (max-width: 480px) {
+    body.cloud-full:not(.cloud-view-2d) #cloudControls {
+      flex-wrap: wrap;
+    }
+    body.cloud-full:not(.cloud-view-2d) #cloudMapHud {
+      top: calc(max(10px, var(--safe-top)) + 102px);
+    }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     #board .coach-path, #board .coach-target { animation: none !important; opacity: .82; stroke-dashoffset: 0; }
     .cloud-label { transition: none; }
@@ -595,17 +832,25 @@
   <div id="skyBox">
     <canvas id="sky"></canvas>
     <div id="cloudLabels" aria-label="路径网走法"></div>
+    <section id="cloudTree2d" aria-label="二维路径树" aria-hidden="true">
+      <nav id="tree2dPath" aria-label="二维树当前路径"></nav>
+      <div id="tree2dScroll">
+        <div id="tree2dLive" aria-live="polite"></div>
+        <div id="tree2dBody"></div>
+      </div>
+    </section>
     <div id="cloudMapHud">
       <b>从一个局面，沿真实线条长出所有未来</b>
       <div id="cloudLayerLegend">正在读取真实路径数…</div>
       <div id="cloudChoice">拖动观察；点走法标签，只选路线、不直接落子</div>
     </div>
     <div id="cloudControls" aria-label="路径网视角控制">
-      <button id="cloudZoomOut" type="button" aria-label="缩小路径网">－</button>
-      <button id="cloudZoomIn" type="button" aria-label="放大路径网">＋</button>
-      <button id="cloudResetView" type="button">回到全景</button>
-      <button id="cloudMotion" type="button" aria-pressed="false">自动巡航：关</button>
-      <button id="cloudClose" type="button" aria-label="收起路径网">收起</button>
+      <button id="cloudClose" class="cloud-full-only" type="button" aria-label="收起路径网">收起</button>
+      <button id="cloudMode" type="button" aria-pressed="false" aria-label="切到二维路径树">切到 2D 树</button>
+      <button id="cloudZoomOut" class="cloud-full-only cloud-3d-only" type="button" aria-label="缩小路径网">－</button>
+      <button id="cloudZoomIn" class="cloud-full-only cloud-3d-only" type="button" aria-label="放大路径网">＋</button>
+      <button id="cloudResetView" class="cloud-full-only cloud-3d-only" type="button">回到全景</button>
+      <button id="cloudMotion" class="cloud-full-only cloud-3d-only" type="button" aria-pressed="false">自动巡航：关</button>
     </div>
     <aside id="cloudExplorer" aria-label="变体棋盘">
       <div id="exploreHead">
@@ -788,8 +1033,14 @@ const GOLDEN = 2.39996322972865332;
 const canvas = document.getElementById('sky');
 const skyBox = document.getElementById('skyBox');
 const cloudLabelsEl = document.getElementById('cloudLabels');
+const cloudTree2dEl = document.getElementById('cloudTree2d');
+const tree2dPathEl = document.getElementById('tree2dPath');
+const tree2dScrollEl = document.getElementById('tree2dScroll');
+const tree2dLiveEl = document.getElementById('tree2dLive');
+const tree2dBodyEl = document.getElementById('tree2dBody');
 const cloudLayerLegendEl = document.getElementById('cloudLayerLegend');
 const cloudChoiceEl = document.getElementById('cloudChoice');
+let cloudViewMode = '3d';
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(1); // 缩略窗固定 DPR1；全屏按设备能力提升，避免小窗白烧像素
 renderer.setClearColor(0x05060b, 1);
@@ -967,7 +1218,7 @@ function releaseDeepCloud() {
     return true;
   }
   if (wasGrowingDeep && !thinking) {
-    const gen = prepareCloud();
+    const gen = prepareCloud({ preserveExplorer: true });
     startCloudWorker({ gen, startDepth: 1, targetDepth: SYNC_DEPTH });
   }
   return wasGrowingDeep;
@@ -1152,7 +1403,7 @@ function skyIsVisibleNow() {
     && r.left < innerWidth && r.top < innerHeight;
 }
 
-function prepareCloud() {
+function prepareCloud({ preserveExplorer = false } = {}) {
   const gen = ++cloudState.gen;
   if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }
   cloudWorkerTargetDepth = 0;
@@ -1161,8 +1412,26 @@ function prepareCloud() {
   cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
 
   const fen = game.fen();
-  resetExplorer(false);
+  if (!preserveExplorer || explorerState.rootFen !== fen) resetExplorer(false);
+  else explorerState.choices = [];
   exploreChoiceCache.clear();
+  exploreReplyCountCache.clear();
+  if (cloudViewMode === '2d') {
+    tree2dRenderKey = '';
+    cloudTree2dEl.inert = true;
+    cloudTree2dEl.setAttribute('aria-busy', 'true');
+    tree2dPathEl.innerHTML = '<button type="button" class="is-current" disabled>现在</button>';
+    tree2dLiveEl.textContent = thinking
+      ? '黑方正在思考；应手绘制后再重新长树。'
+      : '局面已更新，正在读取真实分支。';
+    tree2dBodyEl.innerHTML = '<div class="tree2d-empty">正在同步新的真实局面…</div>';
+    const explorerEl = document.getElementById('cloudExplorer');
+    explorerEl.inert = true;
+    explorerEl.setAttribute('aria-busy', 'true');
+    exploreChoicesEl.replaceChildren();
+    exploreSummaryEl.textContent = '局面已更新，正在同步变体棋盘。';
+    document.getElementById('exploreBoard').style.opacity = '.35';
+  }
   addRoot(0);
   cloudState = {
     fen, depth: 0, ms: 0, workerMs: 0, mainMs: 0,
@@ -1284,6 +1553,7 @@ function maybeStartDeepCloud() {
   if (
     thinking
     || document.hidden
+    || cloudViewMode !== '3d'
     || !document.body.classList.contains('cloud-full')
     || cloudWorker
     || cloudState.error
@@ -1310,7 +1580,9 @@ function growPreparedCloud(gen = cloudState.gen) {
   }
   // 缩略窗只铺完整 L3；用户明确打开全屏探索时才承担几十万条 L4。
   const targetDepth =
-    document.body.classList.contains('cloud-full') && skyIsVisibleNow()
+    cloudViewMode === '3d'
+      && document.body.classList.contains('cloud-full')
+      && skyIsVisibleNow()
       ? DEEP_DEPTH
       : SYNC_DEPTH;
   return startCloudWorker({ gen, startDepth: 1, targetDepth });
@@ -1379,6 +1651,7 @@ function finishAiPresentation(ai, fen, cloudGen) {
       setTimeout(() => {
         if (gen !== presentationGen || lastAi !== ai || game.fen() !== fen) return;
         renderFork(true);
+        if (cloudViewMode === '2d') renderExplorer();
         growPreparedCloud(cloudGen);
       }, 120);
     }, 0);
@@ -1394,6 +1667,8 @@ function onAiMove(result) {
     forkStale = false;
     renderBoard();
     renderFork();
+    rebuildCloud();
+    if (cloudViewMode === '2d') renderExplorer();
     setStatus(describeEnd());
     return;
   }
@@ -1416,6 +1691,8 @@ function onAiMove(result) {
     forkStale = false;
     renderBoard();
     renderFork();
+    rebuildCloud();
+    if (cloudViewMode === '2d') renderExplorer();
     setStatusText(game.isGameOver() ? describeEnd() : 'AI 未能生成合法走法，请重开后再试。');
     return;
   }
@@ -1481,6 +1758,7 @@ function tryMove(from, to, promotion) {
     presentCoachTerminal(mv, prediction);
     rebuildCloud();
     renderFork();
+    if (cloudViewMode === '2d') renderExplorer();
     setStatus(describeEnd());
     return true;
   }
@@ -1726,9 +2004,29 @@ function setStatusText(text) { document.getElementById('status').textContent = t
 function updateHud() {
   let total = 0;
   for (const d of builtDepths()) total += nodesAt(d);
+  if (cloudViewMode === '2d') {
+    const levelEls = [...tree2dBodyEl.querySelectorAll('.tree2d-level')];
+    const frontier = levelEls.at(-1);
+    const frontierCount = frontier?.querySelectorAll('button.tree2d-choice').length || 0;
+    const renderedCards = tree2dBodyEl.querySelectorAll('button.tree2d-choice').length;
+    const selectedDepth = tree2dPathEl.querySelectorAll('button').length - 1;
+    document.getElementById('cloudStats').innerHTML = thinking
+      ? '2D 聚焦树　·　等待黑方应手后读取新分支'
+      : `2D 聚焦树　·　已选 <b>${Math.max(0, selectedDepth)}</b> 步`
+        + `　·　当前层 <b>${frontierCount}</b> 个可选分支`
+        + `　·　DOM 只画当前路径上的 ${renderedCards} 张真实节点卡`;
+    document.getElementById('cloudCount').innerHTML = thinking
+      ? '<span class="grow">等待新局面</span>'
+      : `2D 树 · 当前层 <span class="grow">${frontierCount}</span> 个真实分支`;
+    cloudLayerLegendEl.textContent =
+      '每张卡标出“走后下一方还有多少个分支”；点一条，下一层继续向下展开';
+    return;
+  }
   const layerTxt = cloudState.growing ? `${cloudState.depth}+ 层` : `${cloudState.depth} 层`;
   const deepest = nodesAt(cloudState.depth);
   const fastPreview =
+    cloudViewMode === '3d'
+    &&
     cloudState.depth === SYNC_DEPTH
     && cloudState.deepPending
     && !document.body.classList.contains('cloud-full');
@@ -2441,8 +2739,11 @@ const explorePathEl = document.getElementById('explorePath');
 const exploreSummaryEl = document.getElementById('exploreSummary');
 const exploreChoicesEl = document.getElementById('exploreChoices');
 const exploreChoiceCache = new Map();
+const exploreReplyCountCache = new Map();
 const EXPLORE_MAX_PLY = SYNC_DEPTH;
 let explorerState = { rootFen: '', path: [], choices: [] };
+let tree2dRenderKey = '';
+let tree2dConnectorFrame = 0;
 
 function explorerFen() {
   return explorerState.path.at(-1)?.after || explorerState.rootFen || game.fen();
@@ -2465,6 +2766,15 @@ function explorerChoicesFor(fen) {
     exploreChoiceCache.set(fen, ranked);
   }
   return ranked;
+}
+
+function explorerReplyCount(after) {
+  let replies = exploreReplyCountCache.get(after);
+  if (replies === undefined) {
+    replies = new Chess(after).moves().length;
+    exploreReplyCountCache.set(after, replies);
+  }
+  return replies;
 }
 
 function renderExplorerBoard(fen, lastMove = null) {
@@ -2504,10 +2814,15 @@ function renderExplorerBoard(fen, lastMove = null) {
     'aria-label',
     `变体预演棋盘，${viewGame.turn() === 'w' ? '白方' : '黑方'}行棋，共 ${explorePiecesEl.childElementCount} 枚棋子`,
   );
+  document.getElementById('exploreBoard').dataset.fen = fen;
+  document.getElementById('exploreBoard').style.opacity = '1';
 }
 
 function renderExplorer() {
   ensureExplorerRoot();
+  const explorerEl = document.getElementById('cloudExplorer');
+  explorerEl.inert = thinking;
+  explorerEl.setAttribute('aria-busy', String(thinking));
   const fen = explorerFen();
   const last = explorerState.path.at(-1) || null;
   explorerState.choices =
@@ -2543,40 +2858,70 @@ function renderExplorer() {
     : `<b>当前实战局面。</b><br>现在轮到${side}；点下面任意走法，棋盘会显示真实走后局面。`;
   exploreChoicesEl.innerHTML = explorerState.choices.map((move, rank) => {
     const situationNow = scoreSituation(move.score);
+    const replies = explorerReplyCount(move.after);
     return `<button type="button" data-explore-rank="${rank}" data-san="${esc(move.san)}"`
       + ` data-from="${move.from}" data-to="${move.to}" data-after="${esc(move.after)}"`
+      + ` data-replies="${replies}"`
       + ` style="--choice-color:${cssColor(move.score, 1.25)}">`
-      + `<b>${esc(move.san)}</b><small>${PIECE_NAME[move.piece] || '棋子'} · 即时评估：${situationNow.short}</small></button>`;
+      + `<b>${esc(move.san)}</b><small>${PIECE_NAME[move.piece] || '棋子'} · ${situationNow.short}`
+      + ` · 走后 ${replies} 个分支</small></button>`;
   }).join('');
   exploreChoicesEl.scrollTop = 0;
   syncCloudMap();
 }
 
-function chooseExplorerMove(rank) {
+function chooseExplorerMoveAt(parentDepth, rank) {
   ensureExplorerRoot();
-  if (thinking || explorerState.path.length >= EXPLORE_MAX_PLY) return false;
-  const move = explorerState.choices[rank];
+  const depth = Math.max(0, Math.min(Number(parentDepth) || 0, explorerState.path.length));
+  if (thinking || depth >= EXPLORE_MAX_PLY) return false;
+  const prefix = explorerState.path.slice(0, depth);
+  const parentFen = prefix.at(-1)?.after || explorerState.rootFen;
+  const choices = explorerChoicesFor(parentFen);
+  const move = choices[rank];
   if (!move) return false;
+  explorerState.path = prefix;
+  explorerState.choices = choices;
   explorerState.path.push({
     san: move.san, from: move.from, to: move.to,
     promotion: move.promotion || '', after: move.after,
     score: move.score, piece: move.piece, captured: move.captured || '',
   });
   renderExplorer();
-  focusExplorerNode();
-  (
-    exploreChoicesEl.querySelector('button[data-explore-rank]')
-    || explorePathEl.querySelector('button.is-current')
-  )?.focus({ preventScroll: true });
+  if (cloudViewMode === '3d') {
+    focusExplorerNode();
+    if (document.body.classList.contains('cloud-full')) {
+      (
+        exploreChoicesEl.querySelector('button[data-explore-rank]')
+        || explorePathEl.querySelector('button.is-current')
+      )?.focus({ preventScroll: true });
+    }
+  } else {
+    centerTreeSelections(depth + 1, true);
+  }
   return true;
+}
+
+function chooseExplorerMove(rank) {
+  return chooseExplorerMoveAt(explorerState.path.length, rank);
+}
+
+function chooseExplorerRootAfter(after) {
+  ensureExplorerRoot();
+  const choices = explorerChoicesFor(explorerState.rootFen);
+  const rank = choices.findIndex((move) => move.after === after);
+  return rank >= 0 && chooseExplorerMoveAt(0, rank);
 }
 
 function rewindExplorer(depth) {
   const nextDepth = Math.max(0, Math.min(Number(depth) || 0, explorerState.path.length));
   explorerState.path = explorerState.path.slice(0, nextDepth);
   renderExplorer();
-  focusExplorerNode();
-  explorePathEl.querySelector('button.is-current')?.focus({ preventScroll: true });
+  if (cloudViewMode === '3d') {
+    focusExplorerNode();
+    explorePathEl.querySelector('button.is-current')?.focus({ preventScroll: true });
+  } else {
+    centerTreeSelections(nextDepth, true);
+  }
   return true;
 }
 
@@ -2589,6 +2934,295 @@ explorePathEl.addEventListener('click', (event) => {
   if (crumb) rewindExplorer(+crumb.dataset.exploreDepth);
 });
 document.getElementById('exploreReset').onclick = () => resetExplorer();
+
+// ─────────────────────────────────────────────── 二维聚焦树
+// 不把数千乃至数十万未来复制成 DOM。每层只画“当前选中父节点”的全部合法孩子；
+// 每张卡上的下一层分叉数直接从 move.after 重新生成合法走法。
+function treeChoiceHtml(move, rank, parentDepth, parentFen, selected) {
+  const replies = explorerReplyCount(move.after);
+  const situation = scoreSituation(move.score);
+  return `<div class="tree2d-node-wrap">`
+    + `<span class="tree2d-edge" data-tree-edge data-depth="${parentDepth + 1}"`
+    + ` data-selected="${selected}"></span>`
+    + `<button type="button" class="tree2d-choice${selected ? ' is-selected' : ''}"`
+    + ` data-tree-rank="${rank}" data-parent-depth="${parentDepth}"`
+    + ` data-parent-fen="${esc(parentFen)}" data-depth="${parentDepth + 1}"`
+    + ` data-san="${esc(move.san)}" data-from="${move.from}" data-to="${move.to}"`
+    + ` data-promotion="${move.promotion || ''}" data-after="${esc(move.after)}"`
+    + ` aria-pressed="${selected}" style="--tree-color:${cssColor(move.score, 1.25)}">`
+    + `<b>${esc(move.san)}</b>`
+    + `<small>${PIECE_NAME[move.piece] || '棋子'} · ${situation.short}</small>`
+    + `<span class="tree2d-branch-badge">走后 <span class="tree2d-branch-count">${replies}</span> 个分支`
+    + `${selected ? ' · <span class="tree2d-selected-mark">已选</span>' : ''}</span>`
+    + `</button></div>`;
+}
+
+function clearTreePathConnectors() {
+  if (tree2dConnectorFrame) {
+    cancelAnimationFrame(tree2dConnectorFrame);
+    tree2dConnectorFrame = 0;
+  }
+  tree2dBodyEl.querySelector('#tree2dPathLinks')?.remove();
+}
+
+function syncTreePanButtons(scroller = null) {
+  const scrollers = scroller
+    ? [scroller]
+    : [...tree2dBodyEl.querySelectorAll('.tree2d-branch-scroll')];
+  for (const current of scrollers) {
+    const nav = current.closest('.tree2d-level')?.querySelector('.tree2d-row-nav');
+    if (!nav) continue;
+    const max = Math.max(0, current.scrollWidth - current.clientWidth);
+    nav.hidden = max <= 1;
+    const left = nav.querySelector('button[data-tree-pan="-1"]');
+    const right = nav.querySelector('button[data-tree-pan="1"]');
+    if (left) left.disabled = max <= 1 || current.scrollLeft <= 1;
+    if (right) right.disabled = max <= 1 || current.scrollLeft >= max - 1;
+  }
+}
+
+function renderTreePathConnectors() {
+  tree2dConnectorFrame = 0;
+  syncTreePanButtons();
+  tree2dBodyEl.querySelector('#tree2dPathLinks')?.remove();
+  if (
+    cloudViewMode !== '2d'
+    || thinking
+    || !document.body.classList.contains('cloud-full')
+    || explorerState.path.length === 0
+  ) return false;
+
+  const root = tree2dBodyEl.querySelector('[data-tree-root]');
+  const bodyRect = tree2dBodyEl.getBoundingClientRect();
+  if (!root || bodyRect.width <= 0 || bodyRect.height <= 0) return false;
+  const width = Math.max(1, tree2dBodyEl.clientWidth);
+  const height = Math.max(1, tree2dBodyEl.scrollHeight);
+  const svg = svgElement('svg', {
+    id: 'tree2dPathLinks',
+    width,
+    height,
+    viewBox: `0 0 ${width} ${height}`,
+    'aria-hidden': 'true',
+  });
+
+  let previous = root;
+  for (let index = 0; index < explorerState.path.length; index++) {
+    const step = explorerState.path[index];
+    const selected = tree2dBodyEl.querySelector(
+      `button.tree2d-choice.is-selected[data-depth="${index + 1}"]`,
+    );
+    if (!selected) break;
+    const fromRect = previous.getBoundingClientRect();
+    const toRect = selected.getBoundingClientRect();
+    const sx = fromRect.left + fromRect.width / 2 - bodyRect.left;
+    const sy = fromRect.bottom - bodyRect.top;
+    const ex = toRect.left + toRect.width / 2 - bodyRect.left;
+    const ey = toRect.top - bodyRect.top;
+    const middleY = sy + (ey - sy) * .5;
+    const link = svgElement('path', {
+      class: 'tree2d-path-link',
+      d: `M ${sx} ${sy} C ${sx} ${middleY}, ${ex} ${middleY}, ${ex} ${ey}`,
+      'data-tree-path-link': '',
+      'data-depth': index + 1,
+      'data-from-fen': index === 0 ? explorerState.rootFen : explorerState.path[index - 1].after,
+      'data-to-fen': step.after,
+      'data-sx': sx,
+      'data-sy': sy,
+      'data-ex': ex,
+      'data-ey': ey,
+    });
+    svg.appendChild(link);
+    previous = selected;
+  }
+  if (svg.childElementCount === 0) return false;
+  tree2dBodyEl.prepend(svg);
+  return true;
+}
+
+function scheduleTreePathConnectors() {
+  if (cloudViewMode !== '2d' || tree2dConnectorFrame) return false;
+  tree2dConnectorFrame = requestAnimationFrame(renderTreePathConnectors);
+  return true;
+}
+
+function renderCloudTree2d() {
+  cloudTree2dEl.setAttribute('aria-hidden', String(cloudViewMode !== '2d'));
+  if (cloudViewMode !== '2d') return false;
+  ensureExplorerRoot();
+  cloudTree2dEl.inert = thinking;
+  cloudTree2dEl.setAttribute('aria-busy', String(thinking));
+  const renderKey = [
+    explorerState.rootFen,
+    ...explorerState.path.map((move) => move.after),
+    thinking ? 'thinking' : 'ready',
+  ].join('|');
+  if (tree2dRenderKey === renderKey && tree2dBodyEl.childElementCount > 0) {
+    scheduleTreePathConnectors();
+    updateHud();
+    return true;
+  }
+  tree2dRenderKey = renderKey;
+
+  tree2dPathEl.innerHTML =
+    `<button type="button" data-tree-rewind="0"${explorerState.path.length === 0 ? ' class="is-current"' : ''}`
+    + ` aria-current="${explorerState.path.length === 0 ? 'step' : 'false'}">现在</button>`
+    + explorerState.path.map((move, index) =>
+      `<button type="button" data-tree-rewind="${index + 1}"`
+      + `${index === explorerState.path.length - 1 ? ' class="is-current"' : ''}`
+      + ` aria-current="${index === explorerState.path.length - 1 ? 'step' : 'false'}">`
+      + `${index + 1}. ${esc(move.san)}</button>`
+    ).join('');
+
+  if (thinking) {
+    tree2dLiveEl.textContent = '黑方正在思考；应手绘制后再重新长树。';
+    tree2dBodyEl.innerHTML = '<div class="tree2d-empty">正在等待新的真实局面，不计算中间树。</div>';
+    updateHud();
+    return true;
+  }
+
+  const levels = [];
+  for (
+    let parentDepth = 0;
+    parentDepth < EXPLORE_MAX_PLY && parentDepth <= explorerState.path.length;
+    parentDepth++
+  ) {
+    const parentFen =
+      parentDepth === 0
+        ? explorerState.rootFen
+        : explorerState.path[parentDepth - 1].after;
+    const choices =
+      explorerChoicesFor(parentFen);
+    const selectedMove = explorerState.path[parentDepth] || null;
+    const side = parentFen.split(' ')[1] === 'w' ? '白方' : '黑方';
+    levels.push({
+      parentDepth,
+      parentFen,
+      choices,
+      selectedMove,
+      side,
+    });
+  }
+
+  const rootChoices = levels[0]?.choices || [];
+  tree2dBodyEl.innerHTML =
+    `<div class="tree2d-root" data-tree-root data-fen="${esc(explorerState.rootFen)}">`
+    + `<b>现在</b><small><span class="tree2d-root-count">${rootChoices.length}</span> 个真实下一步</small></div>`
+    + levels.map((level, levelIndex) => {
+      const isFrontier = levelIndex === levels.length - 1;
+      const nodes = level.choices.map((move, rank) =>
+        treeChoiceHtml(
+          move,
+          rank,
+          level.parentDepth,
+          level.parentFen,
+          !!level.selectedMove && move.after === level.selectedMove.after,
+        )
+      ).join('');
+      return `<section class="tree2d-level${isFrontier ? ' is-frontier' : ''}"`
+        + ` data-tree-level="${level.parentDepth + 1}" data-parent-fen="${esc(level.parentFen)}">`
+        + `<div class="tree2d-level-head"><span>第 <b>${level.parentDepth + 1}</b> 步 · ${level.side}`
+        + `共有 <b class="tree2d-level-count">—</b> 个可选分支</span>`
+        + (nodes
+          ? `<span class="tree2d-row-nav" aria-label="第 ${level.parentDepth + 1} 步分支横向浏览">`
+            + `<button type="button" data-tree-pan="-1" aria-label="向左看更多分支">←</button>`
+            + `<button type="button" data-tree-pan="1" aria-label="向右看更多分支">→</button></span>`
+          : '')
+        + `</div>`
+        + `<span class="tree2d-parent-stem" aria-hidden="true"></span>`
+        + (nodes
+          ? `<div class="tree2d-branch-scroll"><div class="tree2d-branch-rail">${nodes}</div></div>`
+          : `<div class="tree2d-empty">这里没有合法后续：路径已到终点。</div>`)
+        + `</section>`;
+    }).join('');
+
+  const renderedLevels = [...tree2dBodyEl.querySelectorAll('.tree2d-level')];
+  for (const level of renderedLevels) {
+    const count = level.querySelectorAll('button.tree2d-choice').length;
+    level.querySelector('.tree2d-level-count').textContent = String(count);
+  }
+  const rootCount = tree2dBodyEl.querySelector(
+    '.tree2d-level[data-tree-level="1"]',
+  )?.querySelectorAll('button.tree2d-choice').length || 0;
+  const rootCountEl = tree2dBodyEl.querySelector('.tree2d-root-count');
+  if (rootCountEl) rootCountEl.textContent = String(rootCount);
+
+  const currentPath = explorerState.path.map((move) => move.san).join(' → ');
+  const frontier = renderedLevels.at(-1);
+  const frontierCount = frontier?.querySelectorAll('button.tree2d-choice').length || 0;
+  tree2dLiveEl.textContent =
+    explorerState.path.length >= EXPLORE_MAX_PLY
+      ? `当前路径：${currentPath}。已到可交互第 ${EXPLORE_MAX_PLY} 步；每张卡仍标出真实后续分叉数。`
+      : frontierCount === 0
+        ? `当前路径${currentPath ? `：${currentPath}` : ''}已到终点，没有合法后续。`
+        : `${currentPath ? `当前路径：${currentPath}。` : '从现在开始。'}下一层共有 ${frontierCount} 个可选分支。`;
+  centerTreeSelections(explorerState.path.length, false);
+  scheduleTreePathConnectors();
+  updateHud();
+  return true;
+}
+
+function centerTreeSelections(preferredDepth = explorerState.path.length, focus = false) {
+  if (cloudViewMode !== '2d') return false;
+  const selected = [...tree2dBodyEl.querySelectorAll('button.tree2d-choice.is-selected')];
+  for (const button of selected) {
+    const scroller = button.closest('.tree2d-branch-scroll');
+    const wrap = button.closest('.tree2d-node-wrap');
+    if (!scroller || !wrap || scroller.clientWidth === 0) continue;
+    scroller.scrollLeft = Math.max(
+      0,
+      wrap.offsetLeft + wrap.offsetWidth / 2 - scroller.clientWidth / 2,
+    );
+    syncTreePanButtons(scroller);
+  }
+  if (focus) {
+    const full = document.body.classList.contains('cloud-full');
+    const target = full
+      ? tree2dBodyEl.querySelector(
+        `button.tree2d-choice.is-selected[data-depth="${preferredDepth}"]`,
+      )
+      : tree2dBodyEl.querySelector('.tree2d-level.is-frontier button.tree2d-choice');
+    (target || tree2dPathEl.querySelector('button.is-current'))?.focus({ preventScroll: true });
+  }
+  return true;
+}
+
+cloudTree2dEl.addEventListener('click', (event) => {
+  event.stopPropagation();
+  const pan = event.target.closest('button[data-tree-pan]');
+  if (pan) {
+    const scroller = pan.closest('.tree2d-level')?.querySelector('.tree2d-branch-scroll');
+    if (!scroller) return;
+    const amount = Math.max(126, Math.round(scroller.clientWidth * .72));
+    scroller.scrollLeft = Math.max(
+      0,
+      Math.min(scroller.scrollWidth - scroller.clientWidth, scroller.scrollLeft + amount * +pan.dataset.treePan),
+    );
+    syncTreePanButtons(scroller);
+    scheduleTreePathConnectors();
+    return;
+  }
+  const rewind = event.target.closest('button[data-tree-rewind]');
+  if (rewind) {
+    rewindExplorer(+rewind.dataset.treeRewind);
+    return;
+  }
+  const choice = event.target.closest('button[data-tree-rank]');
+  if (choice) {
+    const parentDepth = +choice.dataset.parentDepth;
+    const expectedParentFen =
+      parentDepth === 0
+        ? explorerState.rootFen
+        : explorerState.path[parentDepth - 1]?.after;
+    if (choice.dataset.parentFen !== expectedParentFen) return;
+    chooseExplorerMoveAt(parentDepth, +choice.dataset.treeRank);
+  }
+});
+tree2dBodyEl.addEventListener('scroll', (event) => {
+  if (event.target.classList?.contains('tree2d-branch-scroll')) {
+    syncTreePanButtons(event.target);
+    scheduleTreePathConnectors();
+  }
+}, true);
 
 // ─────────────────────────────────────────────── 路径网标签 + 与平面选路联动
 function cloudMoveMeta(after) {
@@ -2704,6 +3338,12 @@ function updateCloudRoute(route = traceCloudRoute()) {
 }
 
 function syncCloudMap() {
+  if (cloudViewMode === '2d') {
+    cloudLabelsEl.replaceChildren();
+    updateCloudRoute([]);
+    renderCloudTree2d();
+    return;
+  }
   const first = columns[0];
   const depthOne = layers.get(1);
   if (!first || !depthOne?.pos || cloudFirstMoves.length === 0) {
@@ -2713,8 +3353,11 @@ function syncCloudMap() {
   }
 
   const exploring =
-    document.body.classList.contains('cloud-full')
-    && explorerState.rootFen === game.fen();
+    explorerState.rootFen === game.fen()
+    && (
+      document.body.classList.contains('cloud-full')
+      || explorerState.path.length > 0
+    );
   if (exploring) {
     const route = traceExplorerRoute();
     const graphChoices = explorerGraphChoices(route);
@@ -2774,6 +3417,7 @@ const labelWorld = new THREE.Vector3();
 const labelProjected = new THREE.Vector3();
 const labelCameraSpace = new THREE.Vector3();
 function positionCloudLabels() {
+  if (cloudViewMode !== '3d') return;
   const full = document.body.classList.contains('cloud-full');
   const w = skyBox.clientWidth, h = skyBox.clientHeight;
   if (!layers.get(1)?.pos || !w || !h) return;
@@ -2880,7 +3524,10 @@ cloudLabelsEl.addEventListener('click', (ev) => {
   ev.stopPropagation();
   const rank = +label.dataset.rank;
   const after = columns[0].ranked[rank]?.after;
-  if (chooseForkBranch(0, rank) && after) focusCloudMove(after);
+  if (chooseForkBranch(0, rank) && after) {
+    chooseExplorerRootAfter(after);
+    focusCloudMove(after);
+  }
 });
 
 // ─────────────────────────────────────────────── 路径网视角
@@ -2922,6 +3569,49 @@ function setCloudMotion(auto) {
   scheduleCruise();
   requestCloudRender();
   return view.auto;
+}
+
+function updateCloudModeButton() {
+  const button = document.getElementById('cloudMode');
+  const tree = cloudViewMode === '2d';
+  button.setAttribute('aria-pressed', String(tree));
+  button.setAttribute('aria-label', tree ? '切到三维路径网' : '切到二维路径树');
+  button.textContent = tree ? '切到 3D 图' : '切到 2D 树';
+  document.getElementById('cloudOpen').textContent = tree ? '放大看全树' : '放大探索';
+}
+
+function setCloudViewMode(mode) {
+  const next = mode === '2d' ? '2d' : '3d';
+  if (next === cloudViewMode) {
+    updateCloudModeButton();
+    if (next === '2d') renderExplorer();
+    return cloudViewMode;
+  }
+  cloudViewMode = next;
+  const tree = next === '2d';
+  document.body.classList.toggle('cloud-view-2d', tree);
+  cloudTree2dEl.setAttribute('aria-hidden', String(!tree));
+  cloudTree2dEl.inert = !tree || thinking;
+  updateCloudModeButton();
+  setCloudMotion(false);
+
+  if (tree) {
+    if (renderFrameId) {
+      cancelAnimationFrame(renderFrameId);
+      renderFrameId = 0;
+    }
+    releaseDeepCloud();
+    renderExplorer();
+  } else {
+    clearTreePathConnectors();
+    syncCloudMap();
+    if (explorerState.path.length > 0) focusExplorerNode();
+    scheduleResize();
+    if (document.body.classList.contains('cloud-full')) maybeStartDeepCloud();
+    requestCloudRender();
+  }
+  updateHud();
+  return cloudViewMode;
 }
 
 function resetCloudView() {
@@ -2980,12 +3670,16 @@ function toggleCloudFull(force) {
   }
   const coarse = matchMedia('(pointer: coarse)').matches || innerWidth <= 760;
   document.getElementById('skyHint').textContent = full
-    ? (coarse ? '拖动旋转 · 用 ＋/－ 缩放' : '拖动旋转 · 滚轮或 ＋/－ 缩放')
-    : '拖动观察';
+    ? (
+      cloudViewMode === '2d'
+        ? '横向滑动分支 · 点一条继续向下'
+        : (coarse ? '拖动旋转 · 用 ＋/－ 缩放' : '拖动旋转 · 滚轮或 ＋/－ 缩放')
+    )
+    : (cloudViewMode === '2d' ? '横向滑动 · 点分支继续' : '拖动观察');
   scheduleResize();
   if (full) {
     renderExplorer();
-    maybeStartDeepCloud();
+    if (cloudViewMode === '3d') maybeStartDeepCloud();
     requestAnimationFrame(() => document.getElementById('cloudClose').focus({ preventScroll: true }));
   } else {
     setCloudMotion(false);
@@ -2999,6 +3693,8 @@ function toggleCloudFull(force) {
 }
 document.getElementById('cloudOpen').onclick = () => toggleCloudFull(true);
 document.getElementById('cloudClose').onclick = () => toggleCloudFull(false);
+document.getElementById('cloudMode').onclick = () =>
+  setCloudViewMode(cloudViewMode === '3d' ? '2d' : '3d');
 document.getElementById('cloudResetView').onclick = resetCloudView;
 document.getElementById('cloudZoomOut').onclick = () => zoomCloud(1.18);
 document.getElementById('cloudZoomIn').onclick = () => zoomCloud(0.84);
@@ -3025,7 +3721,10 @@ function resize() {
   const dpr = full
     ? Math.min(devicePixelRatio || 1, compactPointer ? 1.25 : 1.5)
     : 1;
-  if (w !== rendererW || h !== rendererH || dpr !== rendererDpr) {
+  if (
+    cloudViewMode === '3d'
+    && (w !== rendererW || h !== rendererH || dpr !== rendererDpr)
+  ) {
     rendererW = w;
     rendererH = h;
     rendererDpr = dpr;
@@ -3041,6 +3740,7 @@ function resize() {
     // 思考阶段不为即将失效的中间局面重排分叉，避免 resize 把 watchdog 卡住。
     if (!thinking && !forkStale) renderFork(false, false);
   }
+  if (cloudViewMode === '2d') scheduleTreePathConnectors();
   requestCloudRender();
 }
 function scheduleResize() {
@@ -3124,13 +3824,14 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function requestCloudRender() {
-  if (renderFrameId || document.hidden) return false;
+  if (cloudViewMode !== '3d' || renderFrameId || document.hidden) return false;
   renderFrameId = requestAnimationFrame(renderCloudFrame);
   return true;
 }
 
 function renderCloudFrame() {
   renderFrameId = 0;
+  if (cloudViewMode !== '3d') return;
   const active = !document.hidden
     && (cloudInView || document.body.classList.contains('cloud-full'));
   if (!active) return;
@@ -3355,6 +4056,7 @@ function cloudMapSnapshot() {
 }
 
 function explorerSnapshot() {
+  const explorerEl = document.getElementById('cloudExplorer');
   const exploreBoardRect = document.getElementById('exploreBoard').getBoundingClientRect();
   const previewPieces = [...explorePiecesEl.querySelectorAll('g.piece3d')].map((piece) => {
     const rect = piece.getBoundingClientRect();
@@ -3383,6 +4085,7 @@ function explorerSnapshot() {
     from: button.dataset.from || '',
     to: button.dataset.to || '',
     after: button.dataset.after || '',
+    replies: Number(button.dataset.replies),
   }));
   const labels = [...cloudLabelsEl.querySelectorAll('button.cloud-explore-label')].map((button) => {
     const rect = button.getBoundingClientRect();
@@ -3405,6 +4108,8 @@ function explorerSnapshot() {
     gameFen: game.fen(),
     gameHistory: game.history(),
     thinking,
+    inert: explorerEl.inert,
+    busy: explorerEl.getAttribute('aria-busy'),
     aiPending: aiPending ? { id: aiPending.id, fen: aiPending.fen } : null,
     path: explorerState.path.map((move, index) => ({
       depth: index + 1,
@@ -3422,6 +4127,174 @@ function explorerSnapshot() {
     previewPieces,
     previewPieceCount: previewPieces.length,
     renderModes: [...new Set(previewPieces.map((piece) => piece.render))],
+  };
+}
+
+/**
+ * 2D 树验收快照。层数、卡片数、选中线和分叉数字全部从当前 DOM 读取；
+ * Node 端会按 parentFen 独立重放每一步并用 count(after, 1) 对撞。
+ */
+function tree2dSnapshot() {
+  const treeRect = cloudTree2dEl.getBoundingClientRect();
+  const treeStyle = getComputedStyle(cloudTree2dEl);
+  const treeBodyRect = tree2dBodyEl.getBoundingClientRect();
+  const canvasRect = canvas.getBoundingClientRect();
+  const canvasStyle = getComputedStyle(canvas);
+  const modeButton = document.getElementById('cloudMode');
+  const modeRect = modeButton.getBoundingClientRect();
+  const modeStyle = getComputedStyle(modeButton);
+  const levels = [...tree2dBodyEl.querySelectorAll('.tree2d-level')].map((level) => {
+    const cards = [...level.querySelectorAll('button.tree2d-choice')].map((button) => {
+      const rect = button.getBoundingClientRect();
+      const style = getComputedStyle(button);
+      const badge = button.querySelector('.tree2d-branch-badge');
+      const badgeRect = badge?.getBoundingClientRect();
+      const badgeStyle = badge ? getComputedStyle(badge) : null;
+      const edge = button.previousElementSibling?.matches('[data-tree-edge]')
+        ? button.previousElementSibling
+        : null;
+      const edgeRect = edge?.getBoundingClientRect();
+      const edgeStyle = edge ? getComputedStyle(edge) : null;
+      return {
+        depth: Number(button.dataset.depth),
+        parentDepth: Number(button.dataset.parentDepth),
+        rank: Number(button.dataset.treeRank),
+        parentFen: button.dataset.parentFen || '',
+        san: button.dataset.san || '',
+        from: button.dataset.from || '',
+        to: button.dataset.to || '',
+        promotion: button.dataset.promotion || '',
+        after: button.dataset.after || '',
+        branchCount: Number(button.querySelector('.tree2d-branch-count')?.textContent),
+        branchText: badge?.textContent.trim() || '',
+        badgeVisible:
+          !!badge && badgeStyle.display !== 'none' && badgeStyle.visibility !== 'hidden'
+          && Number(badgeStyle.opacity) > 0
+          && badgeRect.width > 0 && badgeRect.height > 0,
+        selected: button.classList.contains('is-selected'),
+        edgeSelected: edge?.dataset.selected === 'true',
+        edgeVisible:
+          !!edge && edgeStyle.display !== 'none' && edgeStyle.visibility !== 'hidden'
+          && Number(edgeStyle.opacity) > 0
+          && edgeRect.width > 0 && edgeRect.height > 0
+          && edgeStyle.backgroundColor !== 'rgba(0, 0, 0, 0)',
+        visible:
+          style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > 0
+          && rect.width > 0 && rect.height > 0
+          && rect.right > 0 && rect.bottom > 0 && rect.left < innerWidth && rect.top < innerHeight,
+        rect: {
+          x: rect.x, y: rect.y, w: rect.width, h: rect.height,
+          right: rect.right, bottom: rect.bottom,
+        },
+      };
+    });
+    const scroller = level.querySelector('.tree2d-branch-scroll');
+    return {
+      depth: Number(level.dataset.treeLevel),
+      parentFen: level.dataset.parentFen || '',
+      claimedTotal: Number(level.querySelector('.tree2d-level-count')?.textContent),
+      cards,
+      cardCount: cards.length,
+      selectedCards: cards.filter((card) => card.selected).length,
+      edgeCount: level.querySelectorAll('[data-tree-edge]').length,
+      selectedEdges: level.querySelectorAll('[data-tree-edge][data-selected="true"]').length,
+      scroller: scroller ? {
+        clientWidth: scroller.clientWidth,
+        scrollWidth: scroller.scrollWidth,
+        scrollLeft: scroller.scrollLeft,
+      } : null,
+    };
+  });
+  const pathConnectors = [...tree2dBodyEl.querySelectorAll('[data-tree-path-link]')]
+    .map((link) => {
+      const style = getComputedStyle(link);
+      let length = 0;
+      try { length = link.getTotalLength(); } catch (_) {}
+      const sx = Number(link.dataset.sx);
+      const sy = Number(link.dataset.sy);
+      const ex = Number(link.dataset.ex);
+      const ey = Number(link.dataset.ey);
+      return {
+        depth: Number(link.dataset.depth),
+        fromFen: link.dataset.fromFen || '',
+        toFen: link.dataset.toFen || '',
+        d: link.getAttribute('d') || '',
+        length,
+        drawn:
+          style.display !== 'none' && style.visibility !== 'hidden'
+          && Number(style.opacity) > 0 && style.stroke !== 'none'
+          && style.stroke !== 'rgba(0, 0, 0, 0)' && length > 0,
+        from: { x: treeBodyRect.left + sx, y: treeBodyRect.top + sy },
+        to: { x: treeBodyRect.left + ex, y: treeBodyRect.top + ey },
+      };
+    });
+  const rootEl = tree2dBodyEl.querySelector('[data-tree-root]');
+  const rootRect = rootEl?.getBoundingClientRect();
+  const rootCount = Number(
+    tree2dBodyEl.querySelector('.tree2d-root-count')?.textContent,
+  );
+  return {
+    mode: cloudViewMode,
+    full: document.body.classList.contains('cloud-full'),
+    thinking,
+    busy: cloudTree2dEl.getAttribute('aria-busy'),
+    rootFen: explorerState.rootFen,
+    renderedFen: explorerFen(),
+    gameFen: game.fen(),
+    gameHistory: game.history(),
+    path: explorerState.path.map((move, index) => ({
+      depth: index + 1,
+      san: move.san,
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion || '',
+      after: move.after,
+    })),
+    rootCount,
+    levels,
+    pathConnectors,
+    rootRect: rootRect ? {
+      x: rootRect.x, y: rootRect.y, w: rootRect.width, h: rootRect.height,
+      right: rootRect.right, bottom: rootRect.bottom,
+    } : null,
+    hud: {
+      stats: document.getElementById('cloudStats').textContent.trim(),
+      count: document.getElementById('cloudCount').textContent.trim(),
+      legend: cloudLayerLegendEl.textContent.trim(),
+    },
+    tree: {
+      visible:
+        treeStyle.display !== 'none' && treeStyle.visibility !== 'hidden'
+        && treeRect.width > 0 && treeRect.height > 0,
+      inert: cloudTree2dEl.inert,
+      rect: {
+        x: treeRect.x, y: treeRect.y, w: treeRect.width, h: treeRect.height,
+        right: treeRect.right, bottom: treeRect.bottom,
+      },
+      clientWidth: tree2dScrollEl.clientWidth,
+      clientHeight: tree2dScrollEl.clientHeight,
+      scrollWidth: tree2dScrollEl.scrollWidth,
+      scrollHeight: tree2dScrollEl.scrollHeight,
+      scrollLeft: tree2dScrollEl.scrollLeft,
+      scrollTop: tree2dScrollEl.scrollTop,
+    },
+    canvas: {
+      visible:
+        canvasStyle.display !== 'none' && canvasStyle.visibility !== 'hidden'
+        && Number(canvasStyle.opacity) > 0,
+      pointerEvents: canvasStyle.pointerEvents,
+      rect: {
+        x: canvasRect.x, y: canvasRect.y, w: canvasRect.width, h: canvasRect.height,
+      },
+    },
+    modeButton: {
+      text: modeButton.textContent.trim(),
+      pressed: modeButton.getAttribute('aria-pressed'),
+      visible:
+        modeStyle.display !== 'none' && modeStyle.visibility !== 'hidden'
+        && modeRect.width > 0 && modeRect.height > 0,
+      rect: { x: modeRect.x, y: modeRect.y, w: modeRect.width, h: modeRect.height },
+    },
   };
 }
 
@@ -3596,6 +4469,7 @@ function resetGame(fen = null) {
   renderBoard();
   rebuildCloud();
   renderFork();
+  if (cloudViewMode === '2d') renderExplorer();
   renderCoachIdle();
   setStatusText(fen
     ? `${game.turn() === 'w' ? '白方' : '黑方'}行棋。`
@@ -3629,6 +4503,7 @@ window.__test = {
   }),
   cloudMap: cloudMapSnapshot,
   explorer: explorerSnapshot,
+  tree2d: tree2dSnapshot,
   renderStats: renderStatsSnapshot,
   setCloudVisible: (visible) => {
     cloudGroup.visible = !!visible;
@@ -3651,6 +4526,8 @@ window.__test = {
     const r = canvas.getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
   },
+  setCloudMode: setCloudViewMode,
+  chooseExplorer: chooseExplorerMove,
   toggleCloudFull,
   reset: () => resetGame(),
   loadFen: (fen) => resetGame(fen),
@@ -3658,6 +4535,7 @@ window.__test = {
 
 document.getElementById('btnReset').onclick = () => window.__test.reset();
 
+updateCloudModeButton();
 resize();
 renderBoard();
 rebuildCloud();
