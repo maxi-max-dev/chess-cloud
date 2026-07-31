@@ -2,7 +2,7 @@
 
 写给下一个接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**，
 照着做就能接着干。截止 2026-07-31，当前最终架构已经写进这份文档；固定验收现在是
-`verify.mjs` 8 项、`live-check.mjs` 82 项，最终本地与线上输出见第 6、9 节。
+`verify.mjs` 8 项、`live-check.mjs` 83 项，最终本地与线上输出见第 6、9 节。
 
 - 线上：https://maxi-max-dev.github.io/chess-cloud/
 - 仓库：https://github.com/maxi-max-dev/chess-cloud （main 分支，GitHub Pages 从 main 根目录发布）
@@ -56,7 +56,7 @@ node verify.mjs
 node live-check.mjs
 ```
 
-脚本用 `EXPECTED_RESULTS = 82` 锁定固定 82 项；成功时应输出 `全绿：82/82 项通过`。它会自己起
+脚本用 `EXPECTED_RESULTS = 83` 锁定固定 83 项；成功时应输出 `全绿：83/83 项通过`。它会自己起
 静态服务器、拉起无头 Chrome、走棋、截图、对数，
 并切到 390×844 / 667×375 / 844×390 / 1024×768 验手机与平板布局、
 真实触摸/滑动、黑白棋子像素、棋子助手、AI 竞态、空闲 WebGL 帧、背景和路径网全屏变体棋盘。
@@ -78,11 +78,11 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 
 | 文件 | 行数 | 干什么 |
 |---|---|---|
-| `index.html` | 4547 | 整个页面：分层 SVG 3D 棋子、棋子助手、3D/2D 路径网、变体棋盘、分叉、响应式与交互 |
+| `index.html` | 4616 | 整个页面：分层 SVG 3D 棋子、棋子助手、3D/2D 路径网、变体棋盘、分叉、响应式与交互 |
 | `engine.js` | 309 | **唯一的评估函数** + 搜索 + 逐层展开 + 走法排序 |
 | `worker.js` | 91 | Web Worker：AI 应手 / 第 1～4 层路径。页面开两个实例，互不排队 |
 | `verify.mjs` | 94 | Node 端棋核验收，导出 `count(fen, depth)` 给别人对数用 |
-| `live-check.mjs` | 3925 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、2D/3D 路径几何、空闲帧、助手、触控与竞态） |
+| `live-check.mjs` | 4022 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、2D/3D 路径几何、空闲帧、助手、触控与竞态） |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | | 对外说明 / 待裁决清单 / 迭代过程记录 |
 
 没有构建工具、没有框架、没有后端。chess.js 和 three.js 直接从 CDN 引，版本钉死：
@@ -181,6 +181,10 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
   路径账。2D→3D→2D、在旧层换兄弟、甚至 L3 尚未回传时快速切换，选路都必须保留。
 - 2D 每层只渲染“当前已选父节点”的全部合法孩子，最多交互 `SYNC_DEPTH`(=3) 步，不把完整 L4
   复制成几十万 DOM。每张卡的“走后 N 个分支”直接对 `move.after` 重新生成合法走法并取 `.length`。
+- 内部 `data-depth` / `parentDepth` 始终是“从当前根往后”的相对 1–3 层，只用于索引和回退；
+  **绝不能把它再写成实战步数**。可见标题的“第 N 回合、白/黑方走、已走 N 手”由 `fenTurnContext()`
+  直接解析各层 `parentFen` 的 side/fullmove；副标题另写“未来第 1/2/3 步”。所以真实落子后首层会从
+  第 1 回合前进到第 2、3…回合，`loadFen()` 到第 37 回合也不会因为 `game.history()` 为空而归零。
 - 根到各层选中节点之间由实际 SVG path 连成连续主干；横向分支用真实滚动容器，桌面有左右箭头，
   手机可横滑；整棵树可纵向滚。箭头的显示和 disabled 状态从 `scrollWidth/clientWidth/scrollLeft`
   现读，不为终局或不可滚动层显示死按钮。
@@ -257,12 +261,12 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 
 ## 4. 验收脚本怎么用、怎么扩
 
-`live-check.mjs` 现在固定验这些（82 项，`EXPECTED_RESULTS = 82`，少跑一项也会失败）：
+`live-check.mjs` 现在固定验这些（83 项，`EXPECTED_RESULTS = 83`，少跑一项也会失败）：
 
 | 组 | 验什么 |
 |---|---|
 | ① | `__cloudStats().nodes` 与 `count(同 fen, 同 depth)` 逐层相等。起始局面 1/20/400/8902/197281，**AI 应手后的局中局面 1/30/654/20144/475842 也对**（这些数页面都没写死） |
-| ② | 零 `THREE.Points`；根短边终点在原点；L1 边数等于合法走法；所有对象是真实非索引 `LineSegments`，顶点成对、颜色对齐、无隐藏/孤儿/drawRange；L4 完成后每层恰一个对象；截图对撞正常图、隐藏全网、单独隐藏 L4；真实差分中暖冷两色可见；缩略静置 700ms 后 rAF/WebGL 均为 0；L4 首批前切后台会停 Worker、保留 L3/选路并自动续满；真实 ＋/－/全景；连续点两步后路线、面包屑、逐格变体棋盘与 Node 重放 FEN 同源，实战不动；2D 根/每层完整走法集/每卡走后分叉逐一由 Node 重放，连续 SVG 主干端点必须落在真实选中卡，2D 不加载 L4、不重画或扩容隐藏 canvas，2D↔3D 与 L3 未到的快速切换都保留路径；AI thinking 时禁旧卡，完成后按新 FEN 重建 |
+| ② | 零 `THREE.Points`；根短边终点在原点；L1 边数等于合法走法；所有对象是真实非索引 `LineSegments`，顶点成对、颜色对齐、无隐藏/孤儿/drawRange；L4 完成后每层恰一个对象；截图对撞正常图、隐藏全网、单独隐藏 L4；真实差分中暖冷两色可见；缩略静置 700ms 后 rAF/WebGL 均为 0；L4 首批前切后台会停 Worker、保留 L3/选路并自动续满；真实 ＋/－/全景；连续点两步后路线、面包屑、逐格变体棋盘与 Node 重放 FEN 同源，实战不动；2D 根/每层完整走法集/每卡走后分叉逐一由 Node 重放，连续 SVG 主干端点必须落在真实选中卡，2D 不加载 L4、不重画或扩容隐藏 canvas，2D↔3D 与 L3 未到的快速切换都保留路径；AI thinking 时禁旧卡，完成后按新 FEN 重建；根已走手数、每层绝对 ply/fullmove/行棋方必须与父 FEN 相等，真实走完一回合显示第 2 回合，空 history 的第 37 回合 FEN 仍显示第 37 回合 |
 | ③ | 分叉图每列总数和卡片数对账；排序方向对；每列恰有一张选中卡、一条选中边和一段连续主干；真实点击改路；真实展开→收起；推荐区外的选中卡在收起后仍可见；走满两回合后仍对 |
 | ④ | 390×844、667/844 横屏与 1024 平板；真实页面/分叉/候选滑动；全部关键入口 ≥44px 且中心可命中；背景首尾；真全屏四角；真实 SAN 标签和多步主路径；连续触摸两层图标签会更新逐格棋盘且不落子；拖动后标签显隐；主动巡航会动、收起会停；缩略 L3→放大 L4→收起释放回 L3→再次放大完整 L4，空闲 rAF/WebGL=0；2D 手机缩略横滑、全屏纵滑、触摸选满三步、树/棋盘不重叠；桌面 1440×900 与 1280×800 不撞板；模拟 47px 刘海/34px 底部安全区仍不遮挡；667×375 全屏双栏可看可点可收；真实 touch e4 后 AI ≤3 秒 |
 | ⑤ | 实际棋子与 FEN 逐格对撞；32/16/16 和六类数量；六种分层造型；零 Unicode；黑白同几何不同材质；桌面/手机截图差分后的真实亮度、覆盖与明暗跨度 |
@@ -291,6 +295,11 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 固定项扩到 82 后，2D 树做了新的反向验证：临时把每张卡显示的真实 `replies` 改为
 `replies + 1`，裁判立即逐节点报红，例如 `L1 Nc3 走后分支 21≠20`，并连带让路径、手机和新 FEN
 重建的同源断言变红。看到目标红后停止长跑，恢复真实值，完整复跑回 82/82；`verify.mjs` 零改动。
+
+固定项扩到 83 前先把新的 FEN 回合断言放进裁判，旧页面按预期报红：
+`根回合显示不是 FEN 实值：{}`、`L1 回合显示=空 / rel=undefined ...`。随后才实现
+`fenTurnContext()`、DOM 回合字段和两行标题。正式实现对真实一回合与 fullmove=37 的空 history FEN
+都通过，完整复跑 83/83；`verify.mjs` 仍零改动。
 
 ### 加一条新验收
 
@@ -379,10 +388,10 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 | 棋子 renderer | 六种分层 SVG 3D 视觉造型；零 Unicode；不是 WebGL mesh |
 | 棋子助手 | 候选 depth=2；回应 depth=1；黄/蓝两段 1.5s 单次 SVG 动画；预演不改 FEN |
 | 全屏变体探索 | 全部合法走法；可连续 3 步；线、标签、面包屑、逐格 3D 棋盘同一 FEN；实战不动 |
-| `live-check.mjs` 项数 | 固定 82 项；新增 2D 数字、主干、模式生命周期、横纵触控、安全区与 AI/FEN 重建 |
+| `live-check.mjs` 项数 | 固定 83 项；含 2D 数字/主干/生命周期/触控/安全区、AI/FEN 重建与真实 FEN 回合显示 |
 | `verify.mjs` 项数 | 固定 8 项 |
-| 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 82/82 |
-| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 82/82 |
+| 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 83/83 |
+| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 83/83 |
 | AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,397ms / 1,348ms / 967ms |
 | 两套独立浏览器同时冷启动 | 2,718ms / 2,564ms，均未改 3 秒门槛 |
 | 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 949ms / 1,423ms / 2,243ms |
@@ -395,7 +404,7 @@ terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排�
 本轮发布后的逐字节哈希（本地与 GitHub Pages 已完全一致）：
 
 ```text
-543418e302bf376d69b7951fc8a380d3c994b8ad4ddc0cfcc0febcd58c57023b  index.html
+dc77fa90481ecd7938cf8870e097fcfdf80da4708d77c336fe650cd0cde2b1fe  index.html
 64a26efa7b740e74d54ff3c371e4edf875306c03e8f6c0de4fa56aba98552156  engine.js
 a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed  worker.js
 ```
@@ -450,11 +459,12 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 - 当前功能基线：六种分层 SVG 3D 棋子（非 WebGL mesh）；点棋子会出现合法候选、对手强回应和
   两段单次动画；局势优先显示人话；主视图是连续分叉；全景图是零光点的真实父子路径线网，
   可切成逐层列出全部合法走法和“走后 N 个分支”的 2D 纵向树；两种模式都可连续预演三步，
-  并在旁边逐格显示同源 3D 变体棋盘；手机竖屏/短横屏、刘海和底部手势区均已适配。
+  并在旁边逐格显示同源 3D 变体棋盘；2D 的根和层标题从 FEN 显示真实已走手数/回合/行棋方，
+  “未来第几步”与内部相对层号明确分开；手机竖屏/短横屏、刘海和底部手势区均已适配。
 - 性能基线：缩略窗只建 L3、静置零 rAF/零 WebGL 新帧；L4 只在明确放大时计算，完成后每层一个
   geometry，收起立即释放；2D 完全不加载 L4、重绘或扩容隐藏 canvas；默认巡航关闭，
   手机全屏 DPR 封顶 1.25。
-- 本轮最终本地输出：`node verify.mjs` **8/8**、`node live-check.mjs` **82/82**。
+- 本轮最终本地输出：`node verify.mjs` **8/8**、`node live-check.mjs` **83/83**。
 - 本轮最终线上输出：`node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`
-  **82/82**；三个运行文件 SHA-256 已用第 8 节流程确认与本地逐字节一致。
+  **83/83**；三个运行文件 SHA-256 已用第 8 节流程确认与本地逐字节一致。
 - `main` 已推送，GitHub Pages 已更新；交接时 `main`、`origin/main` 与工作树保持同步。

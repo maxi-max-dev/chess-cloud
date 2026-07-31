@@ -444,12 +444,48 @@ function auditExplorerPreview(snapshot) {
   };
 }
 
+function fenTurnContext(fen) {
+  const fields = String(fen || '').trim().split(/\s+/);
+  const side = fields[1];
+  const fullmove = Number(fields[5]);
+  if ((side !== 'w' && side !== 'b') || !Number.isInteger(fullmove) || fullmove < 1) {
+    throw new Error(`无效 FEN 回合字段：${fen}`);
+  }
+  const completedPly = (fullmove - 1) * 2 + (side === 'b' ? 1 : 0);
+  return {
+    side,
+    sideLabel: side === 'w' ? '白方' : '黑方',
+    fullmove,
+    completedPly,
+    absolutePly: completedPly + 1,
+  };
+}
+
 function auditTree2d(snapshot) {
   const problems = [];
   let nodeCount = 0;
   if (!snapshot?.rootFen) return { ok: false, problems: ['没有根 FEN'], nodeCount };
   if (snapshot.rootFen !== snapshot.gameFen) {
     problems.push('树根 FEN 不是当前实战 FEN');
+  }
+  try {
+    const expectedRootContext = fenTurnContext(snapshot.rootFen);
+    const actualRootContext = snapshot.rootContext || {};
+    if (
+      actualRootContext.completedPly !== expectedRootContext.completedPly
+      || actualRootContext.fullmove !== expectedRootContext.fullmove
+      || actualRootContext.side !== expectedRootContext.side
+      || !actualRootContext.text?.includes(`已走 ${expectedRootContext.completedPly} 手`)
+      || !actualRootContext.text?.includes(`第 ${expectedRootContext.fullmove} 回合`)
+      || !actualRootContext.text?.includes(expectedRootContext.sideLabel)
+    ) {
+      problems.push(
+        `根回合显示不是 FEN 实值：${JSON.stringify(actualRootContext)}`
+        + `，应为已走${expectedRootContext.completedPly}手/第${expectedRootContext.fullmove}回合/${expectedRootContext.sideLabel}`,
+      );
+    }
+  } catch (error) {
+    problems.push(`根回合字段无法验：${error.message}`);
   }
   const expectedRoot = count(snapshot.rootFen, 1);
   if (snapshot.rootCount !== expectedRoot) {
@@ -462,6 +498,26 @@ function auditTree2d(snapshot) {
         : snapshot.path[level.depth - 2]?.after;
     if (level.parentFen !== expectedParent) {
       problems.push(`L${level.depth} 父 FEN 没接上`);
+    }
+    try {
+      const expectedTurn = fenTurnContext(level.parentFen);
+      if (
+        level.relativeDepth !== level.depth
+        || level.absolutePly !== expectedTurn.absolutePly
+        || level.fullmove !== expectedTurn.fullmove
+        || level.side !== expectedTurn.side
+        || !level.heading.includes(`第 ${expectedTurn.fullmove} 回合`)
+        || !level.heading.includes(`${expectedTurn.sideLabel}走`)
+        || !level.heading.includes(`未来第 ${level.depth} 步`)
+      ) {
+        problems.push(
+          `L${level.depth} 回合显示=${level.heading || '空'}`
+          + ` / rel=${level.relativeDepth} abs=${level.absolutePly}`
+          + ` fullmove=${level.fullmove} side=${level.side}`,
+        );
+      }
+    } catch (error) {
+      problems.push(`L${level.depth} 回合字段无法验：${error.message}`);
     }
     let expectedCards = null;
     try {
@@ -775,7 +831,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 82;
+const EXPECTED_RESULTS = 83;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -1952,6 +2008,47 @@ async function runTree2dChecks() {
       + ` explorer=${thinking2d.explorer.busy}/${thinking2d.explorer.choices.length}项`
       + `｜完成棋谱 ${JSON.stringify(settled2d?.state?.history || [])}`
       + `｜新根对账=${settledTree2dAudit.ok}/${explorerPreviewOk(settledExplorer2dAudit)}`);
+
+  const lateFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR b KQkq - 0 37';
+  const lateFenLoaded = await evalJs(`window.__test.loadFen('${lateFen}')`);
+  await waitCloudPreview();
+  const lateFenTree = await evalJs('window.__test.tree2d()');
+  const lateFenAudit = auditTree2d(lateFenTree);
+  const advancedLevel = settledTree2d.levels[0] || {};
+  const lateLevel = lateFenTree.levels[0] || {};
+  record(
+    settled2d?.state?.history.length === 2
+      && settledTree2d.rootContext?.completedPly === 2
+      && settledTree2d.rootContext?.fullmove === 2
+      && advancedLevel.depth === 1
+      && advancedLevel.relativeDepth === 1
+      && advancedLevel.absolutePly === 3
+      && advancedLevel.fullmove === 2
+      && advancedLevel.side === 'w'
+      && advancedLevel.heading.includes('第 2 回合')
+      && advancedLevel.heading.includes('未来第 1 步')
+      && settledTree2dAudit.ok
+      && lateFenLoaded
+      && lateFenTree.gameHistory.length === 0
+      && lateFenTree.rootContext?.completedPly === 73
+      && lateFenTree.rootContext?.fullmove === 37
+      && lateLevel.depth === 1
+      && lateLevel.relativeDepth === 1
+      && lateLevel.absolutePly === 74
+      && lateLevel.fullmove === 37
+      && lateLevel.side === 'b'
+      && lateLevel.heading.includes('第 37 回合')
+      && lateLevel.heading.includes('黑方走')
+      && lateLevel.heading.includes('未来第 1 步')
+      && lateFenAudit.ok,
+    '② 2D 全景树显示真实棋局回合，不会每个新局面都冒充第一步',
+    `实战两手后 root=${JSON.stringify(settledTree2d.rootContext || null)}`
+      + `｜L1=${advancedLevel.heading || '缺失'}`
+      + `｜第37回合空 history=${lateFenTree.gameHistory.length}`
+      + ` root=${JSON.stringify(lateFenTree.rootContext || null)}`
+      + `｜L1=${lateLevel.heading || '缺失'}`
+      + `｜审计=${settledTree2dAudit.ok}/${lateFenAudit.ok}`,
+  );
 
   await touchSelector('#cloudMode');
   await evalJs('window.__test.reset()');

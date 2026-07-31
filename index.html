@@ -171,8 +171,14 @@
     color: #8996ae; font-size: 10px; text-align: center;
     font-variant-numeric: tabular-nums;
   }
+  .tree2d-level-copy {
+    display: flex; flex: 1 1 auto; min-width: 0;
+    flex-direction: column; gap: 2px; line-height: 1.25;
+  }
+  .tree2d-level-title { color: #cde9ff; font-size: 11px; font-weight: 600; }
+  .tree2d-level-meta { color: #8996ae; font-size: 9.5px; }
   .tree2d-level-head b { color: #cde9ff; font-weight: 600; }
-  .tree2d-row-nav { display: none; gap: 5px; }
+  .tree2d-row-nav { display: none; flex: 0 0 auto; gap: 5px; }
   .tree2d-row-nav[hidden] { display: none !important; }
   .tree2d-row-nav button {
     min-width: 44px; min-height: 44px; padding: 4px 9px;
@@ -2005,6 +2011,7 @@ function updateHud() {
   let total = 0;
   for (const d of builtDepths()) total += nodesAt(d);
   if (cloudViewMode === '2d') {
+    const turn = fenTurnContext(explorerState.rootFen || game.fen());
     const levelEls = [...tree2dBodyEl.querySelectorAll('.tree2d-level')];
     const frontier = levelEls.at(-1);
     const frontierCount = frontier?.querySelectorAll('button.tree2d-choice').length || 0;
@@ -2012,12 +2019,13 @@ function updateHud() {
     const selectedDepth = tree2dPathEl.querySelectorAll('button').length - 1;
     document.getElementById('cloudStats').innerHTML = thinking
       ? '2D 聚焦树　·　等待黑方应手后读取新分支'
-      : `2D 聚焦树　·　已选 <b>${Math.max(0, selectedDepth)}</b> 步`
+      : `2D 聚焦树　·　第 <b>${turn.fullmove}</b> 回合 ${turn.sideLabel}走`
+        + `　·　未来路径已选 <b>${Math.max(0, selectedDepth)}</b> 步`
         + `　·　当前层 <b>${frontierCount}</b> 个可选分支`
         + `　·　DOM 只画当前路径上的 ${renderedCards} 张真实节点卡`;
     document.getElementById('cloudCount').innerHTML = thinking
       ? '<span class="grow">等待新局面</span>'
-      : `2D 树 · 当前层 <span class="grow">${frontierCount}</span> 个真实分支`;
+      : `第 ${turn.fullmove} 回合 · ${turn.sideLabel}走 · 当前层 <span class="grow">${frontierCount}</span> 个真实分支`;
     cloudLayerLegendEl.textContent =
       '每张卡标出“走后下一方还有多少个分支”；点一条，下一层继续向下展开';
     return;
@@ -2745,6 +2753,37 @@ let explorerState = { rootFen: '', path: [], choices: [] };
 let tree2dRenderKey = '';
 let tree2dConnectorFrame = 0;
 
+function fenTurnContext(fen) {
+  const fields = String(fen).trim().split(/\s+/);
+  const side = fields[1];
+  const fullmove = Number(fields[5]);
+  if ((side !== 'w' && side !== 'b') || !Number.isInteger(fullmove) || fullmove < 1) {
+    throw new Error(`无效 FEN 回合字段：${fen}`);
+  }
+  const completedPly = (fullmove - 1) * 2 + (side === 'b' ? 1 : 0);
+  return {
+    side,
+    sideLabel: side === 'w' ? '白方' : '黑方',
+    fullmove,
+    completedPly,
+    absolutePly: completedPly + 1,
+  };
+}
+
+function explorerStepContext(index) {
+  const parentFen =
+    index === 0
+      ? explorerState.rootFen
+      : explorerState.path[index - 1].after;
+  return fenTurnContext(parentFen);
+}
+
+function shortTurnLabel(turn) {
+  return turn.side === 'w'
+    ? `${turn.fullmove}. 白`
+    : `${turn.fullmove}… 黑`;
+}
+
 function explorerFen() {
   return explorerState.path.at(-1)?.after || explorerState.rootFen || game.fen();
 }
@@ -2832,12 +2871,14 @@ function renderExplorer() {
   renderExplorerBoard(fen, last);
 
   explorePathEl.innerHTML =
-    `<button type="button" data-explore-depth="0"${explorerState.path.length === 0 ? ' class="is-current"' : ''}>现在</button>`
-    + explorerState.path.map((move, index) =>
-      `<button type="button" data-explore-depth="${index + 1}"`
-      + `${index === explorerState.path.length - 1 ? ' class="is-current"' : ''}>`
-      + `${index + 1}. ${esc(move.san)}</button>`
-    ).join('');
+    `<button type="button" data-explore-depth="0"${explorerState.path.length === 0 ? ' class="is-current"' : ''}>`
+    + `现在 · 已走 ${fenTurnContext(explorerState.rootFen).completedPly} 手</button>`
+    + explorerState.path.map((move, index) => {
+      const turn = explorerStepContext(index);
+      return `<button type="button" data-explore-depth="${index + 1}"`
+        + `${index === explorerState.path.length - 1 ? ' class="is-current"' : ''}>`
+        + `${shortTurnLabel(turn)} ${esc(move.san)}</button>`;
+    }).join('');
 
   if (thinking) {
     exploreSummaryEl.innerHTML = '<b>黑方正在思考。</b><br>应手完成后再探索，不与 AI 抢主线程。';
@@ -2849,13 +2890,14 @@ function renderExplorer() {
   const situation = last ? scoreSituation(last.score) : null;
   exploreSummaryEl.innerHTML = last
     ? (explorerState.path.length >= EXPLORE_MAX_PLY
-      ? `<b>已到可交互第 ${EXPLORE_MAX_PLY} 步；点上方路径回退。</b><br>`
+      ? `<b>已展开从当前局面向后的 ${EXPLORE_MAX_PLY} 步；点上方路径回退。</b><br>`
         + `${explorerState.path.map((move) => esc(move.san)).join(' → ')} 后，`
         + `<span style="color:${situation.color}">${situation.label}</span>。`
       : `如果走到 <b>${explorerState.path.map((move) => esc(move.san)).join(' → ')}</b>：`
         + `<b style="color:${situation.color}">${situation.label}</b>。`
         + `现在轮到${side}，可从下面换一枚棋子或另一种走法。`)
-    : `<b>当前实战局面。</b><br>现在轮到${side}；点下面任意走法，棋盘会显示真实走后局面。`;
+    : `<b>当前棋局已走 ${fenTurnContext(fen).completedPly} 手。</b><br>`
+      + `第 ${fenTurnContext(fen).fullmove} 回合轮到${side}；点下面任意走法，棋盘会显示真实走后局面。`;
   exploreChoicesEl.innerHTML = explorerState.choices.map((move, rank) => {
     const situationNow = scoreSituation(move.score);
     const replies = explorerReplyCount(move.after);
@@ -3063,15 +3105,18 @@ function renderCloudTree2d() {
   }
   tree2dRenderKey = renderKey;
 
+  const rootTurn = fenTurnContext(explorerState.rootFen);
   tree2dPathEl.innerHTML =
     `<button type="button" data-tree-rewind="0"${explorerState.path.length === 0 ? ' class="is-current"' : ''}`
-    + ` aria-current="${explorerState.path.length === 0 ? 'step' : 'false'}">现在</button>`
-    + explorerState.path.map((move, index) =>
-      `<button type="button" data-tree-rewind="${index + 1}"`
-      + `${index === explorerState.path.length - 1 ? ' class="is-current"' : ''}`
-      + ` aria-current="${index === explorerState.path.length - 1 ? 'step' : 'false'}">`
-      + `${index + 1}. ${esc(move.san)}</button>`
-    ).join('');
+    + ` aria-current="${explorerState.path.length === 0 ? 'step' : 'false'}">`
+    + `现在 · 已走 ${rootTurn.completedPly} 手</button>`
+    + explorerState.path.map((move, index) => {
+      const turn = explorerStepContext(index);
+      return `<button type="button" data-tree-rewind="${index + 1}"`
+        + `${index === explorerState.path.length - 1 ? ' class="is-current"' : ''}`
+        + ` aria-current="${index === explorerState.path.length - 1 ? 'step' : 'false'}">`
+        + `${shortTurnLabel(turn)} ${esc(move.san)}</button>`;
+    }).join('');
 
   if (thinking) {
     tree2dLiveEl.textContent = '黑方正在思考；应手绘制后再重新长树。';
@@ -3093,22 +3138,27 @@ function renderCloudTree2d() {
     const choices =
       explorerChoicesFor(parentFen);
     const selectedMove = explorerState.path[parentDepth] || null;
-    const side = parentFen.split(' ')[1] === 'w' ? '白方' : '黑方';
+    const turn = fenTurnContext(parentFen);
     levels.push({
       parentDepth,
       parentFen,
       choices,
       selectedMove,
-      side,
+      turn,
     });
   }
 
   const rootChoices = levels[0]?.choices || [];
   tree2dBodyEl.innerHTML =
-    `<div class="tree2d-root" data-tree-root data-fen="${esc(explorerState.rootFen)}">`
-    + `<b>现在</b><small><span class="tree2d-root-count">${rootChoices.length}</span> 个真实下一步</small></div>`
+    `<div class="tree2d-root" data-tree-root data-fen="${esc(explorerState.rootFen)}"`
+    + ` data-completed-ply="${rootTurn.completedPly}" data-fullmove="${rootTurn.fullmove}"`
+    + ` data-side="${rootTurn.side}">`
+    + `<b>当前局面 · 已走 ${rootTurn.completedPly} 手</b>`
+    + `<small>第 ${rootTurn.fullmove} 回合 · ${rootTurn.sideLabel}待走 · `
+    + `<span class="tree2d-root-count">${rootChoices.length}</span> 个真实下一步</small></div>`
     + levels.map((level, levelIndex) => {
       const isFrontier = levelIndex === levels.length - 1;
+      const relativeDepth = level.parentDepth + 1;
       const nodes = level.choices.map((move, rank) =>
         treeChoiceHtml(
           move,
@@ -3119,11 +3169,15 @@ function renderCloudTree2d() {
         )
       ).join('');
       return `<section class="tree2d-level${isFrontier ? ' is-frontier' : ''}"`
-        + ` data-tree-level="${level.parentDepth + 1}" data-parent-fen="${esc(level.parentFen)}">`
-        + `<div class="tree2d-level-head"><span>第 <b>${level.parentDepth + 1}</b> 步 · ${level.side}`
-        + `共有 <b class="tree2d-level-count">—</b> 个可选分支</span>`
+        + ` data-tree-level="${relativeDepth}" data-relative-depth="${relativeDepth}"`
+        + ` data-absolute-ply="${level.turn.absolutePly}" data-fullmove="${level.turn.fullmove}"`
+        + ` data-side="${level.turn.side}" data-parent-fen="${esc(level.parentFen)}">`
+        + `<div class="tree2d-level-head"><span class="tree2d-level-copy">`
+        + `<span class="tree2d-level-title">第 ${level.turn.fullmove} 回合 · ${level.turn.sideLabel}走</span>`
+        + `<span class="tree2d-level-meta">未来第 ${relativeDepth} 步 · 共有 `
+        + `<b class="tree2d-level-count">—</b> 个可选分支</span></span>`
         + (nodes
-          ? `<span class="tree2d-row-nav" aria-label="第 ${level.parentDepth + 1} 步分支横向浏览">`
+          ? `<span class="tree2d-row-nav" aria-label="未来第 ${relativeDepth} 步分支横向浏览">`
             + `<button type="button" data-tree-pan="-1" aria-label="向左看更多分支">←</button>`
             + `<button type="button" data-tree-pan="1" aria-label="向右看更多分支">→</button></span>`
           : '')
@@ -3151,7 +3205,7 @@ function renderCloudTree2d() {
   const frontierCount = frontier?.querySelectorAll('button.tree2d-choice').length || 0;
   tree2dLiveEl.textContent =
     explorerState.path.length >= EXPLORE_MAX_PLY
-      ? `当前路径：${currentPath}。已到可交互第 ${EXPLORE_MAX_PLY} 步；每张卡仍标出真实后续分叉数。`
+      ? `当前路径：${currentPath}。已展开未来 ${EXPLORE_MAX_PLY} 步；每张卡仍标出真实后续分叉数。`
       : frontierCount === 0
         ? `当前路径${currentPath ? `：${currentPath}` : ''}已到终点，没有合法后续。`
         : `${currentPath ? `当前路径：${currentPath}。` : '从现在开始。'}下一层共有 ${frontierCount} 个可选分支。`;
@@ -3369,12 +3423,14 @@ function syncCloudMap() {
       + ` style="--move-color:${cssColor(move.score, 1.25)}">`
       + `<b>${esc(move.san)}</b><small>${scoreSituation(move.score).short}</small></button>`
     ).join('');
-    const breadcrumbs = route.map((step) =>
-      `<button type="button" class="cloud-label cloud-path-label is-selected"`
-      + ` data-depth="${step.depth}" data-index="${step.index}" data-explore-depth="${step.depth}"`
-      + ` data-san="${esc(step.san)}" aria-label="回到第 ${step.depth} 步 ${esc(step.san)}">`
-      + `<small>${step.depth}步</small><b>${esc(step.san)}</b></button>`
-    ).join('');
+    const breadcrumbs = route.map((step) => {
+      const turn = fenTurnContext(step.parentFen);
+      return `<button type="button" class="cloud-label cloud-path-label is-selected"`
+        + ` data-depth="${step.depth}" data-index="${step.index}" data-explore-depth="${step.depth}"`
+        + ` data-san="${esc(step.san)}"`
+        + ` aria-label="回到第 ${turn.fullmove} 回合${turn.sideLabel} ${esc(step.san)}">`
+        + `<small>${turn.fullmove}回合·${turn.sideLabel[0]}</small><b>${esc(step.san)}</b></button>`;
+    }).join('');
     cloudLabelsEl.innerHTML =
       `<button type="button" class="cloud-label cloud-root-label${route.length === 0 ? ' is-selected' : ''}"`
       + ` data-depth="0" data-index="0" data-explore-depth="0">现在</button>${breadcrumbs}${labels}`;
@@ -3400,10 +3456,12 @@ function syncCloudMap() {
       + `<b>${esc(move.san)}</b><small>${scoreSituation(move.score).short}</small></button>`;
   }).join('');
   const route = traceCloudRoute();
-  const breadcrumbs = route.slice(1).map((step) =>
-    `<div class="cloud-label cloud-path-label" data-depth="${step.depth}" data-index="${step.index}" data-san="${esc(step.san)}">`
-    + `<small>${step.depth}步</small><b>${esc(step.san)}</b></div>`
-  ).join('');
+  const breadcrumbs = route.slice(1).map((step) => {
+    const turn = fenTurnContext(step.parentFen);
+    return `<div class="cloud-label cloud-path-label" data-depth="${step.depth}"`
+      + ` data-index="${step.index}" data-san="${esc(step.san)}">`
+      + `<small>${turn.fullmove}回合·${turn.sideLabel[0]}</small><b>${esc(step.san)}</b></div>`;
+  }).join('');
   cloudLabelsEl.innerHTML =
     `<div class="cloud-label cloud-root-label" data-depth="0" data-index="0">现在</div>${labels}${breadcrumbs}`;
 
@@ -4191,6 +4249,11 @@ function tree2dSnapshot() {
     const scroller = level.querySelector('.tree2d-branch-scroll');
     return {
       depth: Number(level.dataset.treeLevel),
+      relativeDepth: Number(level.dataset.relativeDepth),
+      absolutePly: Number(level.dataset.absolutePly),
+      fullmove: Number(level.dataset.fullmove),
+      side: level.dataset.side || '',
+      heading: level.querySelector('.tree2d-level-head')?.textContent.trim() || '',
       parentFen: level.dataset.parentFen || '',
       claimedTotal: Number(level.querySelector('.tree2d-level-count')?.textContent),
       cards,
@@ -4251,6 +4314,12 @@ function tree2dSnapshot() {
       after: move.after,
     })),
     rootCount,
+    rootContext: rootEl ? {
+      completedPly: Number(rootEl.dataset.completedPly),
+      fullmove: Number(rootEl.dataset.fullmove),
+      side: rootEl.dataset.side || '',
+      text: rootEl.textContent.trim(),
+    } : null,
     levels,
     pathConnectors,
     rootRect: rootRect ? {

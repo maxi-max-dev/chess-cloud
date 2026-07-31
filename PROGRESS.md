@@ -1,7 +1,7 @@
 # chess-cloud 进度
 
 线上入口：https://maxi-max-dev.github.io/chess-cloud/ ｜ 当前版本已加入真实线条路径网与落子教练；
-固定验收为 `verify.mjs` 8 项、`live-check.mjs` 82 项，最终本地/线上输出见文末与 `HANDOFF.md`。
+固定验收为 `verify.mjs` 8 项、`live-check.mjs` 83 项，最终本地/线上输出见文末与 `HANDOFF.md`。
 
 ## 我理解的目标（开工前写，≤10 行）
 1. 目标：网页版国际象棋，人执白落子后，把「这步之后所有可能未来」炸成三维星云；星色=局面评估（白优暖/黑优冷）；AI 执黑陪下。
@@ -183,14 +183,27 @@ Worker/星云生命周期和旧分叉隔离等关键路径，完整验收准确�
 - `live-check.mjs` 固定扩到 82 项。反向验证把卡片分叉数临时改成 `replies + 1`，裁判逐节点准确报红
   `L1 Nc3 走后分支 21≠20`；恢复实现后完整复跑 82/82。`verify.mjs` 未修改。
 
+## 任务 10 修复 2D 全景树永远显示“第一步”
+
+- 真实浏览器连续走完两回合后确认：根 FEN 和分支数一直正确更新，但层头仍把相对深度 1 裸写成
+  “第 1 步”，所以视觉上像棋局没前进。
+- 新增 `fenTurnContext(fen)`，直接从父 FEN 的 side/fullmove 得到已走手数、绝对 ply、真实回合和
+  行棋方。内部 `depth=1..3` 保持相对索引；界面主标题改为“第 N 回合 · 白/黑方走”，副标题明确
+  “未来第 1/2/3 步”，根卡和两个面包屑都写当前已走手数/真实回合。
+- 手机 390×844 实测两层标题与 44px 左右箭头不重叠；右侧变体棋盘同步显示相同回合面包屑。
+- `live-check.mjs` 固定扩到 83 项：真实完成一回合必须显示第 2 回合；另外加载
+  fullmove=37、黑方走且 history 为空的 FEN，仍必须显示第 37 回合，证明没自记历史。
+- 反向验证先只加裁判，旧实现准确报红根/层回合字段缺失；恢复正式实现后完整复跑 83/83。
+  `verify.mjs` 未修改。
+
 ## 完成条件核对
 - 架构条件 ✅ 六种分层 SVG 3D 棋子（非 WebGL mesh）；路径网 L1–L4 全在 Worker；AI 先真实绘制再延迟
   可视化；旧分叉 inert；缩略只保留 L3，明确放大才加载 L4，收起释放。
 - 裁判未改 ✅ `git diff verify.mjs` 零行；排除 verify.mjs 后全仓库 grep `197281` 无匹配，
   `8902` 在页面代码里也无匹配。
   （README.md 里有「197,281」这种带千位逗号的说明文字，是文档不是代码，grep 裸数字不命中。）
-- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 82/82。
-- 线上复验 ✅ `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 82/82；运行文件哈希
+- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 83/83。
+- 线上复验 ✅ `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 83/83；运行文件哈希
   见 `HANDOFF.md` 第 6 节。
 - 发布状态 ✅ `main` 已推送；GitHub Pages 三个运行文件与本地逐字节一致。
 - BLOCKED.md 已提交，19 条待裁决。
