@@ -1,10 +1,12 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="future-product">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#05060b" />
-<title>可能性分叉 · chess-cloud</title>
+<meta name="description" content="在一张可交互的棋局未来地图里查看国际象棋的真实下一步、强回应与路线后果。" />
+<title>国际象棋 · 棋路未来地图</title>
+<link rel="stylesheet" href="./future-map.css" />
 <style>
   :root {
     --ink: #e8ecf6;
@@ -21,7 +23,15 @@
     --safe-left: env(safe-area-inset-left, 0px);
   }
   * { box-sizing: border-box; }
-  html { margin: 0; min-height: 100%; background: #05060b; }
+  html {
+    margin: 0; min-height: 100%; background: #05060b;
+    scrollbar-color: #1b2737 #05060b;
+  }
+  html::-webkit-scrollbar { width: 7px; height: 7px; background: #05060b; }
+  html::-webkit-scrollbar-track { background: #05060b; }
+  html::-webkit-scrollbar-thumb {
+    border: 1px solid #05060b; border-radius: 999px; background: #1b2737;
+  }
   body {
     margin: 0;
     height: 100%;
@@ -744,6 +754,17 @@
 
   /* 手机竖屏：先下棋，再看分叉，最后保留完整路径网入口。 */
   @media (max-width: 760px) {
+    body:not(.cloud-full)::after {
+      content: "";
+      position: fixed;
+      z-index: 99;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      height: 8px;
+      background: #05060b;
+      pointer-events: none;
+    }
     .panel {
       background: rgba(11,14,23,.96);
       backdrop-filter: none;
@@ -903,12 +924,103 @@
     .cloud-label { transition: none; }
   }
 
+  #productBar {
+    position: fixed; z-index: 30;
+    left: 478px; right: 22px; top: 14px;
+  }
+  #stage { top: 82px; }
+  #stageHead .future-map-legend { margin-top: 9px; }
+  #stage[data-route-owner="suggested"] #fork .route-underlay {
+    stroke: rgba(241,198,107,.22);
+    filter: drop-shadow(0 0 7px rgba(241,198,107,.24));
+  }
+  #stage[data-route-owner="suggested"] #fork .branch-edge[data-selected="true"] {
+    stroke: #f1c66b;
+    filter: drop-shadow(0 0 5px rgba(241,198,107,.62));
+  }
+  #stage[data-route-owner="suggested"] #fork g.card[data-selected="true"] {
+    filter: drop-shadow(0 0 6px rgba(241,198,107,.18));
+  }
+  #fork .route-underlay[data-explicit="false"] {
+    stroke: rgba(241,198,107,.22);
+    filter: drop-shadow(0 0 7px rgba(241,198,107,.24));
+  }
+  #fork .branch-edge[data-selected="true"][data-explicit="false"] {
+    stroke: #f1c66b;
+    filter: drop-shadow(0 0 5px rgba(241,198,107,.62));
+  }
+  body[data-route-owner="suggested"] .tree2d-edge[data-selected="true"] {
+    background: #f1c66b;
+    box-shadow: 0 0 8px rgba(241,198,107,.55);
+  }
+  body[data-route-owner="suggested"] button.tree2d-choice.is-selected,
+  body[data-route-owner="suggested"] button.cloud-move-label.is-selected {
+    border-color: #f1c66b;
+    background: rgba(94,73,27,.72);
+    box-shadow: 0 0 0 1px rgba(241,198,107,.2), 0 0 18px rgba(241,198,107,.14);
+  }
+  #forkFoot.future-context { padding: 10px 14px; min-height: 68px; }
+  #forkFoot .future-context-detail { white-space: normal; }
+
+  @media (max-width: 1100px), (max-height: 780px) {
+    body {
+      grid-template-areas:
+        "appbar appbar"
+        "cloud stage"
+        "board stage";
+    }
+    #productBar {
+      position: relative; inset: auto; grid-area: appbar;
+      width: 100%; min-width: 0;
+    }
+    #cloudPanel, #stage { top: auto; }
+  }
+
+  @media (max-width: 760px) {
+    body {
+      grid-template-areas:
+        "appbar"
+        "board"
+        "stage"
+        "cloud";
+    }
+    #stage { height: min(760px, 76dvh); }
+    #stageHead .future-map-legend {
+      flex-wrap: nowrap; overflow-x: auto; padding-bottom: 2px;
+      scrollbar-width: none;
+    }
+  }
+
+  @media (min-width: 560px) and (max-width: 950px) and (max-height: 520px) and (orientation: landscape) {
+    body {
+      grid-template-areas:
+        "appbar appbar"
+        "board stage"
+        "cloud stage";
+    }
+  }
+
 </style>
 </head>
 <body>
 
+<header id="productBar" class="future-appbar" aria-label="棋路产品导航">
+  <a class="future-brand" href="./" aria-label="返回棋路首页">
+    <span class="future-brand-mark" aria-hidden="true"></span>
+    <span class="future-brand-copy">
+      <b>棋路 · 未来地图</b>
+      <small>看见选择，以及选择之后</small>
+    </span>
+  </a>
+  <nav class="future-game-nav" aria-label="切换棋种">
+    <a href="./chess.html" aria-current="page">国际象棋</a>
+    <a href="./xiangqi.html">中国象棋</a>
+  </nav>
+  <span class="future-truth">全部数字来自当前真实局面</span>
+</header>
+
 <div class="panel" id="cloudPanel">
-  <h1>全景路径网<span id="cloudCount">正在展开…</span></h1>
+  <h1>全景 · 未来地图<span id="cloudCount">正在展开…</span></h1>
   <div id="skyBox">
     <canvas id="sky"></canvas>
     <div id="cloudLabels" aria-label="路径网走法"></div>
@@ -920,9 +1032,9 @@
       </div>
     </section>
     <div id="cloudMapHud">
-      <b>从一个局面，沿真实线条长出所有未来</b>
+      <b>从“现在”出发，沿真实线条查看选择空间</b>
       <div id="cloudLayerLegend">正在读取真实路径数…</div>
-      <div id="cloudChoice">拖动观察；点走法标签，只选路线、不直接落子</div>
+      <div id="cloudChoice">拖动观察；点走法只预演，确认后才真正落子</div>
     </div>
     <div id="cloudControls" aria-label="路径网视角控制">
       <button id="cloudClose" class="cloud-full-only" type="button" aria-label="收起路径网">收起</button>
@@ -1059,19 +1171,28 @@
   <div id="status">正在算分叉…</div>
   <div class="row">
     <button id="btnReset">重开</button>
-    <button id="btnPlayLine">走第一列选中那步</button>
+    <button id="btnPlayLine">走已选第一步</button>
   </div>
 </div>
 
-<div class="panel" id="stage">
+<div class="panel" id="stage" data-future-map data-game="chess"
+     data-mode="overview-3d" data-phase="syncing" data-route-owner="suggested">
   <div id="stageHead">
-    <h2>落子教练 · 可能性分叉</h2>
-    <div class="sub">先点棋盘上的一枚白棋，看你的候选和黑方强回应；下面的分叉继续展示更远的路径。</div>
+    <span class="future-kicker">Future map · Analysis</span>
+    <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
+    <div class="sub">第一列是当前全部真实下一步；点一条路线，棋盘同步预演对手强回应和直接后果。</div>
+    <div class="future-map-legend" aria-label="未来地图图例">
+      <span class="future-legend-key" data-kind="option">其他合法路线</span>
+      <span class="future-legend-key" data-kind="selected">正在预演</span>
+      <span class="future-legend-key" data-kind="played">实战历史</span>
+      <span class="future-legend-key" data-kind="engine">引擎强应</span>
+      <span class="future-legend-key" data-kind="effect">吃子 / 威胁</span>
+    </div>
     <div id="coachPanel" data-state="idle" aria-live="polite">
       <div id="coachLead">
-        <span class="coach-kicker">棋子助手</span>
-        <b id="coachTitle">先点一枚白棋</b>
-        <span id="coachExplain">会依次动画预演“你的一步 → 对手的强回应”，不直接落子</span>
+        <span class="coach-kicker">路线影响</span>
+        <b id="coachTitle">先点一枚白棋，或从地图选择路线</b>
+        <span id="coachExplain">棋盘会依次预演“你的一步 → 对手的强回应”，不会直接落子</span>
       </div>
       <div id="coachThreatStrip" aria-label="一步威胁提示"></div>
       <div id="coachMoves"></div>
@@ -1087,7 +1208,17 @@
     </div>
   </div>
   <div id="forkWrap"><svg id="fork" xmlns="http://www.w3.org/2000/svg"></svg></div>
-  <div id="forkFoot">亮蓝主干是当前选路；有金色虚线时，它表示上次 AI 搜索完成的主变，不是概率。</div>
+  <div id="forkFoot" class="future-context" data-future-context aria-live="polite">
+    <div class="future-context-copy">
+      <span class="future-context-label">路线语境</span>
+      <span id="futureContextTitle" class="future-context-title">尚未选择路线</span>
+      <span id="futureContextDetail" class="future-context-detail">金色为引擎建议，蓝色只表示你明确点开的假设路线；两者都不是概率。</span>
+      <span id="futureEffects" class="future-effects" aria-label="这条路线的直接后果"></span>
+    </div>
+    <div class="future-context-actions">
+      <button id="futureCommit" type="button" disabled>走这步</button>
+    </div>
+  </div>
 </div>
 
 <script type="module">
@@ -1919,6 +2050,7 @@ function onAiMove(result) {
   coachPreview = null;
   branchPath = [];
   expanded = [];
+  routeSelectionDepth = 0;
   resetForkTransient();
   installPvGuide(fullPv, pending?.fen || '', pending?.id ?? -1, result.depth);
   renderBoard();
@@ -1959,6 +2091,7 @@ function tryMove(from, to, promotion) {
   coachReplyCache.clear();
   branchPath = [];
   expanded = [];
+  routeSelectionDepth = 0;
   lastAi = null;
   presentationGen++;
   resetForkTransient();
@@ -2205,8 +2338,12 @@ function activateBoardSquare(sq) {
   coachPreview = null;
   forkPreview = null;
   coachActiveRank = null;
-  if (selected) updateMoveCoach();
-  else {
+  if (selected) {
+    updateMoveCoach();
+    const activeCandidate = coachModel?.candidates.find((move) => move.rank === coachActiveRank)
+      || coachModel?.candidates[0];
+    if (activeCandidate) alignFutureRootMove(activeCandidate, false);
+  } else {
     coachModel = null;
     renderCoachIdle();
   }
@@ -2287,12 +2424,106 @@ function updateHud() {
 // 其余折成一行「还有 N 条」。点哪条，右边就顺它接着分叉。
 const forkEl = document.getElementById('fork');
 const forkWrap = document.getElementById('forkWrap');
-const FORK_IDLE_TEXT = '亮蓝主干是当前选路；金色虚线是上次 AI 搜索完成的主变，不是概率。未来各步可用「放大探索」逐格预演。';
+const futureMapEl = document.getElementById('stage');
+const futureRootEl = futureMapEl.querySelector('[data-future-root]');
+const futureContextEl = document.getElementById('forkFoot');
+const futureContextTitleEl = document.getElementById('futureContextTitle');
+const futureContextDetailEl = document.getElementById('futureContextDetail');
+const futureEffectsEl = document.getElementById('futureEffects');
+const futureCommitEl = document.getElementById('futureCommit');
+const FORK_IDLE_TEXT = '金色是引擎建议的连续路线；明确点开后才出现亮蓝主干。点路线只预演，确认后才落子。';
 const CARD_H = 44, CARD_GAP = 8, HEAD_H = 62;
 let forkScrollGen = 0;
 let forkStale = false;
 let forkHoverKey = '';
 const forkReplyCountCache = new Map();
+let routeSelectionDepth = 0;
+let routeSyncing = false;
+
+function futureBranchCount(afterFen) {
+  let count = forkReplyCountCache.get(afterFen);
+  if (count === undefined) {
+    count = new Chess(afterFen).moves().length;
+    forkReplyCountCache.set(afterFen, count);
+  }
+  return count;
+}
+
+function futureMoveKey(move) {
+  return move
+    ? `${move.from}-${move.to}-${move.promotion || ''}`
+    : '';
+}
+
+function futureEffectHtml(effect) {
+  return `<span class="future-effect" data-future-effect data-kind="${esc(effect.kind)}"`
+    + ` data-evidence="${esc(effect.evidence || 'legal-move')}"`
+    + `${effect.targetSquare ? ` data-target-square="${esc(effect.targetSquare)}"` : ''}>`
+    + `${esc(effect.text)}</span>`;
+}
+
+function writeFutureContext({
+  label = '路线语境',
+  title,
+  detail,
+  effects = [],
+  canCommit = routeSelectionDepth > 0,
+} = {}) {
+  const labelEl = futureContextEl.querySelector('.future-context-label');
+  if (labelEl) labelEl.textContent = label;
+  futureContextTitleEl.textContent = title || '尚未选择路线';
+  futureContextDetailEl.textContent = detail || FORK_IDLE_TEXT;
+  futureEffectsEl.innerHTML = effects.map(futureEffectHtml).join('');
+  futureCommitEl.disabled = !canCommit
+    || thinking
+    || forkStale
+    || game.turn() !== 'w'
+    || game.isGameOver();
+}
+
+function routeMovesFromColumns(limit = columns.length) {
+  return columns.slice(0, Math.max(0, limit)).flatMap((column) => {
+    const move = column.ranked[column.chosen];
+    return move ? [move] : [];
+  });
+}
+
+function renderFutureContextIdle() {
+  const explicit = routeMovesFromColumns(routeSelectionDepth);
+  const suggested = routeMovesFromColumns();
+  if (explicit.length) {
+    const continuation = suggested.slice(explicit.length);
+    writeFutureContext({
+      title: `正在预演：${explicit.map((move) => move.san).join(' → ')}`,
+      detail: continuation.length
+        ? `蓝色是你选的 ${explicit.length} 步；后面的金色路线只是引擎建议，可继续点开。`
+        : '蓝色是你明确选择的假设路线；棋谱尚未改变。',
+      canCommit: true,
+    });
+    return;
+  }
+  writeFutureContext({
+    title: suggested.length
+      ? `建议先看：${suggested.slice(0, 3).map((move) => move.san).join(' → ')}`
+      : '当前没有可继续展开的路线',
+    detail: FORK_IDLE_TEXT,
+    canCommit: false,
+  });
+}
+
+function updateFutureMapDataset() {
+  const rootFen = game.fen();
+  const columnsCurrent = !forkStale && columns[0]?.fen === rootFen;
+  const rootBranches = columnsCurrent ? columns[0].ranked.length : game.moves().length;
+  futureMapEl.dataset.mode = cloudViewMode === '2d' ? 'tree-2d' : 'overview-3d';
+  futureMapEl.dataset.phase = thinking ? 'thinking' : forkStale ? 'syncing' : 'ready';
+  futureMapEl.dataset.rootFen = rootFen;
+  futureMapEl.dataset.routeOwner = routeSelectionDepth > 0 ? 'user' : 'suggested';
+  document.body.dataset.routeOwner = futureMapEl.dataset.routeOwner;
+  futureRootEl.dataset.fen = rootFen;
+  futureRootEl.dataset.depth = '0';
+  futureRootEl.dataset.branchCount = String(rootBranches);
+}
 
 function markForkStale() {
   forkStale = true;
@@ -2300,12 +2531,18 @@ function markForkStale() {
   forkEl.style.opacity = '.45';
   forkEl.setAttribute('aria-busy', 'true');
   document.getElementById('btnPlayLine').disabled = true;
-  document.getElementById('forkFoot').textContent = '黑方应手后，未来路径会从新局面重新长出。';
+  updateFutureMapDataset();
+  writeFutureContext({
+    label: '正在重建',
+    title: '黑方应手后，未来地图会从新局面重新生长',
+    detail: '旧路线已停用，不会拿过期分叉冒充当前局面。',
+    canCommit: false,
+  });
 }
 
 function resetForkTransient() {
   const gen = ++forkScrollGen;
-  document.getElementById('forkFoot').textContent = FORK_IDLE_TEXT;
+  renderFutureContextIdle();
   forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
   requestAnimationFrame(() => {
     if (gen === forkScrollGen) forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
@@ -2821,6 +3058,7 @@ coachMovesEl.addEventListener('click', (ev) => {
   if (!card || !coachModel || thinking) return;
   const candidate = coachModel.candidates.find((move) => move.rank === +card.dataset.rank);
   if (candidate && renderCoachCandidate(candidate)) {
+    alignFutureRootMove(candidate, true);
     coachMovesEl.querySelector(`button.coach-card[data-rank="${candidate.rank}"]`)
       ?.focus({ preventScroll: true });
   }
@@ -2882,6 +3120,13 @@ function renderFork(force = false, rebuild = true) {
   // 先铺一条更宽的发光主干，再画真实分叉边；视觉上始终能追到「我选的这一条路」。
   for (let i = 0; i < columns.length; i++) {
     const c = columns[i], x = colX(i);
+    const move = c.ranked[c.chosen];
+    const explicit = i < routeSelectionDepth;
+    const parentMove = i > 0
+      ? columns[i - 1].ranked[columns[i - 1].chosen]
+      : null;
+    const parentId = parentMove ? `future-${i}-${futureMoveKey(parentMove)}` : 'root';
+    const childId = `future-${i + 1}-${futureMoveKey(move)}`;
     let fx = 12, fy = anchorY;
     if (i > 0) {
       const pc = columns[i - 1];
@@ -2890,7 +3135,11 @@ function renderFork(force = false, rebuild = true) {
     }
     const y = yOf(c, rowOf(c, c.chosen)) + CARD_H / 2;
     const mx = (fx + x) / 2;
-    svg += `<path class="route-underlay" data-route="user" data-col="${i}" d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
+    svg += `<path class="route-underlay" data-route="user"`
+      + ` data-col="${i}" data-explicit="${explicit}" data-suggested="${!explicit}" data-future-edge`
+      + ` data-parent-id="${esc(parentId)}" data-child-id="${esc(childId)}"`
+      + ` data-selected="${explicit}" data-engine="false" data-played="false"`
+      + ` d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
   }
 
   // 每列都从上一张已选卡继续扇开；非选路线压低，选中边永远在同一条主干上。
@@ -2906,11 +3155,22 @@ function renderFork(force = false, rebuild = true) {
     }
     for (let row = 0; row < c.visibleIndices.length; row++) {
       const rank = c.visibleIndices[row];
+      const move = c.ranked[rank];
       const y = yOf(c, row + cardOffset(c)) + CARD_H / 2;
       const isPick = rank === c.chosen;
-      const col = isPick ? 'rgba(143,216,255,.85)' : 'rgba(150,162,196,.20)';
+      const explicit = isPick && i < routeSelectionDepth;
+      const col = isPick
+        ? explicit ? 'rgba(143,216,255,.85)' : 'rgba(241,198,107,.82)'
+        : 'rgba(150,162,196,.20)';
       const mx = (fx + x) / 2;
+      const parentMove = i > 0
+        ? columns[i - 1].ranked[columns[i - 1].chosen]
+        : null;
+      const parentId = parentMove ? `future-${i}-${futureMoveKey(parentMove)}` : 'root';
+      const childId = `future-${i + 1}-${futureMoveKey(move)}`;
       svg += `<path class="branch-edge" data-route="user" data-col="${i}" data-idx="${rank}" data-selected="${isPick}"`
+        + ` data-explicit="${explicit}" data-future-edge data-parent-id="${esc(parentId)}"`
+        + ` data-child-id="${esc(childId)}" data-engine="false" data-played="false"`
         + ` d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"`
         + ` fill="none" stroke="${col}" stroke-width="${isPick ? 2.8 : 1}"/>`;
     }
@@ -2932,6 +3192,7 @@ function renderFork(force = false, rebuild = true) {
     const mx = (fx + x) / 2;
     svg += `<path class="pv-edge" data-route="engine-pv" data-col="${i}"`
       + ` data-pv-index="${c.pvIndex}" data-selected="false"`
+      + ` data-future-edge data-engine="true" data-played="false"`
       + ` d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
   }
 
@@ -2958,16 +3219,34 @@ function renderFork(force = false, rebuild = true) {
       const situation = scoreSituation(m.score);
       const y = yOf(c, row + cardOffset(c));
       const isPick = rank === c.chosen;
+      const isExplicit = isPick && i < routeSelectionDepth;
       const isPv = rank === c.pvRank;
       const col = cssColor(m.score, 1.25);
+      const parentMove = i > 0
+        ? columns[i - 1].ranked[columns[i - 1].chosen]
+        : null;
+      const parentId = parentMove ? `future-${i}-${futureMoveKey(parentMove)}` : 'root';
+      const nodeId = `future-${i + 1}-${futureMoveKey(m)}`;
+      const branchCount = futureBranchCount(m.after);
+      const effects = [
+        m.captured ? 'capture' : '',
+        /[+#]/.test(m.san) ? 'check' : '',
+      ].filter(Boolean).join(' ');
       svg += `<g class="card" role="button" tabindex="0" data-col="${i}" data-idx="${rank}"`
         + ` data-san="${esc(m.san)}" data-from="${esc(m.from)}" data-to="${esc(m.to)}"`
         + ` data-promotion="${esc(m.promotion || '')}" data-after="${esc(m.after)}"`
         + ` data-situation="${situation.key}" data-selected="${isPick}"`
-        + ` data-pv="${isPv}" data-pv-index="${isPv ? c.pvIndex : ''}">`
+        + ` data-pv="${isPv}" data-pv-index="${isPv ? c.pvIndex : ''}"`
+        + ` data-future-node data-node-id="${esc(nodeId)}" data-parent-id="${esc(parentId)}"`
+        + ` data-parent-fen="${esc(c.fen)}" data-fen="${esc(m.after)}"`
+        + ` data-depth="${i + 1}" data-side="${c.white ? 'w' : 'b'}"`
+        + ` data-label="${esc(m.san)}" data-branch-count="${branchCount}"`
+        + ` data-resolved="true" data-future-selected="${isExplicit}"`
+        + ` data-suggested="${isPick && !isExplicit}" data-engine="${isPv}"`
+        + ` data-played="false" data-effect="${effects}">`
         + `<rect x="${x}" y="${y}" width="${cardW}" height="${CARD_H}" rx="9"`
-        + ` fill="${isPick ? 'rgba(60,96,140,.55)' : 'rgba(30,36,52,.62)'}"`
-        + ` stroke="${isPick ? '#8fd8ff' : 'rgba(150,170,220,.18)'}" stroke-width="${isPick ? 1.8 : 1}"/>`
+        + ` fill="${isPick ? isExplicit ? 'rgba(60,96,140,.55)' : 'rgba(94,73,27,.50)' : 'rgba(30,36,52,.62)'}"`
+        + ` stroke="${isPick ? isExplicit ? '#8fd8ff' : '#f1c66b' : 'rgba(150,170,220,.18)'}" stroke-width="${isPick ? 1.8 : 1}"/>`
         + (isPv
           ? `<rect class="pv-card-ring" x="${x + 2.5}" y="${y + 2.5}" width="${cardW - 5}" height="${CARD_H - 5}" rx="7"/>`
           : '')
@@ -2975,7 +3254,9 @@ function renderFork(force = false, rebuild = true) {
         + `<text x="${x + 15}" y="${y + CARD_H / 2 + 1}" font-size="15" font-weight="600" dominant-baseline="middle" fill="#f0f4ff">${esc(m.san)}</text>`
         + `<text x="${x + cardW - 11}" y="${y + CARD_H / 2 + 1}" font-size="10.5" text-anchor="end" dominant-baseline="middle" fill="${col}">${situation.short}</text>`
         + `<text class="${isPv ? 'pv-card-tag' : ''}" x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="${isPv ? '#ffd978' : isPick ? '#9edcff' : '#6f768c'}">${
-          isPv ? `★ AI${isPick ? ' · ✓' : ` · #${rank + 1}`}` : `${isPick ? '✓ 已选' : `#${rank + 1}`} · ${scoreText(m.score)}`
+          isPv
+            ? `★ AI${isPick ? isExplicit ? ' · 预演' : ' · 建议' : ` · #${rank + 1}`}`
+            : `${isPick ? isExplicit ? '✓ 预演' : '建议' : `#${rank + 1}`} · ${scoreText(m.score)}`
         }</text>`
         + `</g>`;
     }
@@ -3007,10 +3288,19 @@ function renderFork(force = false, rebuild = true) {
   }
   const picked = columns.map((c) => c.ranked[c.chosen].san).join(' ');
   document.getElementById('moveLine').innerHTML =
-    (line ? `走过：${line}` : '还没落子。') + (picked ? `　▸　当前选路：<b>${picked}</b>` : '');
+    (line ? `实战：${line}` : '实战尚未落子。')
+    + (picked
+      ? `　▸　${routeSelectionDepth ? '正在预演' : '引擎建议'}：<b>${picked}</b>`
+      : '');
 
   document.getElementById('btnPlayLine').disabled =
-    !(columns.length && game.turn() === 'w' && !thinking && !game.isGameOver());
+    !(routeSelectionDepth > 0
+      && columns.length
+      && game.turn() === 'w'
+      && !thinking
+      && !game.isGameOver());
+  updateFutureMapDataset();
+  renderFutureContextIdle();
   syncCloudMap();
   if (selected && !thinking && (!coachModel || coachModel.fen !== game.fen())) {
     updateMoveCoach();
@@ -3043,6 +3333,70 @@ function scrollForkToward(col) {
   });
 }
 
+function futureRouteStep(move) {
+  return {
+    san: move.san,
+    from: move.from,
+    to: move.to,
+    promotion: move.promotion || '',
+    after: move.after,
+    score: move.score,
+    piece: move.piece,
+    captured: move.captured || '',
+  };
+}
+
+function syncExplorerFromFork(depth = routeSelectionDepth) {
+  if (routeSyncing) return false;
+  ensureExplorerRoot();
+  const moves = routeMovesFromColumns(Math.min(EXPLORE_MAX_PLY, depth));
+  routeSyncing = true;
+  explorerState.path = moves.map(futureRouteStep);
+  explorerState.choices = [];
+  tree2dRenderKey = '';
+  renderExplorer();
+  routeSyncing = false;
+  return true;
+}
+
+function syncForkFromExplorer() {
+  if (routeSyncing) return false;
+  let fen = game.fen();
+  const nextPath = [];
+  for (const step of explorerState.path.slice(0, COLS)) {
+    const ranked = rankMoves(fen, { depth: RANK_DEPTH });
+    const rank = ranked.findIndex((move) =>
+      move.after === step.after
+      && futureMoveKey(move) === futureMoveKey(step));
+    if (rank < 0) break;
+    nextPath.push(rank);
+    fen = ranked[rank].after;
+  }
+  routeSyncing = true;
+  branchPath = nextPath;
+  expanded = expanded.slice(0, Math.max(1, nextPath.length));
+  routeSelectionDepth = nextPath.length;
+  renderFork();
+  routeSyncing = false;
+  return nextPath.length === explorerState.path.length;
+}
+
+function alignFutureRootMove(move, explicit = false) {
+  const first = columns[0];
+  if (!move || !first || first.fen !== game.fen()) return false;
+  const rank = first.ranked.findIndex((candidate) =>
+    candidate.after === move.after
+    && futureMoveKey(candidate) === futureMoveKey(move));
+  if (rank < 0) return false;
+  branchPath = [rank];
+  expanded = [false];
+  routeSelectionDepth = explicit ? 1 : 0;
+  renderFork();
+  // 棋盘点选时虽然仍是“建议预演”，2D/3D 也必须看同一条 e4/e3 路线。
+  syncExplorerFromFork(1);
+  return true;
+}
+
 function chooseForkBranch(i, rank, scrollNext = false) {
   if (thinking || forkStale) return false;
   const chosen = columns[i] && columns[i].ranked[rank];
@@ -3051,7 +3405,9 @@ function chooseForkBranch(i, rank, scrollNext = false) {
   branchPath[i] = rank;
   expanded = expanded.slice(0, i + 1);
   expanded[i] = false;
+  routeSelectionDepth = i + 1;
   renderFork();
+  syncExplorerFromFork(routeSelectionDepth);
   showMoveDetails(columns[i], columns[i].ranked[rank], rank);
   if (scrollNext) scrollForkToward(i + 1);
   return true;
@@ -3081,20 +3437,34 @@ function showMoveDetails(c, m, rank) {
     ? { from: m.from, to: m.to, color: cssColor(m.score, 1.35) }
     : null;
   renderBoardOverlay();
-  let replies = forkReplyCountCache.get(m.after);
-  if (replies === undefined) {
-    replies = new Chess(m.after).moves().length;
-    forkReplyCountCache.set(m.after, replies);
-  }
+  const replies = futureBranchCount(m.after);
   const situation = scoreSituation(m.score);
   const quality = moveQuality(m.score, c.ranked[0].score, c.white);
-  document.getElementById('forkFoot').innerHTML =
-    `<b>${esc(m.san)}</b>　这一步在 ${c.ranked.length} 种里排第 <b>${rank + 1}</b>`
-    + `　·　走完之后对方有 <b>${replies}</b> 种回应`
-    + `　·　<b>${situation.label}</b>，${quality.label}`
-    + `　·　引擎原分 ${scoreText(m.score)}`
-    + (c.pvRank === rank ? '　·　这一步在上次 AI 主变里' : '')
-    + (isCurrentPosition ? '' : '　·　这是未来局面；用「放大探索」看逐格棋盘');
+  const effects = [];
+  if (m.captured) {
+    effects.push({
+      kind: 'capture',
+      evidence: 'legal-move',
+      targetSquare: m.to,
+      text: `可吃 ${PIECE_NAME[m.captured] || '棋子'} · ${m.to.toUpperCase()}`,
+    });
+  }
+  if (m.san.includes('#')) {
+    effects.push({ kind: 'check', evidence: 'legal-move', text: '将死' });
+  } else if (m.san.includes('+')) {
+    effects.push({ kind: 'check', evidence: 'legal-move', text: '将军' });
+  }
+  writeFutureContext({
+    label: isCurrentPosition ? '路线预演' : `未来第 ${c.ply - game.history().length + 1} 步`,
+    title: `${m.san} · 走后还有 ${replies} 个真实分支`,
+    detail: `${situation.label}，${quality.label}；浅层排序第 ${rank + 1}/${c.ranked.length}`
+      + (c.pvRank === rank ? ' · 位于已验证的引擎主变' : '')
+      + (isCurrentPosition ? '' : ' · 点击后可在全景/推演中继续深入'),
+    effects,
+    canCommit: isCurrentPosition
+      && routeSelectionDepth > 0
+      && columns[0]?.ranked[columns[0].chosen]?.after === m.after,
+  });
 }
 
 forkEl.addEventListener('mouseover', (ev) => {
@@ -3113,15 +3483,19 @@ forkEl.addEventListener('mouseleave', () => {
   if (thinking || forkStale) return;
   forkHoverKey = '';
   forkPreview = null; renderBoardOverlay();
-  document.getElementById('forkFoot').textContent = FORK_IDLE_TEXT;
+  renderFutureContextIdle();
 });
 
-document.getElementById('btnPlayLine').onclick = () => {
+function commitFirstFutureMove(requireExplicit = false) {
   if (thinking || forkStale) return;
+  if (requireExplicit && routeSelectionDepth < 1) return false;
   if (!columns.length) return;
   const m = columns[0].ranked[columns[0].chosen];
-  tryMove(m.from, m.to, m.promotion);
-};
+  return tryMove(m.from, m.to, m.promotion);
+}
+
+document.getElementById('btnPlayLine').onclick = () => commitFirstFutureMove(true);
+futureCommitEl.onclick = () => commitFirstFutureMove(true);
 
 // ─────────────────────────────────────────────── 全屏变体棋盘
 const exploreSquaresEl = document.getElementById('exploreSquares');
@@ -3312,6 +3686,7 @@ function chooseExplorerMoveAt(parentDepth, rank) {
     promotion: move.promotion || '', after: move.after,
     score: move.score, piece: move.piece, captured: move.captured || '',
   });
+  syncForkFromExplorer();
   renderExplorer();
   if (cloudViewMode === '3d') {
     focusExplorerNode();
@@ -3341,6 +3716,7 @@ function chooseExplorerRootAfter(after) {
 function rewindExplorer(depth) {
   const nextDepth = Math.max(0, Math.min(Number(depth) || 0, explorerState.path.length));
   explorerState.path = explorerState.path.slice(0, nextDepth);
+  syncForkFromExplorer();
   renderExplorer();
   if (cloudViewMode === '3d') {
     focusExplorerNode();
@@ -3359,7 +3735,14 @@ explorePathEl.addEventListener('click', (event) => {
   const crumb = event.target.closest('button[data-explore-depth]');
   if (crumb) rewindExplorer(+crumb.dataset.exploreDepth);
 });
-document.getElementById('exploreReset').onclick = () => resetExplorer();
+document.getElementById('exploreReset').onclick = () => {
+  resetExplorer(false);
+  routeSelectionDepth = 0;
+  branchPath = [];
+  expanded = [];
+  renderFork();
+  renderExplorer();
+};
 
 // ─────────────────────────────────────────────── 二维聚焦树
 // 不把数千乃至数十万未来复制成 DOM。每层只画“当前选中父节点”的全部合法孩子；
@@ -3367,19 +3750,37 @@ document.getElementById('exploreReset').onclick = () => resetExplorer();
 function treeChoiceHtml(move, rank, parentDepth, parentFen, selected) {
   const replies = explorerReplyCount(move.after);
   const situation = scoreSituation(move.score);
+  const explicit = selected && parentDepth < routeSelectionDepth;
+  const parentMove = parentDepth > 0 ? explorerState.path[parentDepth - 1] : null;
+  const parentId = parentMove
+    ? `future-${parentDepth}-${futureMoveKey(parentMove)}`
+    : 'root';
+  const nodeId = `future-${parentDepth + 1}-${futureMoveKey(move)}`;
+  const effects = [
+    move.captured ? 'capture' : '',
+    /[+#]/.test(move.san) ? 'check' : '',
+  ].filter(Boolean).join(' ');
   return `<div class="tree2d-node-wrap">`
     + `<span class="tree2d-edge" data-tree-edge data-depth="${parentDepth + 1}"`
-    + ` data-selected="${selected}"></span>`
+    + ` data-selected="${selected}" data-explicit="${explicit}" data-future-edge`
+    + ` data-parent-id="${esc(parentId)}" data-child-id="${esc(nodeId)}"`
+    + ` data-engine="false" data-played="false"></span>`
     + `<button type="button" class="tree2d-choice${selected ? ' is-selected' : ''}"`
     + ` data-tree-rank="${rank}" data-parent-depth="${parentDepth}"`
     + ` data-parent-fen="${esc(parentFen)}" data-depth="${parentDepth + 1}"`
     + ` data-san="${esc(move.san)}" data-from="${move.from}" data-to="${move.to}"`
     + ` data-promotion="${move.promotion || ''}" data-after="${esc(move.after)}"`
+    + ` data-future-node data-node-id="${esc(nodeId)}" data-parent-id="${esc(parentId)}"`
+    + ` data-fen="${esc(move.after)}" data-side="${parentFen.split(' ')[1]}"`
+    + ` data-label="${esc(move.san)}" data-branch-count="${replies}"`
+    + ` data-resolved="true" data-selected="${explicit}"`
+    + ` data-suggested="${selected && !explicit}" data-engine="false"`
+    + ` data-played="false" data-effect="${effects}"`
     + ` aria-pressed="${selected}" style="--tree-color:${cssColor(move.score, 1.25)}">`
     + `<b>${esc(move.san)}</b>`
     + `<small>${PIECE_NAME[move.piece] || '棋子'} · ${situation.short}</small>`
     + `<span class="tree2d-branch-badge">走后 <span class="tree2d-branch-count">${replies}</span> 个分支`
-    + `${selected ? ' · <span class="tree2d-selected-mark">已选</span>' : ''}</span>`
+    + `${selected ? ` · <span class="tree2d-selected-mark">${explicit ? '预演' : '建议'}</span>` : ''}</span>`
     + `</button></div>`;
 }
 
@@ -3767,6 +4168,7 @@ function updateCloudRoute(route = traceCloudRoute()) {
   for (const step of route) points.push(...step.position);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
+  cloudRouteMaterial.color.setHex(routeSelectionDepth > 0 ? 0x8fd8ff : 0xf1c66b);
   cloudRouteLine = new THREE.Line(geo, cloudRouteMaterial);
   cloudRouteLine.userData = { kind: 'selected-route', depth: route.length, san: route.map((s) => s.san).join(' ') };
   cloudRouteLine.frustumCulled = false;
@@ -4017,9 +4419,10 @@ function updateCloudModeButton() {
   const button = document.getElementById('cloudMode');
   const tree = cloudViewMode === '2d';
   button.setAttribute('aria-pressed', String(tree));
-  button.setAttribute('aria-label', tree ? '切到三维路径网' : '切到二维路径树');
-  button.textContent = tree ? '切到 3D 图' : '切到 2D 树';
-  document.getElementById('cloudOpen').textContent = tree ? '放大看全树' : '放大探索';
+  button.setAttribute('aria-label', tree ? '切到三维全景地图' : '切到二维推演树');
+  button.textContent = tree ? '全景 3D' : '推演 2D';
+  document.getElementById('cloudOpen').textContent = tree ? '放大推演' : '放大全景';
+  if (typeof updateFutureMapDataset === 'function') updateFutureMapDataset();
 }
 
 function setCloudViewMode(mode) {
@@ -4996,6 +5399,7 @@ function resetGame(fen = null) {
   clearPvGuide();
   branchPath = [];
   expanded = [];
+  routeSelectionDepth = 0;
   forkStale = false;
   resetForkTransient();
   renderBoard();
@@ -5008,6 +5412,111 @@ function resetGame(fen = null) {
     : '你执白。点一枚白棋看预演；右侧从「现在」向右选路。');
   return true;
 }
+
+function freezeFutureValue(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  for (const item of Object.values(value)) freezeFutureValue(item);
+  return value;
+}
+
+function futureMoveSnapshot(move, depth, role) {
+  return {
+    id: `future-${depth}-${futureMoveKey(move)}`,
+    depth,
+    label: move.san,
+    from: move.from,
+    to: move.to,
+    promotion: move.promotion || '',
+    afterFen: move.after,
+    branchCount: futureBranchCount(move.after),
+    role,
+  };
+}
+
+function futureSnapshot() {
+  updateFutureMapDataset();
+  const columnsCurrent = !forkStale && columns[0]?.fen === game.fen();
+  const routeMoves = columnsCurrent ? routeMovesFromColumns() : [];
+  const selectedMoves = routeMoves.slice(0, routeSelectionDepth);
+  const suggestedMoves = routeMoves.slice(routeSelectionDepth);
+  const previewMoves =
+    explorerState.rootFen === game.fen() && explorerState.path.length
+      ? explorerState.path
+      : selectedMoves;
+  const activeEnginePath = !!pvGuide && pvGuide.rootFen === game.fen();
+  const engineMoves = activeEnginePath ? pvGuide.moves : [];
+  const renderedRoot = cloudViewMode === '2d' ? cloudTree2dEl : cloudLabelsEl;
+  const renderedEdges = cloudViewMode === '2d'
+    ? renderedRoot.querySelectorAll('[data-future-edge]').length
+    : builtDepths().reduce((total, depth) => total + nodesAt(depth), 0);
+  return freezeFutureValue({
+    schema: 1,
+    game: 'chess',
+    phase: futureMapEl.dataset.phase,
+    mode: futureMapEl.dataset.mode,
+    root: {
+      fen: game.fen(),
+      turn: game.turn(),
+      historyPly: game.history().length,
+      branchCount: columnsCurrent ? columns[0].ranked.length : game.moves().length,
+    },
+    focusSquare: selected,
+    selectedPath: selectedMoves.map((move, index) =>
+      futureMoveSnapshot(move, index + 1, 'selected')),
+    suggestedPath: suggestedMoves.map((move, index) =>
+      futureMoveSnapshot(move, routeSelectionDepth + index + 1, 'suggested')),
+    preview: {
+      fen: previewMoves.at(-1)?.after || game.fen(),
+      depth: previewMoves.length,
+      path: previewMoves.map((move, index) =>
+        futureMoveSnapshot(move, index + 1, index < routeSelectionDepth ? 'selected' : 'suggested')),
+    },
+    enginePath: {
+      verified: activeEnginePath,
+      sourceFen: activeEnginePath ? pvGuide.rootFen : '',
+      path: engineMoves.map((move, index) =>
+        futureMoveSnapshot(move, index + 1, 'engine')),
+    },
+    rendered: {
+      nodes: cloudViewMode === '2d'
+        ? renderedRoot.querySelectorAll('[data-future-node]').length
+        : renderedEdges,
+      edges: renderedEdges,
+      effects: futureContextEl.querySelectorAll('[data-future-effect]').length,
+    },
+  });
+}
+
+function selectFutureNode(parentDepth, key) {
+  ensureExplorerRoot();
+  const requestedDepth = Number(parentDepth);
+  if (!Number.isInteger(requestedDepth)
+    || requestedDepth < 0
+    || requestedDepth > explorerState.path.length) return false;
+  const depth = requestedDepth;
+  const parentFen = depth === 0
+    ? explorerState.rootFen
+    : explorerState.path[depth - 1].after;
+  const choices = explorerChoicesFor(parentFen);
+  const rank = choices.findIndex((move) =>
+    futureMoveKey(move) === String(key)
+    || move.san === String(key)
+    || move.after === String(key));
+  return rank >= 0 && chooseExplorerMoveAt(depth, rank);
+}
+
+window.__futureTest = Object.freeze({
+  schema: 1,
+  game: 'chess',
+  snapshot: futureSnapshot,
+  selectNode: selectFutureNode,
+  rewind: rewindExplorer,
+  setMode: (mode) => setCloudViewMode(
+    mode === 'tree-2d' || mode === '2d' ? '2d' : '3d',
+  ),
+  commitSelected: () => commitFirstFutureMove(true),
+});
 
 // 验收用的钩子：走的是和点棋盘完全同一条路
 window.__test = {

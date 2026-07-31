@@ -1,0 +1,403 @@
+:root {
+  color-scheme: dark;
+  --future-bg: #071017;
+  --future-panel: rgba(10, 22, 28, .90);
+  --future-panel-solid: #0d1a20;
+  --future-edge: rgba(185, 218, 216, .17);
+  --future-text: #f3f7f5;
+  --future-muted: #9fb0b2;
+  --future-faint: #65777b;
+  --future-blue: #79e6db;
+  --future-blue-soft: rgba(121, 230, 219, .13);
+  --future-gold: #f1c66b;
+  --future-gold-soft: rgba(241, 198, 107, .13);
+  --future-red: #ef665c;
+  --future-red-soft: rgba(239, 102, 92, .13);
+  --future-played: #f3f7f5;
+}
+
+.future-product {
+  color: var(--future-text);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+.future-product body {
+  background-color: var(--future-bg);
+}
+
+.future-product .panel {
+  border-color: var(--future-edge);
+  background-color: var(--future-panel);
+}
+
+.future-appbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  min-height: 54px;
+  color: var(--future-text);
+}
+
+.future-home,
+.future-brand {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.future-home {
+  flex: 0 0 44px;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--future-edge);
+  border-radius: 12px;
+  background: rgba(12, 28, 34, .82);
+}
+
+.future-home:focus-visible,
+.future-brand:focus-visible,
+.future-game-nav a:focus-visible {
+  outline: 3px solid var(--future-blue);
+  outline-offset: 3px;
+}
+
+.future-brand {
+  gap: 10px;
+  min-height: 44px;
+}
+
+.future-brand-mark {
+  position: relative;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(121, 230, 219, .48);
+  border-radius: 9px;
+  box-shadow: inset 0 0 18px rgba(121, 230, 219, .11);
+}
+
+.future-brand-mark::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 7px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--future-blue);
+  border-left-color: transparent;
+  border-radius: 50%;
+  transform: rotate(-35deg);
+}
+
+.future-brand-copy {
+  min-width: 0;
+}
+
+.future-brand-copy b,
+.future-brand-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.future-brand-copy b {
+  font-size: 13px;
+  letter-spacing: .08em;
+}
+
+.future-brand-copy small {
+  margin-top: 2px;
+  color: var(--future-muted);
+  font-size: 10px;
+}
+
+.future-game-nav {
+  display: flex;
+  gap: 5px;
+  margin-left: auto;
+  padding: 4px;
+  border: 1px solid var(--future-edge);
+  border-radius: 12px;
+  background: rgba(7, 16, 22, .64);
+}
+
+.future-game-nav a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 11px;
+  border-radius: 8px;
+  color: var(--future-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.future-game-nav a[aria-current="page"] {
+  color: var(--future-text);
+  background: var(--future-blue-soft);
+  box-shadow: inset 0 0 0 1px rgba(121, 230, 219, .2);
+}
+
+.future-truth {
+  flex: 0 0 auto;
+  color: var(--future-muted);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+}
+
+.future-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.future-panel-heading > div:first-child {
+  min-width: 0;
+}
+
+.future-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--future-blue);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.future-panel-heading h1,
+.future-panel-heading h2 {
+  margin: 0;
+  color: var(--future-text);
+  font-size: 15px;
+  font-weight: 690;
+}
+
+.future-description {
+  margin: 4px 0 0;
+  color: var(--future-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}
+
+.future-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  color: var(--future-muted);
+  font-size: 9.5px;
+}
+
+.future-legend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.future-legend-key::before {
+  content: "";
+  width: 17px;
+  height: 2px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.future-legend-key[data-kind="option"] { color: #74858b; }
+.future-legend-key[data-kind="selected"] { color: var(--future-blue); }
+.future-legend-key[data-kind="played"] { color: var(--future-played); }
+.future-legend-key[data-kind="engine"] { color: var(--future-gold); }
+.future-legend-key[data-kind="effect"] { color: var(--future-red); }
+.future-legend-key[data-kind="engine"]::before {
+  background: repeating-linear-gradient(
+    90deg,
+    currentColor 0 5px,
+    transparent 5px 8px
+  );
+}
+
+.future-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  border-top: 1px solid var(--future-edge);
+  background:
+    linear-gradient(90deg, rgba(121, 230, 219, .055), transparent 44%),
+    rgba(5, 14, 19, .58);
+}
+
+.future-context-copy {
+  min-width: 0;
+}
+
+.future-context-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--future-blue);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+
+.future-context-title,
+.future-context-detail {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.future-context-title {
+  color: var(--future-text);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.future-context-detail {
+  margin-top: 2px;
+  color: var(--future-muted);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.future-context-actions {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.future-context button,
+button.future-commit {
+  min-height: 44px;
+  padding: 7px 12px;
+  border: 1px solid rgba(121, 230, 219, .32);
+  border-radius: 10px;
+  color: #e9fffb;
+  background: rgba(34, 91, 82, .48);
+  cursor: pointer;
+}
+
+.future-context button:disabled,
+button.future-commit:disabled {
+  opacity: .38;
+  cursor: default;
+}
+
+.future-effects {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  margin-top: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.future-effect {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid var(--future-edge);
+  border-radius: 999px;
+  color: var(--future-muted);
+  background: rgba(19, 31, 36, .72);
+  font-size: 9.5px;
+}
+
+.future-effect[data-kind="capture"],
+.future-effect[data-kind="check"],
+.future-effect[data-kind="threat"],
+.future-effect[data-kind="exposure"] {
+  color: #ffb1aa;
+  border-color: rgba(239, 102, 92, .28);
+  background: var(--future-red-soft);
+}
+
+.future-effect[data-kind="defense"] {
+  color: #baf5e9;
+  border-color: rgba(121, 230, 219, .25);
+  background: var(--future-blue-soft);
+}
+
+[data-future-map][data-phase="thinking"] [data-future-node] {
+  opacity: .46;
+}
+
+[data-future-node][data-future-selected="true"],
+[data-future-node]:not([data-future-selected])[data-selected="true"] {
+  border-color: var(--future-blue) !important;
+}
+
+[data-future-node][data-engine="true"] {
+  box-shadow: inset 0 0 0 1px rgba(241, 198, 107, .36);
+}
+
+[data-future-node][data-effect~="capture"]:not([data-future-selected="true"]):not([data-selected="true"]),
+[data-future-node][data-effect~="check"]:not([data-future-selected="true"]):not([data-selected="true"]),
+[data-future-node][data-effect~="exposure"]:not([data-future-selected="true"]):not([data-selected="true"]) {
+  border-color: rgba(239, 102, 92, .48) !important;
+}
+
+@media (max-width: 760px) {
+  .future-appbar {
+    gap: 9px;
+    min-height: 44px;
+  }
+
+  .future-home {
+    border-radius: 10px;
+  }
+
+  .future-brand-mark,
+  .future-truth {
+    display: none;
+  }
+
+  .future-brand-copy b {
+    font-size: 12px;
+  }
+
+  .future-brand-copy small {
+    font-size: 9px;
+  }
+
+  .future-game-nav {
+    gap: 3px;
+    padding: 0 3px;
+  }
+
+  .future-game-nav a {
+    min-width: 44px;
+    min-height: 44px;
+    padding-inline: 8px;
+    font-size: 10px;
+  }
+
+  .future-context {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .future-context-actions {
+    width: 100%;
+  }
+
+  .future-context-actions button {
+    flex: 1 1 auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .future-product * {
+    scroll-behavior: auto !important;
+  }
+}

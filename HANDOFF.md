@@ -1,7 +1,8 @@
 # 交接文档 · chess-cloud
 
 写给下一位接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**。
-截止 2026-07-31，项目已经从单一国际象棋页变成“双棋种入口 + 两套独立棋核”。
+截止 2026-07-31，项目已经定位为“一个棋局未来地图产品 + 两套独立真实棋核”：规则分开，
+产品壳、视觉语法、路线状态和验收契约统一。
 
 - 线上：https://maxi-max-dev.github.io/chess-cloud/
 - 仓库：https://github.com/maxi-max-dev/chess-cloud（`main`，GitHub Pages 从根目录发布）
@@ -12,19 +13,24 @@
 
 ## 0. 三十秒看懂
 
-打开根首页先看到两个选择：
+根首页先选择规则，但进入的是同一个产品：
 
-1. `chess.html`：国际象棋，人执白、AI 执黑。保留棋子助手、一步威胁、五列分叉、零光点 3D 路径网、
-   纯 2D 树、逐格变体棋盘和蓝色用户路线 / 金色 AI 主变。
-2. `xiangqi.html`：中国象棋，人执红、AI 执黑。是真正的 9×10 规则核，不是给国际象棋换一套棋子。
-   页面会显示当前全部合法分叉、浅层强回应、威胁注释、真实分叉数和搜索 PV；木盘、象牙棋子、
-   金色上一着轨迹与“攻→危”攻击流只是这些事实的可读视觉层。
+1. `chess.html`：国际象棋，人执白、AI 执黑。3D 全景、2D 推演树、五列分叉和棋子助手都读取
+   同一条预演路线。
+2. `xiangqi.html`：中国象棋，人执红、AI 执黑。真正的 9×10 规则核；3D 感全景与 2D 推演树
+   共用同一个候选、强回应和走后局面。
+3. `future-map.css`：两页共用的产品壳、颜色角色、图例、路线语境栏与移动端行为。它不包含任何
+   棋种规则。
+4. 两页都以 `[data-future-map]` 声明当前规则 / 模式 / 阶段，并公开同形的
+   `window.__futureTest` 只读验收契约。
 
-根 `index.html` 只做棋种选择，不包含任一棋种的规则。
+产品目标不是展示两个各做各的棋盘，而是让用户一眼看到当前全部真实下一步，选择任一路线后继续
+看强回应和直接后果。3D 全景负责“看全局”，2D 推演负责“读清路径”；切换视图不能改变实战 FEN
+或丢失预演。
 
-**项目的灵魂仍然是“数字必须是真的”。** 页面说有多少棋子、多少合法走法、多少分叉、多少路径，
-就必须能从当前 DOM / geometry 现读，并由独立 Node 或真 Chrome 裁判从局面重新计算。不能自己记一本
-数字账，不能少画后仍报告全量，也不能把浅层引擎排序说成概率或职业棋力。
+**项目的灵魂仍然是“数字必须是真的”。** 页面说有多少棋子、合法走法、分叉或路径，就必须能从
+当前局面 / DOM / geometry 现读，并由独立 Node 或真 Chrome 裁判重算。浅层排序只能叫建议或
+强回应，不能叫概率。
 
 ---
 
@@ -53,7 +59,7 @@ node portal-check.mjs
 
 - 国际象棋棋核：**8/8**
 - 中国象棋棋核：**19/19**
-- 双棋种入口 / 路由 / 运行代码红线：**16/16**
+- 统一产品入口 / 共享未来地图契约 / 运行代码红线：**21/21**
 
 中国象棋起始局面 perft 必须是：
 
@@ -73,8 +79,8 @@ node xiangqi-live-check.mjs
 
 当前本地期望：
 
-- 国际象棋：**90/90**
-- 中国象棋：**43/43**
+- 国际象棋：**92/92**
+- 中国象棋：**47/47**
 
 两条脚本都会自己起本地静态服务和无头 Chrome。国际象棋脚本的本地目标已经改为
 `chess.html`；中国象棋脚本会从根首页实际点击两张卡，验证路由后再进入 `xiangqi.html`。
@@ -87,18 +93,19 @@ node self-play.mjs
 node xiangqi-self-play.mjs
 ```
 
-这两条是正确性 / 稳定性冒烟，**不是棋力基准**。最新国际象棋真实输出为 10 局 / 631 plies，
-`abnormalGames / illegalMoves / fenMismatches / pvFailures / annotationFailures` 全为 0。
+这两条是正确性 / 稳定性冒烟，**不是棋力基准**。最新国际象棋真实输出为 10 局 / 727 plies /
+687 次搜索，`abnormalGames / illegalMoves / fenMismatches / pvFailures / annotationFailures`
+全为 0。
 最新中国象棋真实输出：
 
-- 10 局、844 plies；
-- 4 局到真实终局，6 局达到 100 plies 测试上限并如实记作 `capped`；
+- 10 局、710 plies、710 次搜索、1,258 个 PV 节点；
+- 8 局到真实终局，2 局达到 100 plies 测试上限并如实记作 `capped`；
 - `illegalMoves=0`
 - `fenMismatches=0`
 - `pvFailures=0`
 - `branchFailures=0`
 - `threatFailures=0`
-- 单次搜索最大 23.0ms
+- 单次搜索最大 25.0ms
 
 > `npm test` 不包含两套真 Chrome 和两套自对弈。发布前不能只跑 `npm test`。
 
@@ -110,25 +117,27 @@ node xiangqi-self-play.mjs
 
 | 文件 | 职责 |
 |---|---|
-| `index.html` | 根首页；恰好两张卡，分别去 `chess.html` / `xiangqi.html` |
-| `portal-check.mjs` | 入口、独立页面连线和运行代码硬编码红线的静态裁判 |
+| `index.html` | 统一产品首页；恰好两个真实规则入口 |
+| `future-map.css` | 两页共用的产品壳、路线颜色、图例、语境栏和响应式规则 |
+| `portal-check.mjs` | 首页、共享样式、同形未来地图根 / 状态契约和运行代码红线的 21 项静态裁判 |
 | `package.json` | `npm test` 与两套棋种验收快捷命令 |
-| `chess.html` | 国际象棋完整 UI；原单页从 `index.html` 原样迁入 |
+| `chess.html` | 国际象棋 UI；3D 全景、2D 推演、五列分叉、棋盘和同一路线语境 |
 | `engine.js` | 国际象棋唯一评估函数、排序、威胁、搜索、PV 和路径展开 |
 | `worker.js` | 国际象棋 AI search Worker / cloud Worker 的共同入口 |
 | `verify.mjs` | 国际象棋 perft / 棋核裁判 |
-| `live-check.mjs` | 国际象棋 90 项真 Chrome 裁判 |
+| `live-check.mjs` | 国际象棋 92 项真 Chrome 裁判 |
 | `self-play.mjs` | 国际象棋固定 10 局稳定性审计 |
-| `xiangqi.html` | 中国象棋 9×10 现代木盘 UI、纯 2D 路径、预演、真实攻击线与 PV |
+| `xiangqi.html` | 中国象棋 9×10 UI；3D 感全景、2D 推演、强回应、路线后果、实战历史和威胁 |
 | `xiangqi-engine.js` | 中国象棋规则、唯一评估函数、排序、威胁、搜索与 PV |
 | `xiangqi-worker.js` | 中国象棋搜索 / 分叉 / 分析 Worker 入口 |
 | `xiangqi-verify.mjs` | 中国象棋 19 项棋核 / 搜索裁判 |
-| `xiangqi-live-check.mjs` | 中国象棋 43 项真 Chrome / 路由 / 上一步 / 威胁可视化 / 手机裁判 |
+| `xiangqi-live-check.mjs` | 中国象棋 47 项真 Chrome / 路由 / 未来地图契约 / 上一步 / 威胁 / 手机裁判 |
 | `xiangqi-self-play.mjs` | 中国象棋固定 10 局稳定性审计 |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | 对外说明 / 决策边界 / 历史记录 |
 
-没有构建工具、框架或后端。国际象棋从 CDN 载入钉死版本的 chess.js / three.js；中国象棋棋核为
-仓库内纯 ES module。两个棋种分开是刻意的：规则与评估不能混成一个充满条件分支的全局状态。
+没有构建工具、框架或后端。两套规则生成、评估和 Worker 刻意独立，不能混成条件分支全局状态；
+产品壳、视觉角色和选路验收契约则刻意统一。国际象棋从 CDN 载入钉死版本的 chess.js / three.js；
+中国象棋棋核为仓库内纯 ES module。
 
 ### 2.2 国际象棋对外契约
 
@@ -157,7 +166,9 @@ export function search(fen, opts);
 - 缩略只保留完整 L3；明确放大才计算 L4；完成后同层批次合并，收起 / 离屏 / 后台释放 L4。
 - `__cloudStats()` 的路径数从真实非索引 `LineSegments.position.count / 2` 求和。
 - `__forkStats()` 的卡片数从当前 SVG `g.card` 现数。
-- 国际象棋蓝线是用户选择；金线是从 AI 搜索源 FEN 逐手重放验证后的 `pv.slice(1)`，两者不能互相覆盖。
+- 灰色是其他合法路线；蓝色只表示用户明确选择的预演；金色表示引擎建议 / 强回应，其中搜索 PV
+  使用金色虚线并必须从搜索源 FEN 逐手验证；白色是实战历史，红色是吃子 / 威胁等直接后果。
+  建议路线不能冒充用户选择。
 
 一次真实落子：
 
@@ -225,12 +236,24 @@ search(), rankMoves()
 - 节点分叉数：从该节点 `data-fen` 重新生成下一手合法着；
 - 路径节点：实际 DOM 的 `data-fen/data-branches/data-ply`。
 
-点分叉卡只做两步预演：蓝色“1”是用户候选，金色“2”是浅层强回应；FEN 不变。
-真正点蓝色合法落点才落子。分叉排序会看对方最强回应，并额外检查一步合法同格回吃；
-它仍然只是浅层局面排序，**不是胜率、概率或职业级分析**。
+点任一未来节点只建立蓝色用户预演，金色路线表示浅层强回应；FEN 和实战路径不变。3D 感全景与
+2D 推演树必须保留同一个候选、强回应和预演 FEN。只有“走这步”或棋盘合法落点才真正落子。
+排序会看对方强回应和一步合法回吃，但仍不是胜率或概率。
 
 `getThreats()` 表示几何攻击线，并列出攻击者 / 保护者。它不保证攻击者下一手有合法吃法，
 也不代表被瞄准的棋一定会丢。
+
+### 2.4 统一未来地图契约
+
+两页都必须提供：
+
+- `[data-future-map]`：`data-game / data-mode / data-phase / data-route-owner / data-root-fen`；
+- `[data-future-context]`：全页唯一的路线语境栏；
+- `window.__futureTest`：`schema / game / snapshot / selectNode / rewind / setMode / commitSelected`；
+- `snapshot()`：`root / selectedPath / suggestedPath / preview / enginePath / rendered`。
+
+`selectedPath` 只能来自用户明确选路；建议不能冒充已选。根 FEN、根分叉、每步 after FEN 和后续
+分叉必须能由独立棋核重放。`setMode()` 只能改变视图，不能改变实战 FEN、历史或预演路线。
 
 ---
 
@@ -288,6 +311,7 @@ search(), rankMoves()
 
 ```text
 index.html
+future-map.css
 chess.html
 engine.js
 worker.js
@@ -305,7 +329,7 @@ xiangqi-worker.js
 `verify.mjs` 固定 8 项：起始局面 20 / 400 / 8902 / 197281，Kiwipete
 48 / 2039 / 97862，以及 `count(fen, 0) === 1`。
 
-`live-check.mjs` 用 `EXPECTED_RESULTS = 90` 锁定 90 项，覆盖：
+`live-check.mjs` 用 `EXPECTED_RESULTS = 92` 锁定 92 项，覆盖：
 
 - L0–L4 真实 geometry、DOM 分叉数和 Node 独立 perft 对撞；
 - 零 `THREE.Points`、无预分配 / drawRange / 隐藏孤儿对象；
@@ -314,8 +338,12 @@ xiangqi-worker.js
 - 棋子助手、几何攻击、合法一步吃子、回吃和亏交换；
 - 390×844、短横屏、平板、安全区、44px 触控；
 - AI deadline、watchdog、reset / fallback / PV 和空闲零持续帧。
+- 统一未来地图初始建议不冒充用户选路；选路 after FEN / 分叉可重放；2D / 3D 切换保留
+  同一个预演且不改实战。
+- 旧确认按钮不能绕过用户选路直接提交金色建议；清空路线后两个确认入口都必须重新禁用。
 
-数量钩子在 `chess.html` 的 `window.__test`；数量类只能从 DOM / geometry 返回。
+数量钩子仍在 `chess.html` 的 `window.__test`；统一产品选路契约另由 `window.__futureTest` 暴露。
+数量类只能从 DOM / geometry 返回。
 
 ### 4.2 中国象棋
 
@@ -329,7 +357,7 @@ xiangqi-worker.js
 - search 合法 PV、真实根分叉、时限与 `depth=0,pv=[]`；
 - 候选会看对方强回应与一步合法回吃，不把开局送炮换马排第一。
 
-`xiangqi-live-check.mjs` 用 `EXPECTED_RESULTS = 43` 锁定 43 项，覆盖：
+`xiangqi-live-check.mjs` 用 `EXPECTED_RESULTS = 47` 锁定 47 项，覆盖：
 
 - 根首页两张卡可实际点击；
 - 起始 32 枚棋、红 16 / 黑 16、90 个交互点；
@@ -343,9 +371,12 @@ xiangqi-worker.js
 - 390px 字盘比例、667×375 紧凑双栏、缩放、reset 竞态、强杀 Worker 合法 fallback；
 - 1440×900、390×844、667×375 无根横向溢出，非棋盘控件 ≥44px；
 - 页面静止 `requestAnimationFrame` 请求 / 回调均不增长，零 JS 错误。
+- 建议路线与用户选路分离；候选和强回应可由 Node 重放；全景 / 推演模式切换保留同一预演且不改 FEN。
+- Worker 回包前先选路线时，回应就绪后必须升级同一预演；全景大幅拖动后 44 条真实下一步仍全部可见。
+- 未选建议保持金色；即便路线会吃子，用户明确选中后仍以蓝色选路为最高视觉优先级。
 
-数量钩子是 `window.__xiangqiTest`，公开 getters 和只读 snapshot；裁判不能信任一份页面自报总数，
-必须从 DOM 和 `xiangqi-engine.js` 两边独立对撞。
+规则 / DOM 钩子是 `window.__xiangqiTest`；统一产品选路钩子是 `window.__futureTest`。裁判不能
+信任页面自报总数，必须从 DOM 和 `xiangqi-engine.js` 两边独立对撞。
 
 ### 4.3 已做过的反向验证
 
@@ -367,6 +398,8 @@ xiangqi-worker.js
   实现后 **43/43**；双攻击者夹具再核对主线 `0.94` / 背景 `0.22` 与 `1/2 → 2/2` 切换，
   任一 from/to 污染都会被同一 Node 独立真值断言抓住。
 - 国际象棋历史反向验证的详细过程保留在 `PROGRESS.md`；`verify.mjs` 没有被放宽。
+- 统一未来地图契约先加入门户和两套真机裁判，再完成实现。旧产品门户按预期为 **16/20**；当前
+  门户锁定 21 项，国际真机锁定 92 项，中国象棋真机锁定 47 项。
 
 加新验收时：
 
@@ -398,7 +431,8 @@ xiangqi-worker.js
 - **上一步起点不能只给 `.piece` 加样式。** 落子后来源格为空，必须用独立覆盖层画起点并一直保留。
 - **门户拆分后，审计脚本也要读实际 UI 文件。** `self-play.mjs` 的人话函数来源是 `chess.html`，
   不是只含两张入口卡的 `index.html`；这个路径曾让 10 局审计在启动前直接失败。
-- **分叉卡预演不是落子。** 蓝 1 / 金 2 只是候选与浅层回应；只有棋盘合法落点改变 FEN。
+- **未来地图预演不是落子。** 蓝色是用户明确选择，金色是建议 / 强回应；全景与推演切换只能
+  换呈现，不能改变 FEN。只有确认动作改变实战。
 - **CDP 新标签可能 `document.hidden=true`。** 真 WebGL 验收要 bring-to-front 并启用 focus emulation。
 - **无头 Chrome 测 WebGL 不要直接 `--disable-gpu`。** 使用 ANGLE / SwiftShader 参数。
 - **`Runtime.evaluate` 的裸 `await` 会报错。** 包进 async IIFE 并设置 `awaitPromise: true`。
@@ -410,41 +444,45 @@ xiangqi-worker.js
 
 | 指标 | 当前基线 |
 |---|---|
-| 根首页 | 恰好两张选择卡：国际象棋 / 中国象棋 |
+| 根首页 | 同一个“棋局未来地图”产品，两个真实规则入口 |
+| 共享产品层 | `future-map.css` + `[data-future-map]` + 同形 `window.__futureTest` |
 | 国际象棋起始 perft 1/2/3/4 | 20 / 400 / 8,902 / 197,281 |
 | 中国象棋起始 perft 1/2/3/4 | 44 / 1,920 / 79,666 / 3,290,240 |
-| `npm test` | 国际 8/8 + 中国 19/19 + 门户 16/16 |
-| `node live-check.mjs` | 90/90 |
-| `node xiangqi-live-check.mjs` | 43/43 |
+| `npm test` | 国际 8/8 + 中国 19/19 + 门户 21/21 |
+| `node live-check.mjs` | 92/92 |
+| `node xiangqi-live-check.mjs` | 47/47 |
 | 国际路径线程 | L1–L4 全在 cloud Worker；主线程只建 geometry |
 | 国际路径生命周期 | 缩略 L3 / 明确放大 L4 / 收起释放 / 再放大完整重建 |
 | 国际空闲渲染 | 静置 rAF +0、WebGL frame +0 |
 | 国际棋子 | 六类分层 SVG 3D 视觉造型；零 Unicode |
-| 国际搜索 | 最后完整层单条 PV；蓝=用户，金=引擎；fallback 无伪 PV |
+| 国际路线语义 | 灰=其他合法路线、蓝=用户预演、金=建议 / 强回应 / 已验证 PV、白=实战、红=直接后果 |
+| 国际搜索 | 最后完整层单条 PV；fallback 无伪 PV |
 | 中国规则线程 | search / branch 两个 Worker 实例 |
 | 中国棋盘初始 | 90 个交互点、32 枚棋、44 条合法分叉 |
+| 中国未来地图 | 3D 感全景 / 2D 推演共用候选、强回应和预演 FEN |
 | 中国搜索页面预算 / watchdog | 1.1s / 2.8s；实测 AI ≤3s |
 | 中国上一步 | 空起点 + 金色实线 + 落点环 + 行棋方 / 记谱 / 坐标；真实 Worker 应手同源 |
 | 中国威胁 | 全部真实攻击线保留；单条主强调、“攻→危”端点与手动攻击者切换；仍只是几何攻击线 |
 | 中国有限动效 | 棋子位移 / 落点 / 攻击流有限次后停止；减少动态保留静态语义，切回普通不补播；持续 rAF 为 0 |
-| 国际 10 局自走 | 631 plies；五类错误汇总全 0；最大搜索 22.5ms |
-| 中国 10 局自走 | 844 plies；4 终局 / 6 capped；五类错误全 0；最大搜索 23.0ms |
+| 国际 10 局自走 | 727 plies / 687 searches；五类错误汇总全 0；最大搜索 31.06ms |
+| 中国 10 局自走 | 710 plies / 710 searches / 1,258 PV 节点；8 终局 / 2 capped；五类错误全 0 |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-中国象棋上一步 / 攻击流运行版本 `66f5a92` 已发布，以下 SHA-256 已与 GitHub Pages 逐字节核对：
+本轮统一“棋局未来地图”运行源码已经冻结；以下本地 SHA-256 等待与 GitHub Pages 逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
-| `index.html` | `2a31050f7c95e0fbc460ebabe75c5014f4f3a9d432e902b4b444efb169997c09` |
-| `chess.html` | `5badac7a9496a7ab2245721a830077cb6e9c3be1d0b569e6a8273ca3e3a4d12e` |
+| `index.html` | `5909c17a139c2e2eb2e6a3859710e0b4e44821fec9eaf76da848f12ef07735ed` |
+| `future-map.css` | `61410774fbe0d575f5fe7134ecbb36a7f05d2e021944d509eb0083fca28af4f7` |
+| `chess.html` | `95615ace8862646e91b829ad58bf704c59d959fafad56d4c258d2ae54b4daf58` |
 | `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
 | `worker.js` | `a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed` |
-| `xiangqi.html` | `4337e955ee30e3e1157a19dd0bc1f382ed5ab9cbd55b22369043b750f7dd4f9e` |
+| `xiangqi.html` | `75fcb27ccb54a696dea5b9bbb64eaf339d9fc2173534a63edfea9f925aea4b20` |
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `06c9d33c946722bd2e6bfe0d4b13e304a89de61873a06eaace49a5a093459cd4` |
 
-线上行为复验为中国象棋 **43/43**、国际象棋 **90/90**。相邻 `e5→e4` 方向仍为 1.00；
-双攻击者实测主线 / 背景不透明度为 `0.94 / 0.22`，减少动态后切回普通的运行中旧动画为 0。
+发布 commit、线上逐字节结果与线上 **92/92 + 47/47** 仍必须在推送后填写；完成前不把本地版本
+写成已上线。
 
 ---
 
@@ -461,7 +499,8 @@ xiangqi-worker.js
    不符合人类常识。加深不能挤破 AI 3 秒红线。
 4. **国际象棋和棋 / 升变 UI。** 搜索尚不判三次重复、50 步、子力不足；升变默认后。
 5. **更深路径交互。** 国际 3D / 2D 目前可连续预演三步；任意 L4+ 节点重新设根仍未做。
-6. **正式产品名。** 仓库名固定 `chess-cloud`，页面品牌“棋路”仍可讨论。
+6. **继续收紧统一契约。** 若以后抽共享 JS，只抽产品状态与渲染协议，不能合并两套规则 / 评估；
+   新增字段必须先有跨棋种真机断言。
 
 `BLOCKED.md` 保留更完整的历史理由和推翻方式。
 
@@ -487,13 +526,15 @@ Pages 生效后，逐一核对全部运行文件，不能只看根 `index.html`�
 
 ```bash
 for f in \
-  index.html chess.html engine.js worker.js \
+  index.html future-map.css \
+  chess.html engine.js worker.js \
   xiangqi.html xiangqi-engine.js xiangqi-worker.js
 do
   local_hash=$(shasum -a 256 "$f" | awk '{print $1}')
-  online_hash=$(curl -fsS \
+  online_hash=$(curl -fsS --retry 12 --retry-delay 5 \
     "https://maxi-max-dev.github.io/chess-cloud/$f?v=$(date +%s)" \
     | shasum -a 256 | awk '{print $1}')
+  printf '%s  local=%s  online=%s\n' "$f" "$local_hash" "$online_hash"
   test "$local_hash" = "$online_hash" || exit 1
 done
 ```
@@ -518,16 +559,14 @@ git rev-list --left-right --count origin/main...main
 
 ## 9. 当前交接状态
 
-- 根 `index.html` 已改为两个棋种的选择首页。
-- 原国际象棋完整应用已迁到 `chess.html`，原 90 项真机回归仍为 **90/90**。
-- 中国象棋页面、规则核、Worker、棋核裁判、真 Chrome 裁判和固定 10 局自走均已加入。
-- 最新本地：
-  - `npm test`：**8/8 + 19/19 + 16/16**
-  - `node live-check.mjs`：**90/90**
-  - `node xiangqi-live-check.mjs`：**43/43**
-  - 国际象棋 10 局：631 plies、五类错误汇总全 0、最大搜索 22.5ms
-  - 中国象棋 10 局：844 plies、4 终局 / 6 capped、五类错误全 0、最大搜索 23.0ms
-- 中国象棋规则边界已在页面和文档明示：没有历史状态，不判长将 / 长捉 / 复杂循环；
-  威胁是几何攻击线；当前不是职业级引擎。
-- 中国象棋上一步 / 攻击流运行版本 `66f5a92` 已推到 `main` 并发布；七个运行文件与线上逐字节一致。
-- 线上复验：中国象棋 **43/43**，国际象棋 **90/90**。
+- 产品已从“两个各自展示的棋种页面”收束为同一个“棋局未来地图”：首页统一定位，两页共用
+  产品壳、路线角色、模式语言和 `window.__futureTest` 契约。
+- 国际象棋保留独立规则 / Worker，新增建议与用户选路分离、路线语境和 2D / 3D 同状态切换。
+- 中国象棋保留独立规则 / Worker，新增 3D 感全景，并与 2D 推演共用候选、强回应、走后 FEN
+  和路线后果。
+- 新增第八个运行文件 `future-map.css`。
+- 当前源码基线：`npm test` 为 **8/8 + 19/19 + 21/21**，国际真机 **92/92**，
+  中国真机 **47/47**。
+- 两套固定 10 局已完成：国际 727 plies，中国 710 plies；非法着、FEN、PV、分叉、威胁和注释
+  失败全部为 0。
+- 本轮发布 commit、八文件哈希和线上复验尚待最终发布步骤完成后填写；未完成前不写成已上线。

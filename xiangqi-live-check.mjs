@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 43;
+const EXPECTED_RESULTS = 47;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -80,6 +80,7 @@ function chromeBinary() {
 
 const MIME = Object.freeze({
   '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
@@ -504,6 +505,268 @@ async function initialAudit() {
     branchAudit.ok ? `${initial.branches.length} 条全部同源` : branchAudit.problems.slice(0, 4).join('；'),
   );
   return initial.fen;
+}
+
+async function futureContractAudit() {
+  await waitFor(
+    `window.__futureTest?.snapshot().suggestedPath.length === 1
+      && !!document.querySelector('#branchGrid .branch-node[data-reply-from]:not([data-reply-from=""])')`,
+    5000,
+    '统一未来地图建议路线',
+  );
+  const state = await evaluate(`(() => {
+    const initial = window.__futureTest.snapshot();
+    const liveBefore = window.__xiangqiTest.fen;
+    const card = document.querySelector(
+      '#branchGrid .branch-node[data-reply-from]:not([data-reply-from=""])'
+    );
+    const key = card ? card.dataset.from + '-' + card.dataset.to : '';
+    const selected = window.__futureTest.selectNode(0, key);
+    const afterSelect = window.__futureTest.snapshot();
+    const liveAfterSelect = window.__xiangqiTest.fen;
+    window.__futureTest.setMode('overview-3d');
+    const overview = window.__futureTest.snapshot();
+    window.__futureTest.setMode('tree-2d');
+    const tree = window.__futureTest.snapshot();
+    window.__futureTest.rewind();
+    return { initial, liveBefore, selected, afterSelect, liveAfterSelect, overview, tree };
+  })()`);
+  const rootCount = generateLegalMoves(parseFen(state.initial.root.fen)).length;
+  const selectedFens = state.afterSelect.selectedPath.map((step) => step.afterFen);
+  const selectedStep = state.afterSelect.selectedPath[0];
+  const firstTransition = selectedStep
+    ? legalTransition(state.initial.root.fen, selectedStep.afterFen)
+    : [];
+  const replyTransition = selectedStep
+    ? legalTransition(selectedStep.afterFen, state.afterSelect.preview.fen)
+    : [];
+  record(
+    state.initial.schema === 1
+      && state.initial.game === 'xiangqi'
+      && state.initial.selectedPath.length === 0
+      && state.initial.suggestedPath.length === 1
+      && state.initial.root.branchCount === rootCount
+      && state.selected === true
+      && selectedFens.length === 1
+      && firstTransition.length === 1
+      && selectedStep.branchCount
+        === generateLegalMoves(parseFen(selectedStep.afterFen)).length
+      && state.afterSelect.preview.depth === 2
+      && state.afterSelect.preview.path[0].role === 'selected'
+      && state.afterSelect.preview.path[1].role === 'engine'
+      && replyTransition.length === 1
+      && sameFen(state.liveAfterSelect, state.liveBefore)
+      && state.overview.mode === 'overview-3d'
+      && state.tree.mode === 'tree-2d'
+      && sameFen(state.overview.preview.fen, state.afterSelect.preview.fen)
+      && sameFen(state.tree.preview.fen, state.afterSelect.preview.fen)
+      && JSON.stringify(state.overview.selectedPath.map((step) => step.afterFen))
+        === JSON.stringify(selectedFens)
+      && JSON.stringify(state.tree.selectedPath.map((step) => step.afterFen))
+        === JSON.stringify(selectedFens),
+    '统一未来地图契约：推荐不冒充选路，2D/3D 共用预演且不改实战',
+    `根=${rootCount}｜初始选路=${state.initial.selectedPath.length}`
+      + `｜选择后=${selectedFens.length}｜合法强应=${replyTransition.length === 1}`
+      + `｜模式=${state.overview.mode}→${state.tree.mode}`
+      + `｜实战未变=${sameFen(state.liveAfterSelect, state.liveBefore)}`,
+  );
+}
+
+async function futureRaceAndOverviewAudit() {
+  await setViewport(1440, 900);
+  const early = await evaluate(`(() => {
+    window.__xiangqiTest.reset();
+    const beforeFen = window.__xiangqiTest.fen;
+    const card = document.querySelector('#branchGrid .branch-node');
+    const key = card ? card.dataset.from + '-' + card.dataset.to : '';
+    card?.click();
+    const snapshot = window.__futureTest.snapshot();
+    return {
+      beforeFen,
+      key,
+      liveFen: window.__xiangqiTest.fen,
+      previewDepth: snapshot.preview.depth,
+      selectedPathLength: snapshot.selectedPath.length,
+      selectedAfterFen: snapshot.selectedPath[0]?.afterFen || '',
+      title: document.getElementById('xqFutureTitle').textContent,
+      replyReady: !!card?.dataset.replyFrom,
+    };
+  })()`);
+  await waitFor(
+    `!!document.querySelector(
+      '#branchGrid .branch-node[data-selected="true"][data-reply-from]:not([data-reply-from=""])'
+    )`,
+    12000,
+    '提前选路后的 Worker 强回应',
+  );
+  const resolved = await evaluate(`(() => {
+    const snapshot = window.__futureTest.snapshot();
+    return {
+      liveFen: window.__xiangqiTest.fen,
+      previewDepth: snapshot.preview.depth,
+      previewFen: snapshot.preview.fen,
+      path: snapshot.preview.path,
+      title: document.getElementById('xqFutureTitle').textContent,
+    };
+  })()`);
+  const selectedStep = resolved.path[0];
+  const replyTransition = selectedStep
+    ? legalTransition(selectedStep.afterFen, resolved.previewFen)
+    : [];
+  record(
+    early.key
+      && early.selectedPathLength === 1
+      && !early.replyReady
+      && early.previewDepth === 1
+      && sameFen(early.liveFen, early.beforeFen)
+      && resolved.previewDepth === 2
+      && resolved.path[1]?.role === 'engine'
+      && replyTransition.length === 1
+      && !resolved.title.includes('无合法应手')
+      && sameFen(resolved.liveFen, early.beforeFen),
+    '分叉 Worker 回包前先选路线，回应就绪后会升级同一预演且不改实战',
+    `提前=${early.previewDepth}层/${early.replyReady ? '已有回应' : '未有回应'}`
+      + `｜回包后=${resolved.previewDepth}层`
+      + `｜合法强应=${replyTransition.length === 1}`
+      + `｜实战未变=${sameFen(resolved.liveFen, early.beforeFen)}`,
+  );
+
+  await evaluate(`(() => {
+    window.__futureTest.rewind();
+    window.__futureTest.setMode('overview-3d');
+    document.getElementById('xqOverview').scrollIntoView({ block: 'center' });
+  })()`);
+  await sleep(120);
+  const overviewBefore = await evaluate(`(() => {
+    const host = document.getElementById('xqOverview');
+    const svg = document.getElementById('xqOverviewSvg');
+    const hostRect = host.getBoundingClientRect();
+    const svgRect = svg.getBoundingClientRect();
+    const nodes = [...svg.querySelectorAll('[data-overview-key]')];
+    const visible = nodes.filter((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.right > svgRect.left && rect.left < svgRect.right
+        && rect.bottom > svgRect.top && rect.top < svgRect.bottom;
+    }).length;
+    return {
+      total: nodes.length,
+      visible,
+      startX: hostRect.left + 38,
+      startY: hostRect.bottom - 26,
+      dragX: Math.min(530, Math.max(160, hostRect.width - 76)),
+    };
+  })()`);
+  await send('Input.dispatchMouseEvent', {
+    type: 'mousePressed',
+    x: overviewBefore.startX,
+    y: overviewBefore.startY,
+    button: 'left',
+    buttons: 1,
+    clickCount: 1,
+  });
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseMoved',
+    x: overviewBefore.startX + overviewBefore.dragX,
+    y: overviewBefore.startY,
+    button: 'left',
+    buttons: 1,
+  });
+  await send('Input.dispatchMouseEvent', {
+    type: 'mouseReleased',
+    x: overviewBefore.startX + overviewBefore.dragX,
+    y: overviewBefore.startY,
+    button: 'left',
+    buttons: 0,
+    clickCount: 1,
+  });
+  await sleep(100);
+  const overviewAfter = await evaluate(`(() => {
+    const svg = document.getElementById('xqOverviewSvg');
+    const svgRect = svg.getBoundingClientRect();
+    const nodes = [...svg.querySelectorAll('[data-overview-key]')];
+    const rects = nodes.map((node) => node.getBoundingClientRect());
+    return {
+      total: nodes.length,
+      visible: rects.filter((rect) =>
+        rect.right > svgRect.left && rect.left < svgRect.right
+          && rect.bottom > svgRect.top && rect.top < svgRect.bottom
+      ).length,
+      minLeft: Math.min(...rects.map((rect) => rect.left)),
+      maxRight: Math.max(...rects.map((rect) => rect.right)),
+      svgLeft: svgRect.left,
+      svgRight: svgRect.right,
+    };
+  })()`);
+  record(
+    overviewBefore.total === 44
+      && overviewBefore.visible === overviewBefore.total
+      && overviewAfter.total === overviewBefore.total
+      && overviewAfter.visible === overviewAfter.total,
+    '全景大幅拖动后全部真实下一步仍留在可见地图内',
+    `拖前=${overviewBefore.visible}/${overviewBefore.total}`
+      + `｜拖后=${overviewAfter.visible}/${overviewAfter.total}`
+      + `｜范围=${overviewAfter.minLeft.toFixed(0)}..${overviewAfter.maxRight.toFixed(0)}`
+      + ` / ${overviewAfter.svgLeft.toFixed(0)}..${overviewAfter.svgRight.toFixed(0)}`,
+  );
+  await evaluate(`(() => {
+    window.__futureTest.setMode('tree-2d');
+    window.__futureTest.rewind();
+    window.scrollTo(0, 0);
+  })()`);
+}
+
+async function futureColorRoleAudit() {
+  await waitFor(
+    `!!document.querySelector('#branchGrid .branch-node.suggested')`,
+    5000,
+    '金色建议节点',
+  );
+  const suggested = await evaluate(`(() => {
+    const node = document.querySelector('#branchGrid .branch-node.suggested');
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--gold)';
+    document.body.appendChild(probe);
+    const expected = getComputedStyle(probe).color;
+    probe.remove();
+    const border = getComputedStyle(node).borderColor;
+    const channels = (color) => (color.match(/[\\d.]+/g) || []).slice(0, 3).join(',');
+    return { border, expected, hueMatches: channels(border) === channels(expected) };
+  })()`);
+  const fixture = '3kr4/9/9/9/9/R3R4/9/9/9/5K3 w - - 0 1';
+  await evaluate(`window.__xiangqiTest.loadFen(${JSON.stringify(fixture)})`);
+  await waitFor(
+    `!!document.querySelector('#branchGrid .branch-node.capture')`,
+    5000,
+    '可吃路线节点',
+  );
+  const selected = await evaluate(`(() => {
+    document.querySelector('#branchGrid .branch-node.capture').click();
+    const node = document.querySelector('#branchGrid .branch-node[data-selected="true"]');
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--future-blue)';
+    document.body.appendChild(probe);
+    const expected = getComputedStyle(probe).color;
+    probe.remove();
+    return {
+      border: getComputedStyle(node).borderColor,
+      expected,
+      effect: node.dataset.effect,
+    };
+  })()`);
+  record(
+    suggested.hueMatches
+      && selected.effect.includes('capture')
+      && selected.border === selected.expected,
+    '统一颜色角色：未选建议保持金色，选中的吃子路线仍以蓝色选路为最高优先级',
+    `建议=${suggested.border}/${suggested.expected}`
+      + `｜选中吃子=${selected.border}/${selected.expected}`,
+  );
+  await evaluate('window.__xiangqiTest.reset()');
+  await waitFor(
+    `!!document.querySelector('#branchGrid .branch-node[data-reply-from]:not([data-reply-from=""])')`,
+    12000,
+    '颜色角色审计后恢复初始分叉',
+  );
 }
 
 async function selectPawnWithoutMoving() {
@@ -1503,6 +1766,9 @@ async function main() {
 
   await portalAudit(rootUrl);
   const initialFen = await initialAudit();
+  await futureRaceAndOverviewAudit();
+  await futureContractAudit();
+  await futureColorRoleAudit();
   const beforeMove = await selectPawnWithoutMoving();
   const roundOneFen = await playOneRound(beforeMove);
   await playSecondRound(roundOneFen);

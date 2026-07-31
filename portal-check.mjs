@@ -21,6 +21,7 @@ function read(name) {
 const portal = read('index.html');
 const chess = read('chess.html');
 const xiangqi = read('xiangqi.html');
+const sharedUi = read('future-map.css');
 
 record(Boolean(portal), '根首页存在');
 record(
@@ -38,6 +39,11 @@ record(
 record(
   portal.includes('国际象棋') && portal.includes('中国象棋'),
   '两个入口都用清楚的中文名称',
+);
+record(
+  portal.includes('棋局未来地图')
+    && (portal.match(/同一张未来地图/g) || []).length === 2,
+  '首页用同一个产品定位介绍两套规则',
 );
 
 record(
@@ -57,9 +63,27 @@ record(
   xiangqi.includes('__xiangqiTest') && /data-xq-board/.test(xiangqi),
   '中国象棋页面公开只读验收钩子和棋盘标记',
 );
+record(
+  Boolean(sharedUi)
+    && chess.includes("href=\"./future-map.css\"")
+    && xiangqi.includes("href=\"./future-map.css\""),
+  '两套棋共用同一份未来地图视觉语法',
+);
+record(
+  /data-future-map[^>]*data-game=["']chess["']/.test(chess)
+    && /data-future-map[^>]*data-game=["']xiangqi["']/.test(xiangqi),
+  '两页都声明同形的未来地图根节点',
+);
+record(
+  chess.includes('window.__futureTest')
+    && xiangqi.includes('window.__futureTest')
+    && chess.includes('data-future-context')
+    && xiangqi.includes('data-future-context'),
+  '两页都公开同形选路状态并提供唯一的路线语境栏',
+);
 
 const forbidden = ['8902', '197281'];
-for (const file of ['index.html', 'chess.html', 'engine.js', 'worker.js', 'xiangqi.html', 'xiangqi-engine.js', 'xiangqi-worker.js']) {
+for (const file of ['index.html', 'chess.html', 'future-map.css', 'engine.js', 'worker.js', 'xiangqi.html', 'xiangqi-engine.js', 'xiangqi-worker.js']) {
   const source = read(file);
   record(
     forbidden.every((number) => !source.includes(number)),

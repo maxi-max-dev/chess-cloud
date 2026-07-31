@@ -1,10 +1,12 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="future-product">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta name="theme-color" content="#080b10" />
-<title>中国象棋 · 可能性分叉</title>
+<meta name="description" content="在一张可交互的棋局未来地图里查看中国象棋的真实下一步、强回应与路线后果。" />
+<title>中国象棋 · 棋路未来地图</title>
+<link rel="stylesheet" href="./future-map.css" />
 <style>
   :root {
     --bg: #0c100f;
@@ -224,7 +226,7 @@
     text-anchor: middle; dominant-baseline: central;
   }
   @keyframes last-move-trace-enter {
-    0% { opacity: 0; stroke-dashoffset: 1; }
+    0% { opacity: .12; stroke-dashoffset: 1; }
     100% { opacity: .92; stroke-dashoffset: 0; }
   }
   @keyframes last-move-target-impact {
@@ -313,7 +315,7 @@
     100% { opacity: 1; transform: scale(1); }
   }
   @keyframes threat-path-enter {
-    0% { opacity: 0; stroke-dashoffset: 30; }
+    0% { opacity: calc(var(--threat-opacity) * .12); stroke-dashoffset: 30; }
     100% { opacity: var(--threat-opacity); stroke-dashoffset: 0; }
   }
   @keyframes threat-flow-scan {
@@ -486,17 +488,21 @@
     border-color: rgba(164, 186, 174, .19); background: #19231f;
   }
   button.branch-node::before {
-    content: ""; position: absolute; left: 50%; top: -17px;
+    content: none;
+  }
+  .branch-entry-edge {
+    position: absolute; left: 50%; top: -17px;
     width: 1px; height: 16px; background: rgba(102, 197, 173, .32);
+    pointer-events: none;
   }
   button.branch-node:hover { border-color: rgba(102, 197, 173, .6); background: #1c312b; }
   .branch-node.capture { border-color: rgba(255, 113, 107, .30); }
   .branch-node.suggested {
-    border-color: rgba(102, 197, 173, .72);
-    background: #1a3b32;
-    box-shadow: inset 3px 0 0 var(--blue), 0 8px 18px rgba(0, 0, 0, .2);
+    border-color: rgba(214, 170, 92, .76);
+    background: #352b18;
+    box-shadow: inset 3px 0 0 var(--gold), 0 8px 18px rgba(0, 0, 0, .2);
   }
-  .branch-node.suggested small { color: #a9dfd0; }
+  .branch-node.suggested small { color: #e5c98e; }
   .thinking-row {
     width: 100%; margin-top: 18px; padding: 12px;
     border: 1px solid rgba(242, 189, 99, .20); border-radius: 10px;
@@ -587,16 +593,134 @@
     .piece.just-moved { will-change: auto; }
     .threat-flow { opacity: .42; stroke-dasharray: .12 .88; }
   }
+
+  .topbar .turn-pill { margin-left: 0; }
+  .topbar .future-game-nav { margin-left: auto; }
+  .tree-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .tree-title { flex: 1 1 280px; }
+  .tree-title .future-map-legend { margin-top: 9px; }
+  .tree-toolbar { align-items: center; }
+  .tree-toolbar .view-mode {
+    min-width: 70px;
+    color: var(--future-muted);
+  }
+  .tree-toolbar .view-mode[aria-pressed="true"] {
+    color: var(--future-text);
+    border-color: rgba(121, 230, 219, .48);
+    background: var(--future-blue-soft);
+  }
+  .tree-panel[data-mode="overview-3d"] #treeViewport { display: none; }
+  .tree-panel[data-mode="tree-2d"] #xqOverview { display: none; }
+  #xqOverview {
+    position: relative;
+    height: 646px;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 12% 50%, rgba(121,230,219,.12), transparent 34%),
+      linear-gradient(rgba(151,180,166,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(151,180,166,.035) 1px, transparent 1px),
+      #081116;
+    background-size: auto, 28px 28px, 28px 28px, auto;
+    touch-action: none;
+    cursor: grab;
+  }
+  #xqOverview:active { cursor: grabbing; }
+  #xqOverviewSvg { display: block; width: 100%; height: 100%; }
+  #xqOverviewSvg .overview-option {
+    fill: none;
+    stroke: rgba(116,133,139,.44);
+    stroke-width: 1.2;
+    vector-effect: non-scaling-stroke;
+  }
+  #xqOverviewSvg .overview-option[data-suggested="true"] {
+    stroke: var(--future-gold);
+    stroke-width: 2.2;
+  }
+  #xqOverviewSvg .overview-option[data-selected="true"] {
+    stroke: var(--future-blue);
+    stroke-width: 3;
+  }
+  #xqOverviewSvg .overview-node {
+    fill: #142329;
+    stroke: rgba(175,204,201,.38);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  #xqOverviewSvg [data-selected="true"] .overview-node {
+    stroke: var(--future-blue);
+    fill: #153a3a;
+  }
+  #xqOverviewSvg [data-suggested="true"] .overview-node {
+    stroke: var(--future-gold);
+    fill: #362d1a;
+  }
+  #xqOverviewSvg text {
+    fill: var(--future-text);
+    font-family: inherit;
+    pointer-events: none;
+  }
+  .xq-overview-hud {
+    position: absolute;
+    left: 14px;
+    right: 14px;
+    bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    border: 1px solid var(--future-edge);
+    border-radius: 11px;
+    color: var(--future-muted);
+    background: rgba(6,15,20,.82);
+    font-size: 10px;
+    pointer-events: none;
+  }
+  #xqFutureContext { padding: 10px 14px; min-height: 76px; }
+  #xqFutureContext .future-context-detail { white-space: normal; }
+  .branch-node[data-selected="true"] {
+    border-color: var(--future-blue);
+    background: #153a36;
+    box-shadow: inset 3px 0 0 var(--future-blue), 0 8px 18px rgba(0,0,0,.2);
+  }
+  .branch-node[data-effect~="capture"]:not([data-selected="true"]),
+  .branch-node[data-effect~="check"]:not([data-selected="true"]),
+  .branch-node[data-effect~="exposure"]:not([data-selected="true"]) {
+    border-color: rgba(239,102,92,.5);
+  }
+
+  @media (max-width: 760px) {
+    #xqOverview { height: min(56vh, 520px); min-height: 360px; }
+    .tree-toolbar {
+      width: 100%;
+      margin-left: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    .tree-toolbar button { flex: 0 0 auto; }
+  }
+  @media (max-width: 760px) and (orientation: landscape) {
+    #xqOverview { height: calc(100vh - 104px); min-height: 260px; }
+  }
 </style>
 </head>
 <body>
 <main class="app">
-  <header class="topbar">
-    <a class="back" href="./" aria-label="返回棋类选择">←</a>
-    <div class="brand">
-      <h1>中国象棋 · 可能性分叉</h1>
-      <p>每一个数字来自当前真实局面；点击棋子，看合法去处和当前攻击线。</p>
-    </div>
+  <header class="topbar future-appbar" aria-label="棋路产品导航">
+    <a class="back future-home" href="./" aria-label="返回棋路首页">←</a>
+    <a class="future-brand" href="./">
+      <span class="future-brand-mark" aria-hidden="true"></span>
+      <span class="future-brand-copy">
+        <b>棋路 · 未来地图</b>
+        <small>中国象棋 · 看见选择，以及选择之后</small>
+      </span>
+    </a>
+    <nav class="future-game-nav" aria-label="切换棋种">
+      <a href="./chess.html">国际象棋</a>
+      <a href="./xiangqi.html" aria-current="page">中国象棋</a>
+    </nav>
     <div id="turnPill" class="turn-pill" data-side="red">红方行棋</div>
   </header>
 
@@ -677,35 +801,68 @@
       </div>
     </section>
 
-    <section class="panel tree-panel" aria-label="二维分叉路径">
+    <section class="panel tree-panel" aria-label="棋局未来地图"
+             data-future-map data-game="xiangqi" data-mode="tree-2d"
+             data-phase="syncing" data-route-owner="none">
       <header class="tree-head">
         <div class="tree-title">
-          <h2>全景路径图 · 纯 2D</h2>
-          <p>横向拖动查看；蓝色是你走过的路，金色是引擎当前主线。</p>
+          <span class="future-kicker">Future map · Xiangqi</span>
+          <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
+          <p>第一层完整显示当前全部真实走法；点一条路线，棋盘同步标出你的一步与黑方强回应。</p>
+          <div class="future-map-legend" aria-label="未来地图图例">
+            <span class="future-legend-key" data-kind="option">其他合法路线</span>
+            <span class="future-legend-key" data-kind="selected">正在预演</span>
+            <span class="future-legend-key" data-kind="played">实战历史</span>
+            <span class="future-legend-key" data-kind="engine">引擎强应</span>
+            <span class="future-legend-key" data-kind="effect">吃子 / 威胁</span>
+          </div>
         </div>
         <div class="tree-toolbar" aria-label="路径图缩放">
+          <button id="xqOverviewMode" class="view-mode" type="button"
+                  aria-pressed="false">全景</button>
+          <button id="xqTreeMode" class="view-mode" type="button"
+                  aria-pressed="true">推演</button>
           <button id="zoomOut" type="button" aria-label="缩小路径图">−</button>
           <button id="zoomReset" type="button" aria-label="恢复路径图大小">100%</button>
           <button id="zoomIn" type="button" aria-label="放大路径图">＋</button>
         </div>
       </header>
+      <div id="xqOverview" aria-label="中国象棋三维感全景路径">
+        <svg id="xqOverviewSvg" viewBox="0 0 900 620" role="img"
+             aria-label="从当前局面向未来展开的真实路径"></svg>
+        <div class="xq-overview-hud">
+          <span>拖动改变视角 · 点节点预演，不直接落子</span>
+          <span id="xqOverviewFact">正在读取真实分叉</span>
+        </div>
+      </div>
       <div id="treeViewport" class="tree-viewport">
         <div id="treeCanvas" class="tree-canvas">
-          <div class="legend"><span class="user">已选择路径</span><span class="pv">引擎主变（不是概率）</span></div>
           <section class="path-lane">
-            <span class="lane-label">实战路径</span>
+            <span class="lane-label">实战历史</span>
             <div id="pathRow" class="node-row"></div>
           </section>
           <section class="pv-lane">
-            <span class="lane-label">引擎主线</span>
+            <span class="lane-label">强应路线</span>
             <div id="pvRow" class="node-row"></div>
           </section>
           <section class="branch-block">
-            <span class="lane-label">此刻分叉</span>
+            <span class="lane-label">全部下一步</span>
             <p id="branchSummary" class="branch-summary"></p>
             <div id="branchGrid" class="branch-grid"></div>
             <div id="thinkingRow" class="thinking-row" hidden>黑方正在 Worker 中计算应手，完成前不会伪造分叉。</div>
           </section>
+        </div>
+      </div>
+      <div id="xqFutureContext" class="future-context" data-future-context aria-live="polite">
+        <div class="future-context-copy">
+          <span class="future-context-label">路线语境</span>
+          <span id="xqFutureTitle" class="future-context-title">尚未选择路线</span>
+          <span id="xqFutureDetail" class="future-context-detail">点任一分叉，只预演“你的一步 → 黑方强回应”；确认后才真正落子。</span>
+          <span id="xqFutureEffects" class="future-effects" aria-label="这条路线的直接后果"></span>
+        </div>
+        <div class="future-context-actions">
+          <button id="xqClearPreview" type="button" disabled>回到现在</button>
+          <button id="xqCommit" type="button" disabled>走这步</button>
         </div>
       </div>
     </section>
@@ -757,6 +914,18 @@ const els = Object.freeze({
   zoomOut: document.getElementById('zoomOut'),
   zoomReset: document.getElementById('zoomReset'),
   zoomIn: document.getElementById('zoomIn'),
+  futureMap: document.querySelector('[data-future-map][data-game="xiangqi"]'),
+  futureRoot: document.querySelector('[data-future-map][data-game="xiangqi"] [data-future-root]'),
+  futureTitle: document.getElementById('xqFutureTitle'),
+  futureDetail: document.getElementById('xqFutureDetail'),
+  futureEffects: document.getElementById('xqFutureEffects'),
+  futureCommit: document.getElementById('xqCommit'),
+  futureClear: document.getElementById('xqClearPreview'),
+  overviewMode: document.getElementById('xqOverviewMode'),
+  treeMode: document.getElementById('xqTreeMode'),
+  overview: document.getElementById('xqOverview'),
+  overviewSvg: document.getElementById('xqOverviewSvg'),
+  overviewFact: document.getElementById('xqOverviewFact'),
   fatal: document.getElementById('fatal'),
   fatalMessage: document.getElementById('fatalMessage'),
 });
@@ -913,6 +1082,150 @@ let lastSearchMs = 0;
 let lastSearchDepth = 0;
 let zoom = 1;
 let previewLine = null;
+let futureMode = 'tree-2d';
+let overviewYaw = -.18;
+let overviewPitch = .06;
+let overviewDrag = null;
+const futureNodeCache = new Map();
+
+function futureMoveKey(move) {
+  return move ? `${moveFrom(move)}-${moveTo(move)}` : '';
+}
+
+function rankedForMove(move) {
+  return rankedBranches.find((candidate) => sameMove(candidate, move)) || null;
+}
+
+function futureNodeData(move, ranked = rankedForMove(move)) {
+  const cacheKey = `${currentFen}|${futureMoveKey(move)}`;
+  const cached = futureNodeCache.get(cacheKey);
+  if (cached && (!ranked || cached.ranked)) return cached;
+  const applied = applyOn(position, move);
+  const afterFen = ranked?.after || applied.fen;
+  const branchCount = Number.isInteger(ranked?.replyCount)
+    ? ranked.replyCount
+    : api.legalMoves(api.parseFen(afterFen)).length;
+  const node = Object.freeze({
+    id: `future-1-${futureMoveKey(move)}`,
+    parentId: 'root',
+    parentFen: currentFen,
+    afterFen,
+    depth: 1,
+    side: fenSide(currentFen) === 'red' ? 'w' : 'b',
+    label: ranked ? moveLabel(ranked) : moveLabel(move, position),
+    from: coord(moveFrom(move)),
+    to: coord(moveTo(move)),
+    piece: String(ranked?.piece || move.piece || ''),
+    captured: String(ranked?.captured || move.captured || ''),
+    givesCheck: Boolean(ranked?.givesCheck || move.givesCheck),
+    branchCount,
+    score: Number.isFinite(ranked?.score) ? ranked.score : null,
+    reply: ranked?.reply || null,
+    ranked: !!ranked,
+  });
+  futureNodeCache.set(cacheKey, node);
+  return node;
+}
+
+function orderedFutureMoves() {
+  const rankMap = new Map(rankedBranches.map((move, index) => [
+    futureMoveKey(move), index,
+  ]));
+  return currentMoves.slice().sort((left, right) =>
+    (rankMap.get(futureMoveKey(left)) ?? 999)
+    - (rankMap.get(futureMoveKey(right)) ?? 999));
+}
+
+function futureEffectHtml(effect) {
+  return `<span class="future-effect" data-future-effect data-kind="${escapeHtml(effect.kind)}"`
+    + ` data-evidence="${escapeHtml(effect.evidence)}"`
+    + `${effect.targetSquare ? ` data-target-square="${escapeHtml(effect.targetSquare)}"` : ''}>`
+    + `${escapeHtml(effect.text)}</span>`;
+}
+
+function futureEffectsForPreview(line) {
+  if (!line?.node) return [];
+  const node = line.node;
+  const effects = [];
+  if (node.captured) {
+    effects.push({
+      kind: 'capture',
+      evidence: 'legal-move',
+      targetSquare: node.to,
+      text: `你可吃 ${PIECE_NAMES[node.captured] || '棋子'} · ${node.to}`,
+    });
+  }
+  if (node.givesCheck) {
+    effects.push({ kind: 'check', evidence: 'legal-move', text: '这一步将军' });
+  }
+  if (line.reply?.captured) {
+    effects.push({
+      kind: 'capture',
+      evidence: 'legal-reply',
+      targetSquare: coord(moveTo(line.reply)),
+      text: `黑方强应可吃 ${PIECE_NAMES[line.reply.captured] || '棋子'}`,
+    });
+  }
+  const consequenceFen = line.reply?.after || '';
+  if (consequenceFen && fenSide(consequenceFen) === 'red') {
+    const consequenceBoard = boardFromFen(consequenceFen);
+    const consequenceThreats = computeThreatened(consequenceFen);
+    for (const detail of consequenceThreats.values()) {
+      if (threatened.has(detail.square)) continue;
+      effects.push({
+        kind: 'exposure',
+        evidence: 'geometric',
+        targetSquare: coord(detail.square),
+        text: `${PIECE_NAMES[consequenceBoard[detail.square]] || '棋子'} ${coord(detail.square)} 会进入攻击线`,
+      });
+      if (effects.length >= 4) break;
+    }
+  }
+  if (!effects.length) {
+    effects.push({
+      kind: 'defense',
+      evidence: 'legal-reply',
+      text: '这条浅层强应中未发现直接吃子',
+    });
+  }
+  return effects;
+}
+
+function renderFutureContext() {
+  const line = previewLine;
+  const suggested = rankedBranches[0] || null;
+  if (!line?.node) {
+    els.futureTitle.textContent = suggested
+      ? `建议先看：${moveLabel(suggested)}`
+      : '尚未选择路线';
+    els.futureDetail.textContent = suggested
+      ? '金色只表示浅层排序靠前；点任一节点后才会出现蓝色预演路线。'
+      : '点任一分叉，只预演“你的一步 → 黑方强回应”；确认后才真正落子。';
+    els.futureEffects.replaceChildren();
+    els.futureCommit.disabled = true;
+    els.futureClear.disabled = true;
+    return;
+  }
+  const replyLabel = line.reply ? moveLabel(line.reply) : '无合法应手';
+  els.futureTitle.textContent = `正在预演：${line.node.label} → ${replyLabel}`;
+  els.futureDetail.textContent =
+    `你走后对方有 ${line.node.branchCount} 个真实分支；金色第二拍是浅层较强回应，不是概率。`;
+  els.futureEffects.innerHTML = futureEffectsForPreview(line).map(futureEffectHtml).join('');
+  els.futureCommit.disabled = thinking || gameOver || fenSide(currentFen) !== 'red';
+  els.futureClear.disabled = thinking;
+}
+
+function updateFutureMapState() {
+  els.futureMap.dataset.mode = futureMode;
+  els.futureMap.dataset.phase = thinking ? 'thinking' : branchRequestFen === currentFen && !rankedBranches.length
+    ? 'syncing'
+    : gameOver ? 'gameover' : 'ready';
+  els.futureMap.dataset.routeOwner = previewLine ? 'user' : 'none';
+  els.futureMap.dataset.rootFen = currentFen;
+  els.futureRoot.dataset.fen = currentFen;
+  els.futureRoot.dataset.depth = '0';
+  els.futureRoot.dataset.branchCount = String(currentMoves.length);
+}
 
 function refreshPosition(fen) {
   position = api.parseFen(fen);
@@ -1477,6 +1790,126 @@ function renderStatus() {
   }
 }
 
+function overviewPoint(index, total) {
+  const spread = total > 1 ? index / (total - 1) - .5 : 0;
+  const phase = index * 2.399963229728653;
+  // 必须绕路线云自身中心转，不能把 x≈390 的绝对画布坐标拿去绕世界原点旋转；
+  // 后者会在一次大拖动后把整团真实节点甩出 viewBox。
+  const x = 54 * Math.cos(phase);
+  const y = spread * 500 + 34 * Math.sin(phase * .73);
+  const z = 176 * Math.sin(phase);
+  const cosYaw = Math.cos(overviewYaw);
+  const sinYaw = Math.sin(overviewYaw);
+  const cosPitch = Math.cos(overviewPitch);
+  const sinPitch = Math.sin(overviewPitch);
+  const rx = x * cosYaw - z * sinYaw;
+  const rz = x * sinYaw + z * cosYaw;
+  const ry = y * cosPitch - rz * sinPitch;
+  const depth = y * sinPitch + rz * cosPitch;
+  const scale = clamp(1.03 * 460 / Math.max(260, 460 + depth * .42), .72, 1.12);
+  return {
+    x: clamp(470 + rx * scale, 74, 826),
+    y: clamp(310 + ry * scale * .82, 40, 580),
+    depth,
+    scale,
+  };
+}
+
+function renderOverview() {
+  const moves = orderedFutureMoves();
+  const selectedKey = previewLine?.node ? futureMoveKey(previewLine.move) : '';
+  const paths = [];
+  const nodes = [];
+  const rootX = 92;
+  const rootY = 310;
+  moves.forEach((move, index) => {
+    const ranked = rankedForMove(move);
+    const node = futureNodeData(move, ranked);
+    const point = overviewPoint(index, moves.length);
+    const selected = futureMoveKey(move) === selectedKey;
+    const suggested = !selected && index === 0 && !!rankedBranches.length;
+    const controlX = rootX + (point.x - rootX) * .56;
+    const controlY = rootY + (point.y - rootY) * .18;
+    paths.push(
+      `<path class="overview-option" data-overview-edge data-future-edge`
+      + ` data-parent-id="root" data-child-id="${escapeHtml(node.id)}"`
+      + ` data-selected="${selected}" data-suggested="${suggested}"`
+      + ` data-engine="false" data-played="false"`
+      + ` d="M${rootX},${rootY} C${controlX.toFixed(1)},${rootY} ${controlX.toFixed(1)},${controlY.toFixed(1)} ${point.x.toFixed(1)},${point.y.toFixed(1)}"/>`,
+    );
+    const labelVisible = selected || suggested || index < 11;
+    const width = labelVisible ? Math.max(72, Math.min(118, 46 + node.label.length * 12)) : 20;
+    const height = labelVisible ? 36 : 20;
+    const effect = [
+      node.captured ? 'capture' : '',
+      node.givesCheck ? 'check' : '',
+    ].filter(Boolean).join(' ');
+    nodes.push(
+      `<g class="overview-choice" role="button" tabindex="0"`
+      + ` transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})"`
+      + ` data-overview-key="${futureMoveKey(move)}" data-future-node`
+      + ` data-node-id="${escapeHtml(node.id)}" data-parent-id="root"`
+      + ` data-parent-fen="${escapeHtml(node.parentFen)}" data-fen="${escapeHtml(node.afterFen)}"`
+      + ` data-depth="1" data-side="${node.side}" data-label="${escapeHtml(node.label)}"`
+      + ` data-from="${node.from}" data-to="${node.to}" data-branch-count="${node.branchCount}"`
+      + ` data-resolved="true" data-selected="${selected}" data-suggested="${suggested}"`
+      + ` data-engine="false" data-played="false" data-effect="${effect}"`
+      + ` aria-label="${escapeHtml(node.label)}，走后 ${node.branchCount} 个分支">`
+      + `<rect class="overview-node" x="${(-width / 2).toFixed(1)}" y="${(-height / 2).toFixed(1)}"`
+      + ` width="${width}" height="${height}" rx="${labelVisible ? 9 : 10}"/>`
+      + (labelVisible
+        ? `<text x="0" y="-2" text-anchor="middle" font-size="12" font-weight="700">${escapeHtml(node.label)}</text>`
+          + `<text x="0" y="11" text-anchor="middle" font-size="8.5" fill="#8fa3a4">${node.branchCount} 个后续</text>`
+        : '<line x1="-6" y1="0" x2="6" y2="0" stroke="#8ba0a2" stroke-width="1.4"/>')
+      + `</g>`,
+    );
+  });
+
+  let replyMarkup = '';
+  if (previewLine?.node && previewLine.reply) {
+    const selectedIndex = moves.findIndex((move) => sameMove(move, previewLine.move));
+    const from = overviewPoint(Math.max(0, selectedIndex), Math.max(1, moves.length));
+    const replyDirection = from.x > 690 ? -1 : 1;
+    const to = {
+      x: clamp(from.x + replyDirection * 136, 72, 828),
+      y: Math.max(58, Math.min(562, from.y + (from.y > rootY ? -66 : 66))),
+    };
+    const replyLabel = moveLabel(previewLine.reply);
+    replyMarkup =
+      `<path data-future-edge data-engine="true" data-played="false"`
+      + ` d="M${from.x.toFixed(1)},${from.y.toFixed(1)} C${(from.x + 58).toFixed(1)},${from.y.toFixed(1)} ${(to.x - 48).toFixed(1)},${to.y.toFixed(1)} ${to.x.toFixed(1)},${to.y.toFixed(1)}"`
+      + ` fill="none" stroke="#f1c66b" stroke-width="2.4" stroke-dasharray="7 5"/>`
+      + `<g transform="translate(${to.x.toFixed(1)} ${to.y.toFixed(1)})">`
+      + `<rect x="-58" y="-19" width="116" height="38" rx="10" fill="#352c18" stroke="#f1c66b"/>`
+      + `<text x="0" y="-2" text-anchor="middle" font-size="12" font-weight="700">${escapeHtml(replyLabel)}</text>`
+      + `<text x="0" y="11" text-anchor="middle" font-size="8.5" fill="#b9a56f">黑方较强回应</text></g>`;
+  }
+
+  els.overviewSvg.innerHTML =
+    `<g aria-hidden="true">${paths.join('')}</g>`
+    + `<g class="overview-root"><rect x="34" y="288" width="116" height="44" rx="22"`
+    + ` fill="#12302f" stroke="#79e6db"/>`
+    + `<text x="92" y="306" text-anchor="middle" font-size="12" font-weight="800">现在</text>`
+    + `<text x="92" y="321" text-anchor="middle" font-size="9" fill="#9ab4b2">${moves.length} 个真实下一步</text></g>`
+    + nodes.join('')
+    + replyMarkup;
+  els.overviewFact.textContent =
+    `${moves.length} 条第一层真实路线 · 更深层用节点上的真实分叉数表示`;
+}
+
+function setFutureMode(mode) {
+  futureMode = mode === 'overview-3d' ? 'overview-3d' : 'tree-2d';
+  const overview = futureMode === 'overview-3d';
+  els.overviewMode.setAttribute('aria-pressed', String(overview));
+  els.treeMode.setAttribute('aria-pressed', String(!overview));
+  els.zoomOut.disabled = overview;
+  els.zoomReset.disabled = overview;
+  els.zoomIn.disabled = overview;
+  updateFutureMapState();
+  if (overview) renderOverview();
+  return futureMode;
+}
+
 function renderTree() {
   const rootCount = snapshots[0] && snapshots[0].legalCount;
   const nodes = [
@@ -1500,7 +1933,8 @@ function renderTree() {
   if (pv.length) {
     els.pvRow.innerHTML = pv.map((step, index) =>
       `<span class="pv-node" data-pv-index="${index}" data-fen="${escapeHtml(step.after || '')}"`
-      + ` data-branches="${Number.isInteger(step.branchCount) ? step.branchCount : ''}" data-ply="${path.length + index + 1}">`
+      + ` data-branches="${Number.isInteger(step.branchCount) ? step.branchCount : ''}" data-ply="${path.length + index + 1}"`
+      + ` data-engine="true" data-played="false">`
       + `<b>${index + 1}. ${escapeHtml(moveLabel(step))}</b>`
       + `<small>${index % 2 === 0 ? '主线下一着' : '主线应对'} · 搜索完成层</small></span>`).join('');
   } else {
@@ -1515,28 +1949,44 @@ function renderTree() {
   } else {
     const board = boardFromFen(currentFen);
     const rankMap = new Map(rankedBranches.map((move, index) => [
-      `${moveFrom(move)}-${moveTo(move)}`, { move, rank: index },
+      futureMoveKey(move), { move, rank: index },
     ]));
-    const visibleMoves = currentMoves.slice().sort((a, b) =>
-      (rankMap.get(`${moveFrom(a)}-${moveTo(a)}`)?.rank ?? 999)
-      - (rankMap.get(`${moveFrom(b)}-${moveTo(b)}`)?.rank ?? 999));
+    const visibleMoves = orderedFutureMoves();
     els.branchGrid.innerHTML = visibleMoves.map((move, index) => {
       const target = board[moveTo(move)];
-      const ranked = rankMap.get(`${moveFrom(move)}-${moveTo(move)}`)?.move;
+      const ranked = rankMap.get(futureMoveKey(move))?.move;
+      const node = futureNodeData(move, ranked);
+      const selected = !!previewLine && sameMove(previewLine.move, move);
       const replyLabel = ranked?.reply ? escapeHtml(moveLabel(ranked.reply)) : '无合法应手';
-      const copy = index === 0 && ranked
-        ? `当前建议 · 回应 ${replyLabel}`
+      const copy = selected
+        ? `正在预演 · 回应 ${replyLabel}`
+        : index === 0 && ranked
+          ? `建议先看 · 回应 ${replyLabel}`
         : ranked
-          ? `回应 ${replyLabel} · ${ranked.replyCount} 应手`
+          ? `回应 ${replyLabel} · ${node.branchCount} 应手`
           : target
             ? `可吃 ${escapeHtml(PIECE_NAMES[target] || target)}`
             : `${coord(moveFrom(move))} 到 ${coord(moveTo(move))}`;
-      return `<button class="branch-node ${target ? 'capture' : ''} ${index === 0 && ranked ? 'suggested' : ''}"`
+      const effects = [
+        node.captured ? 'capture' : '',
+        node.givesCheck ? 'check' : '',
+        ranked?.reply?.captured ? 'exposure' : '',
+      ].filter(Boolean).join(' ');
+      return `<button class="branch-node ${target ? 'capture' : ''} ${index === 0 && ranked ? 'suggested' : ''} ${selected ? 'selected' : ''}"`
         + ` type="button" data-from="${moveFrom(move)}" data-to="${moveTo(move)}"`
         + ` data-reply-from="${ranked?.reply ? moveFrom(ranked.reply) : ''}"`
         + ` data-reply-to="${ranked?.reply ? moveTo(ranked.reply) : ''}"`
-        + ` data-fen="${escapeHtml(ranked?.after || '')}" data-branches="${ranked?.replyCount ?? ''}" data-ply="${path.length + 1}">`
-        + `<b>${escapeHtml(ranked ? moveLabel(ranked) : moveLabel(move, position))}</b>`
+        + ` data-fen="${escapeHtml(node.afterFen)}" data-branches="${node.branchCount}" data-ply="${path.length + 1}"`
+        + ` data-future-node data-node-id="${escapeHtml(node.id)}" data-parent-id="root"`
+        + ` data-parent-fen="${escapeHtml(node.parentFen)}" data-depth="1" data-side="${node.side}"`
+        + ` data-label="${escapeHtml(node.label)}" data-branch-count="${node.branchCount}"`
+        + ` data-resolved="true" data-selected="${selected}"`
+        + ` data-suggested="${index === 0 && !!ranked}" data-engine="false"`
+        + ` data-played="false" data-effect="${effects}">`
+        + `<span class="branch-entry-edge" aria-hidden="true" data-future-edge`
+        + ` data-parent-id="root" data-child-id="${escapeHtml(node.id)}"`
+        + ` data-selected="${selected}" data-engine="false" data-played="false"></span>`
+        + `<b>${escapeHtml(node.label)}</b>`
         + `<small>${copy}</small></button>`;
     }).join('');
   }
@@ -1558,6 +2008,9 @@ function render() {
   renderThreatStrip();
   renderStatus();
   renderTree();
+  updateFutureMapState();
+  renderFutureContext();
+  if (futureMode === 'overview-3d') renderOverview();
 }
 
 function focusMove(move, ranked = null) {
@@ -1566,6 +2019,7 @@ function focusMove(move, ranked = null) {
   previewLine = {
     move: ranked || move,
     reply: ranked?.reply || null,
+    node: futureNodeData(move, ranked),
   };
   render();
   els.board.querySelector(`[data-square="${moveTo(move)}"]`)?.focus({ preventScroll: true });
@@ -1606,6 +2060,7 @@ function play(move, actor) {
   position = result.position;
   currentFen = result.fen;
   currentMoves = api.legalMoves(position);
+  futureNodeCache.clear();
   const step = {
     move: result.move,
     label,
@@ -1696,6 +2151,19 @@ function onWorkerMessage(event) {
   if (message.type === 'branchesDone') {
     if (Number(message.id) !== branchRequestId || currentFen !== branchRequestFen || thinking) return;
     rankedBranches = Array.isArray(message.result?.branches) ? message.result.branches : [];
+    // 用户可能在 Worker 回包前已点了一条同步渲染的合法路线。排名和强回应到达后，
+    // 必须升级同一条预演，不能把当时的 null 永久解释成“无合法应手”。
+    const selectedMove = previewLine?.move
+      ? currentMoves.find((candidate) => sameMove(candidate, previewLine.move))
+      : null;
+    const selectedRanked = selectedMove ? rankedForMove(selectedMove) : null;
+    if (selectedMove && selectedRanked) {
+      previewLine = {
+        move: selectedRanked,
+        reply: selectedRanked.reply || null,
+        node: futureNodeData(selectedMove, selectedRanked),
+      };
+    }
     render();
     return;
   }
@@ -1782,6 +2250,7 @@ function resetGame() {
   gameOver = currentMoves.length === 0;
   snapshots = [{ fen: currentFen, pathLength: 0, legalCount: currentMoves.length }];
   rankedBranches = [];
+  futureNodeCache.clear();
   lastSearchMs = 0;
   lastSearchDepth = 0;
   els.searchFact.textContent = '待命';
@@ -1810,6 +2279,7 @@ function undoRound() {
   lastMoveOverlayKey = '';
   pv = [];
   rankedBranches = [];
+  futureNodeCache.clear();
   gameOver = currentMoves.length === 0;
   els.searchFact.textContent = '已撤回';
   render();
@@ -1827,6 +2297,68 @@ els.reset.addEventListener('click', resetGame);
 els.zoomOut.addEventListener('click', () => setZoom(zoom - .12));
 els.zoomIn.addEventListener('click', () => setZoom(zoom + .12));
 els.zoomReset.addEventListener('click', () => setZoom(1));
+els.overviewMode.addEventListener('click', () => setFutureMode('overview-3d'));
+els.treeMode.addEventListener('click', () => setFutureMode('tree-2d'));
+els.futureClear.addEventListener('click', () => {
+  if (thinking) return;
+  selectedSquare = -1;
+  previewLine = null;
+  render();
+});
+els.futureCommit.addEventListener('click', () => {
+  if (!previewLine || thinking || gameOver) return;
+  const move = currentMoves.find((candidate) => sameMove(candidate, previewLine.move));
+  if (move) play(move, 'red');
+});
+els.overviewSvg.addEventListener('click', (event) => {
+  if (overviewDrag?.moved) {
+    overviewDrag = null;
+    return;
+  }
+  const node = event.target.closest('[data-overview-key]');
+  if (!node || thinking || gameOver) return;
+  const move = currentMoves.find((candidate) => futureMoveKey(candidate) === node.dataset.overviewKey);
+  if (move) focusMove(move, rankedForMove(move));
+});
+els.overviewSvg.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const node = event.target.closest('[data-overview-key]');
+  if (!node || thinking || gameOver) return;
+  const move = currentMoves.find((candidate) => futureMoveKey(candidate) === node.dataset.overviewKey);
+  if (move) {
+    focusMove(move, rankedForMove(move));
+    event.preventDefault();
+  }
+});
+els.overview.addEventListener('pointerdown', (event) => {
+  if (event.target.closest('[data-overview-key]')) return;
+  overviewDrag = {
+    id: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    moved: false,
+  };
+  els.overview.setPointerCapture?.(event.pointerId);
+});
+els.overview.addEventListener('pointermove', (event) => {
+  if (!overviewDrag || overviewDrag.id !== event.pointerId) return;
+  const dx = event.clientX - overviewDrag.x;
+  const dy = event.clientY - overviewDrag.y;
+  if (Math.abs(dx) + Math.abs(dy) < 2) return;
+  overviewYaw += dx * .006;
+  overviewPitch = clamp(overviewPitch + dy * .003, -.34, .34);
+  overviewDrag.x = event.clientX;
+  overviewDrag.y = event.clientY;
+  overviewDrag.moved = true;
+  renderOverview();
+});
+const finishOverviewDrag = (event) => {
+  if (!overviewDrag || overviewDrag.id !== event.pointerId) return;
+  try { els.overview.releasePointerCapture?.(event.pointerId); } catch {}
+  if (!overviewDrag.moved) overviewDrag = null;
+};
+els.overview.addEventListener('pointerup', finishOverviewDrag);
+els.overview.addEventListener('pointercancel', finishOverviewDrag);
 els.threatChips.addEventListener('click', (event) => {
   const button = event.target.closest('[data-threat-square]');
   if (!button || thinking || gameOver) return;
@@ -1882,6 +2414,7 @@ function loadFenForTest(fen) {
   path = [];
   pv = [];
   rankedBranches = [];
+  futureNodeCache.clear();
   position = api.parseFen(fen);
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
@@ -1909,6 +2442,123 @@ function killWorkerForTest() {
   if (thinking) fallbackAi('测试终止 Worker');
   return true;
 }
+
+function freezeFutureValue(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  for (const item of Object.values(value)) freezeFutureValue(item);
+  return value;
+}
+
+function xqFutureRecord(move, depth, role, parentFen = currentFen) {
+  const afterFen = move.after || applyOn(api.parseFen(parentFen), move).fen;
+  return {
+    id: `future-${depth}-${futureMoveKey(move)}`,
+    depth,
+    label: moveLabel(move, api.parseFen(parentFen)),
+    from: coord(moveFrom(move)),
+    to: coord(moveTo(move)),
+    afterFen,
+    branchCount: api.legalMoves(api.parseFen(afterFen)).length,
+    role,
+  };
+}
+
+function futureSnapshot() {
+  updateFutureMapState();
+  const selectedPath = [];
+  if (previewLine?.node) {
+    selectedPath.push({
+      id: previewLine.node.id,
+      depth: 1,
+      label: previewLine.node.label,
+      from: previewLine.node.from,
+      to: previewLine.node.to,
+      afterFen: previewLine.node.afterFen,
+      branchCount: previewLine.node.branchCount,
+      role: 'selected',
+    });
+  }
+  const previewPath = selectedPath.slice();
+  if (previewLine?.reply) {
+    previewPath.push(xqFutureRecord(
+      previewLine.reply,
+      2,
+      'engine',
+      previewLine.node.afterFen,
+    ));
+  }
+  const activeView = futureMode === 'overview-3d' ? els.overviewSvg : els.branchGrid;
+  return freezeFutureValue({
+    schema: 1,
+    game: 'xiangqi',
+    phase: els.futureMap.dataset.phase,
+    mode: futureMode,
+    root: {
+      fen: currentFen,
+      turn: fenSide(currentFen) === 'red' ? 'w' : 'b',
+      historyPly: path.length,
+      branchCount: currentMoves.length,
+    },
+    focusSquare: selectedSquare < 0 ? null : coord(selectedSquare),
+    selectedPath,
+    suggestedPath: rankedBranches.slice(0, 1).map((move) =>
+      xqFutureRecord(move, 1, 'suggested')),
+    preview: {
+      fen: previewPath.at(-1)?.afterFen || currentFen,
+      depth: previewPath.length,
+      path: previewPath,
+    },
+    enginePath: {
+      verified: pv.length > 0,
+      sourceFen: currentFen,
+      path: pv.map((move, index) =>
+        xqFutureRecord(
+          move,
+          index + 1,
+          'engine',
+          index === 0 ? currentFen : pv[index - 1].after,
+        )),
+    },
+    rendered: {
+      nodes: activeView.querySelectorAll('[data-future-node]').length,
+      edges: activeView.querySelectorAll('[data-future-edge]').length,
+      effects: els.futureEffects.querySelectorAll('[data-future-effect]').length,
+    },
+  });
+}
+
+function selectFutureNode(parentDepth, key) {
+  if (Number(parentDepth) !== 0 || thinking || gameOver) return false;
+  const move = currentMoves.find((candidate) =>
+    futureMoveKey(candidate) === String(key)
+    || moveLabel(candidate, position) === String(key));
+  if (!move) return false;
+  focusMove(move, rankedForMove(move));
+  return true;
+}
+
+window.__futureTest = Object.freeze({
+  schema: 1,
+  game: 'xiangqi',
+  snapshot: futureSnapshot,
+  selectNode: selectFutureNode,
+  rewind: () => {
+    if (thinking) return false;
+    selectedSquare = -1;
+    previewLine = null;
+    render();
+    return true;
+  },
+  setMode: setFutureMode,
+  commitSelected: () => {
+    if (!previewLine || thinking || gameOver) return false;
+    const move = currentMoves.find((candidate) => sameMove(candidate, previewLine.move));
+    if (!move) return false;
+    play(move, 'red');
+    return true;
+  },
+});
 
 const testHook = {};
 Object.defineProperties(testHook, {

@@ -21,7 +21,7 @@ let PORT = Number(arg('--port', '0'));
 const SHOT = arg('--shot', path.join(os.tmpdir(), 'chess-cloud-shot.png'));
 let URL_ = arg('--url', null);
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
 
 let server = null, chromeProcess = null;
 async function serveLocal() {
@@ -905,7 +905,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 90;
+const EXPECTED_RESULTS = 92;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -3650,6 +3650,97 @@ async function main() {
       + `｜协议错误=${lifecycleError || '无'}`);
   await evalJs('document.getElementById("exploreReset").click()');
   await closeCloudAndWaitPreview();
+
+  const futureContract = await evalJs(`(() => {
+    const initial = window.__futureTest.snapshot();
+    const initialButtons = {
+      legacyDisabled: document.getElementById('btnPlayLine').disabled,
+      commitDisabled: document.getElementById('futureCommit').disabled,
+    };
+    const liveBefore = window.__test.state();
+    const key = initial.suggestedPath[0]?.afterFen || '';
+    const selected = key ? window.__futureTest.selectNode(0, key) : false;
+    const afterSelect = window.__futureTest.snapshot();
+    const selectedButtons = {
+      legacyDisabled: document.getElementById('btnPlayLine').disabled,
+      commitDisabled: document.getElementById('futureCommit').disabled,
+    };
+    const liveAfterSelect = window.__test.state();
+    const treeReturn = window.__futureTest.setMode('tree-2d');
+    const tree = window.__futureTest.snapshot();
+    const overviewReturn = window.__futureTest.setMode('overview-3d');
+    const overview = window.__futureTest.snapshot();
+    const rewound = window.__futureTest.rewind(0);
+    const clean = window.__futureTest.snapshot();
+    const cleanButtons = {
+      legacyDisabled: document.getElementById('btnPlayLine').disabled,
+      commitDisabled: document.getElementById('futureCommit').disabled,
+    };
+    return {
+      initial, liveBefore, selected, afterSelect, liveAfterSelect,
+      treeReturn, tree, overviewReturn, overview, rewound, clean,
+      initialButtons, selectedButtons, cleanButtons,
+    };
+  })()`);
+  const futureRootCount = count(futureContract.initial.root.fen, 1);
+  const futureStep = futureContract.afterSelect.selectedPath[0];
+  let futureStepReplays = false;
+  try {
+    const replay = new Chess(futureContract.initial.root.fen);
+    const moved = replay.move({
+      from: futureStep?.from,
+      to: futureStep?.to,
+      promotion: futureStep?.promotion || 'q',
+    });
+    futureStepReplays = !!moved
+      && replay.fen() === futureStep?.afterFen
+      && futureStep.branchCount === count(futureStep.afterFen, 1);
+  } catch {}
+  const futureSelectedFens = futureContract.afterSelect.selectedPath.map((step) => step.afterFen);
+  record(
+    futureContract.initial.schema === 1
+      && futureContract.initial.game === 'chess'
+      && futureContract.initial.selectedPath.length === 0
+      && futureContract.initial.suggestedPath.length > 0
+      && futureContract.initial.root.branchCount === futureRootCount
+      && futureContract.selected === true
+      && futureStepReplays
+      && futureSelectedFens.length === 1
+      && futureContract.afterSelect.preview.depth === 1
+      && futureContract.afterSelect.preview.fen === futureStep?.afterFen
+      && futureContract.liveAfterSelect.fen === futureContract.liveBefore.fen
+      && JSON.stringify(futureContract.liveAfterSelect.history)
+        === JSON.stringify(futureContract.liveBefore.history)
+      && futureContract.treeReturn === '2d'
+      && futureContract.tree.mode === 'tree-2d'
+      && futureContract.overviewReturn === '3d'
+      && futureContract.overview.mode === 'overview-3d'
+      && futureContract.tree.preview.fen === futureContract.afterSelect.preview.fen
+      && futureContract.overview.preview.fen === futureContract.afterSelect.preview.fen
+      && JSON.stringify(futureContract.tree.selectedPath.map((step) => step.afterFen))
+        === JSON.stringify(futureSelectedFens)
+      && JSON.stringify(futureContract.overview.selectedPath.map((step) => step.afterFen))
+        === JSON.stringify(futureSelectedFens)
+      && futureContract.rewound === true
+      && futureContract.clean.selectedPath.length === 0,
+    '统一未来地图契约：推荐不冒充选路，2D/3D 共用合法预演且不改实战',
+    `根=${futureRootCount}｜初始选路=${futureContract.initial.selectedPath.length}`
+      + `｜选择后=${futureSelectedFens.length}｜合法=${futureStepReplays}`
+      + `｜模式=${futureContract.tree.mode}→${futureContract.overview.mode}`
+      + `｜实战未变=${futureContract.liveAfterSelect.fen === futureContract.liveBefore.fen}`,
+  );
+  record(
+    futureContract.initialButtons.legacyDisabled
+      && futureContract.initialButtons.commitDisabled
+      && !futureContract.selectedButtons.legacyDisabled
+      && !futureContract.selectedButtons.commitDisabled
+      && futureContract.cleanButtons.legacyDisabled
+      && futureContract.cleanButtons.commitDisabled,
+    '引擎建议不能从旧按钮旁路落子，只有用户明确选路后两个确认入口才启用',
+    `初始=${futureContract.initialButtons.legacyDisabled}/${futureContract.initialButtons.commitDisabled}`
+      + `｜选路后=${futureContract.selectedButtons.legacyDisabled}/${futureContract.selectedButtons.commitDisabled}`
+      + `｜清空后=${futureContract.cleanButtons.legacyDisabled}/${futureContract.cleanButtons.commitDisabled}`,
+  );
 
   // 只有用户明确点「放大探索」才加载完整第 4 层，再逐层对数。
   const s1 = await openCloudAndWait();
