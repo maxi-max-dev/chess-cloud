@@ -656,6 +656,29 @@
   #moveLine { margin-top: 9px; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--faint); }
   #moveLine b { color: #dfd2a2; font-weight: 600; }
   #moveLine .num { color: #4b5165; margin-right: 2px; }
+  #forkPvGuide {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px;
+    align-items: center; min-width: 0; margin-top: 9px; padding: 7px 8px;
+    border: 1px solid rgba(255,211,106,.22); border-radius: 10px;
+    background: linear-gradient(90deg, rgba(88,64,15,.2), rgba(20,23,34,.36));
+  }
+  #forkPvGuide[hidden] { display: none; }
+  #forkPvLead { min-width: 105px; color: #ffd978; font-size: 10px; line-height: 1.35; }
+  #forkPvLead b { display: block; color: #ffe6a2; font-size: 11.5px; }
+  #forkPvLead span { color: #7f7a69; white-space: nowrap; }
+  #forkPvRail {
+    display: flex; min-width: 0; gap: 6px; overflow-x: auto; align-items: stretch;
+    padding: 1px 1px 3px; overscroll-behavior-x: contain; touch-action: pan-x;
+    scrollbar-width: thin; scrollbar-color: rgba(255,211,106,.35) transparent;
+  }
+  .fork-pv-step {
+    flex: 0 0 132px; min-width: 132px; min-height: 44px; padding: 6px 8px;
+    border: 1px solid rgba(255,211,106,.2); border-radius: 8px;
+    background: rgba(61,48,18,.28); font-variant-numeric: tabular-nums;
+  }
+  .fork-pv-step b { display: block; color: #fff0ba; font-size: 12px; }
+  .fork-pv-step small { display: block; margin-top: 2px; color: #8e876f; font-size: 9.5px; }
+  .fork-pv-arrow { flex: 0 0 auto; align-self: center; color: rgba(255,211,106,.52); font-size: 12px; }
   #forkWrap { flex: 1; min-width: 0; overflow: auto; overscroll-behavior: contain; touch-action: pan-x pan-y; }
   #fork { display: block; }
   #fork path { vector-effect: non-scaling-stroke; }
@@ -665,12 +688,21 @@
     fill: none; stroke: rgba(47,134,255,.22); stroke-width: 7;
     stroke-linecap: round; filter: drop-shadow(0 0 7px rgba(47,134,255,.34));
   }
+  #fork .pv-edge {
+    fill: none; stroke: #ffd36a; stroke-width: 3; stroke-linecap: round;
+    stroke-dasharray: 7 5; filter: drop-shadow(0 0 4px rgba(255,195,64,.46));
+  }
   #fork .branch-edge[data-selected="true"] {
     stroke: #8fd8ff; stroke-width: 2.8;
     filter: drop-shadow(0 0 5px rgba(75,170,255,.76));
   }
   #fork g.card { cursor: pointer; }
   #fork g.card[data-selected="true"] { filter: drop-shadow(0 0 6px rgba(88,176,255,.24)); }
+  #fork .pv-card-ring {
+    fill: none; stroke: #ffd36a; stroke-width: 1.4; stroke-dasharray: 5 3;
+    pointer-events: none;
+  }
+  #fork .pv-card-tag { fill: #ffd978; font-weight: 700; pointer-events: none; }
   #fork g.more { cursor: pointer; }
   #forkFoot { padding: 10px 20px 13px; border-top: 1px solid var(--edge); font-size: 12px; color: var(--dim); min-height: 58px; }
   #forkFoot b { color: var(--ink); }
@@ -745,6 +777,9 @@
     }
     .coach-card { flex: 0 0 min(78%, 250px); scroll-snap-align: start; }
     #moveLine { line-height: 1.7; }
+    #forkPvGuide { grid-template-columns: 1fr; gap: 5px; }
+    #forkPvLead { display: flex; min-width: 0; gap: 7px; align-items: baseline; }
+    #forkPvLead b { display: inline; flex: 0 0 auto; }
     #forkFoot { padding: 10px 14px 12px; min-height: 70px; }
     body.cloud-full #cloudControls {
       left: max(10px, var(--safe-left));
@@ -812,6 +847,7 @@
     #stage { height: auto; min-height: 620px; }
     #stageHead .sub { display: none; }
     #coachPanel { padding: 8px; }
+    #forkPvGuide { padding: 6px; }
     body.cloud-full #cloudMapHud {
       top: 64px; left: 8px; width: calc(52% - 16px);
     }
@@ -1042,9 +1078,16 @@
       <div id="coachReplyStrip"></div>
     </div>
     <div id="moveLine"></div>
+    <div id="forkPvGuide" hidden aria-live="polite">
+      <div id="forkPvLead">
+        <b>AI 主变</b>
+        <span>上次黑方思考 · 不是概率</span>
+      </div>
+      <div id="forkPvRail" aria-label="引擎主变路径"></div>
+    </div>
   </div>
   <div id="forkWrap"><svg id="fork" xmlns="http://www.w3.org/2000/svg"></svg></div>
-  <div id="forkFoot">当前一步会在棋盘画箭头；未来各步请用「放大探索」逐格预演。确认后才落子。</div>
+  <div id="forkFoot">亮蓝主干是当前选路；有金色虚线时，它表示上次 AI 搜索完成的主变，不是概率。</div>
 </div>
 
 <script type="module">
@@ -1386,6 +1429,115 @@ let aiPending = null;
 let aiWatchdog = 0;
 let searchWorker = null;
 let searchWorkerGeneration = 0;
+const forkPvGuideEl = document.getElementById('forkPvGuide');
+const forkPvRailEl = document.getElementById('forkPvRail');
+let pvGuide = null;
+
+function sameSearchMove(a, b) {
+  return !!a && !!b
+    && a.from === b.from
+    && a.to === b.to
+    && (a.promotion || '') === (b.promotion || '');
+}
+
+/**
+ * Worker 回来的主变不直接相信：从搜索源 FEN 逐手用 chess.js 重放，
+ * SAN / after / 首着 / 完成深度都吻合，才允许进入可见 UI。
+ */
+function validatedSearchPv(sourceFen, result) {
+  if (
+    !sourceFen
+    || !result
+    || result.fallback
+    || !(result.depth > 0)
+    || !Array.isArray(result.pv)
+    || result.pv.length === 0
+    || result.pv.length > result.depth
+    || !sameSearchMove(result.pv[0], result.move)
+    || result.pv[0].san !== result.san
+  ) return [];
+  let replay;
+  try { replay = new Chess(sourceFen); } catch { return []; }
+  const clean = [];
+  for (const step of result.pv) {
+    const legal = replay.moves({ verbose: true }).find((move) =>
+      sameSearchMove(move, step));
+    if (!legal || legal.san !== step.san || legal.after !== step.after) return [];
+    replay.move({
+      from: legal.from,
+      to: legal.to,
+      ...(legal.promotion ? { promotion: legal.promotion } : {}),
+    });
+    if (replay.fen() !== step.after) return [];
+    clean.push({
+      san: legal.san,
+      from: legal.from,
+      to: legal.to,
+      promotion: legal.promotion || '',
+      after: legal.after,
+    });
+  }
+  if (clean.length < result.depth && !replay.isGameOver()) return [];
+  return clean;
+}
+
+function renderPvGuide() {
+  const active = pvGuide
+    && pvGuide.rootFen === game.fen()
+    && pvGuide.moves.length > 0;
+  if (!active) {
+    forkPvGuideEl.hidden = true;
+    for (const name of ['rootFen', 'sourceFen', 'requestId', 'depth']) {
+      delete forkPvGuideEl.dataset[name];
+    }
+    forkPvRailEl.replaceChildren();
+    return false;
+  }
+  forkPvGuideEl.hidden = false;
+  forkPvGuideEl.dataset.rootFen = pvGuide.rootFen;
+  forkPvGuideEl.dataset.sourceFen = pvGuide.sourceFen;
+  forkPvGuideEl.dataset.requestId = String(pvGuide.requestId);
+  forkPvGuideEl.dataset.depth = String(pvGuide.depth);
+  forkPvGuideEl.querySelector('#forkPvLead span').textContent =
+    `上次黑方思考 · 深 ${pvGuide.depth} · 不是概率`;
+  let turn = pvGuide.rootFen.split(' ')[1];
+  forkPvRailEl.innerHTML = pvGuide.moves.map((step, index) => {
+    const actor = turn === 'w' ? '你' : '黑方';
+    turn = turn === 'w' ? 'b' : 'w';
+    return `<span class="fork-pv-step" data-pv-index="${index}"`
+      + ` data-from="${esc(step.from)}" data-to="${esc(step.to)}"`
+      + ` data-promotion="${esc(step.promotion || '')}" data-san="${esc(step.san)}"`
+      + ` data-after="${esc(step.after)}">`
+      + `<b>${index + 1}. ${esc(step.san)}</b><small>${actor} · 搜索完成层内的主线</small></span>`
+      + (index < pvGuide.moves.length - 1 ? '<span class="fork-pv-arrow" aria-hidden="true">→</span>' : '');
+  }).join('');
+  return true;
+}
+
+function clearPvGuide() {
+  pvGuide = null;
+  renderPvGuide();
+}
+
+function installPvGuide(fullPv, sourceFen, requestId, depth) {
+  if (
+    !Array.isArray(fullPv)
+    || fullPv.length < 2
+    || fullPv[0].after !== game.fen()
+  ) {
+    clearPvGuide();
+    return false;
+  }
+  pvGuide = {
+    sourceFen,
+    rootFen: game.fen(),
+    requestId,
+    depth,
+    moves: fullPv.slice(1).map((step) => ({ ...step })),
+  };
+  renderPvGuide();
+  return true;
+}
 
 function clearAiWatchdog() {
   if (aiWatchdog) clearTimeout(aiWatchdog);
@@ -1431,6 +1583,7 @@ function useFallbackAi(reason) {
     depth: 0,
     nodes: 0,
     ms: performance.now() - aiClock,
+    pv: [],
     fallback: true,
     reason,
   });
@@ -1712,6 +1865,7 @@ function onAiMove(result) {
   aiPending = null;
   thinking = false;
   if (!result) {
+    clearPvGuide();
     forkStale = false;
     renderBoard();
     renderFork();
@@ -1736,6 +1890,7 @@ function onAiMove(result) {
     usedFallback = true;
   }
   if (!mv) {
+    clearPvGuide();
     forkStale = false;
     renderBoard();
     renderFork();
@@ -1744,8 +1899,10 @@ function onAiMove(result) {
     setStatusText(game.isGameOver() ? describeEnd() : 'AI 未能生成合法走法，请重开后再试。');
     return;
   }
+  const fullPv = usedFallback ? [] : validatedSearchPv(pending?.fen, result);
   lastAi = {
-    san: mv ? mv.san : result.san,
+    move: { from: mv.from, to: mv.to, promotion: mv.promotion || '' },
+    san: mv.san,
     depth: result.depth, nodes: result.nodes,
     score: result.score,
     searchMs: Math.round(result.ms),
@@ -1753,6 +1910,9 @@ function onAiMove(result) {
     painted: false,
     fallback: usedFallback,
     reason: usedFallback ? result.reason : '',
+    sourceFen: pending?.fen || '',
+    requestId: pending?.id ?? -1,
+    pv: fullPv,
   };
   selected = null;
   forkPreview = null;
@@ -1760,6 +1920,7 @@ function onAiMove(result) {
   branchPath = [];
   expanded = [];
   resetForkTransient();
+  installPvGuide(fullPv, pending?.fen || '', pending?.id ?? -1, result.depth);
   renderBoard();
   const cloudGen = prepareCloud();
   pendingCoachOutcome = pendingCoachPrediction ? {
@@ -1788,6 +1949,7 @@ function tryMove(from, to, promotion) {
   let mv = null;
   try { mv = game.move({ from, to, promotion: promotion || 'q' }); } catch (e) { mv = null; }
   if (!mv) return false;
+  clearPvGuide();
   pendingCoachPrediction = prediction;
   selected = null;
   forkPreview = null;
@@ -2125,7 +2287,7 @@ function updateHud() {
 // 其余折成一行「还有 N 条」。点哪条，右边就顺它接着分叉。
 const forkEl = document.getElementById('fork');
 const forkWrap = document.getElementById('forkWrap');
-const FORK_IDLE_TEXT = '亮蓝主干就是当前选路；当前一步看棋盘箭头，未来各步用「放大探索」逐格预演；确认后再落子。';
+const FORK_IDLE_TEXT = '亮蓝主干是当前选路；金色虚线是上次 AI 搜索完成的主变，不是概率。未来各步可用「放大探索」逐格预演。';
 const CARD_H = 44, CARD_GAP = 8, HEAD_H = 62;
 let forkScrollGen = 0;
 let forkStale = false;
@@ -2157,9 +2319,20 @@ function buildColumns() {
   const cols = [];
   let fen = game.fen();
   const base = game.history().length;
+  let pvFollowing = !!pvGuide && pvGuide.rootFen === fen;
   for (let i = 0; i < COLS; i++) {
     const ranked = rankMoves(fen, { depth: RANK_DEPTH });
     if (ranked.length === 0) break;
+    let pvRank = -1;
+    if (pvFollowing && pvGuide.moves[i]) {
+      pvRank = ranked.findIndex((move) =>
+        sameSearchMove(move, pvGuide.moves[i])
+        && move.san === pvGuide.moves[i].san
+        && move.after === pvGuide.moves[i].after);
+      if (pvRank < 0) pvFollowing = false;
+    } else {
+      pvFollowing = false;
+    }
     let idx = branchPath[i];
     if (idx === undefined || idx === null || idx < 0 || idx >= ranked.length) idx = 0;   // 默认最靠谱那条
     const baseShown = Math.min(SHOW[i] || 4, ranked.length);
@@ -2168,12 +2341,17 @@ function buildColumns() {
       : [...Array(baseShown).keys()];
     // 收起时也绝不能把已经选中的第 12 名藏掉，否则主干会凭空断掉。
     if (!visibleIndices.includes(idx)) visibleIndices.push(idx);
+    // 主变是独立提示，不替用户选路；但折叠时也必须把对应金色卡留在 DOM。
+    if (pvRank >= 0 && !visibleIndices.includes(pvRank)) visibleIndices.push(pvRank);
     cols.push({
       fen, ranked, chosen: idx, baseShown,
       visibleIndices, shown: visibleIndices.length,
       expanded: !!expanded[i],
+      pvRank,
+      pvIndex: pvRank >= 0 ? i : -1,
       ply: base + i, white: fen.split(' ')[1] === 'w',
     });
+    if (pvRank < 0 || idx !== pvRank) pvFollowing = false;
     fen = ranked[idx].after;
   }
   return cols;
@@ -2663,6 +2841,9 @@ function refreshColumnVisibility() {
       ? column.ranked.map((_, rank) => rank)
       : [...Array(column.baseShown).keys()];
     if (!column.visibleIndices.includes(column.chosen)) column.visibleIndices.push(column.chosen);
+    if (column.pvRank >= 0 && !column.visibleIndices.includes(column.pvRank)) {
+      column.visibleIndices.push(column.pvRank);
+    }
     column.shown = column.visibleIndices.length;
   }
 }
@@ -2709,7 +2890,7 @@ function renderFork(force = false, rebuild = true) {
     }
     const y = yOf(c, rowOf(c, c.chosen)) + CARD_H / 2;
     const mx = (fx + x) / 2;
-    svg += `<path class="route-underlay" data-col="${i}" d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
+    svg += `<path class="route-underlay" data-route="user" data-col="${i}" d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
   }
 
   // 每列都从上一张已选卡继续扇开；非选路线压低，选中边永远在同一条主干上。
@@ -2729,10 +2910,29 @@ function renderFork(force = false, rebuild = true) {
       const isPick = rank === c.chosen;
       const col = isPick ? 'rgba(143,216,255,.85)' : 'rgba(150,162,196,.20)';
       const mx = (fx + x) / 2;
-      svg += `<path class="branch-edge" data-col="${i}" data-idx="${rank}" data-selected="${isPick}"`
+      svg += `<path class="branch-edge" data-route="user" data-col="${i}" data-idx="${rank}" data-selected="${isPick}"`
         + ` d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"`
         + ` fill="none" stroke="${col}" stroke-width="${isPick ? 2.8 : 1}"/>`;
     }
+  }
+
+  // 金色主变与蓝色选路各走各的账。用户一旦在某列偏离，后续列属于另一局面，
+  // buildColumns() 会让 pvRank=-1，金线在分歧处如实停止。
+  for (let i = 0; i < columns.length; i++) {
+    const c = columns[i];
+    if (c.pvRank < 0) continue;
+    const x = colX(i);
+    let fx = 12, fy = anchorY;
+    if (i > 0) {
+      const pc = columns[i - 1];
+      fx = colX(i - 1) + cardW;
+      fy = yOf(pc, rowOf(pc, pc.chosen)) + CARD_H / 2;
+    }
+    const y = yOf(c, rowOf(c, c.pvRank)) + CARD_H / 2;
+    const mx = (fx + x) / 2;
+    svg += `<path class="pv-edge" data-route="engine-pv" data-col="${i}"`
+      + ` data-pv-index="${c.pvIndex}" data-selected="false"`
+      + ` d="M${fx.toFixed(1)},${fy.toFixed(1)} C${mx.toFixed(1)},${fy.toFixed(1)} ${mx.toFixed(1)},${y.toFixed(1)} ${x.toFixed(1)},${y.toFixed(1)}"/>`;
   }
 
   // 最左边那个「现在」的点
@@ -2758,15 +2958,25 @@ function renderFork(force = false, rebuild = true) {
       const situation = scoreSituation(m.score);
       const y = yOf(c, row + cardOffset(c));
       const isPick = rank === c.chosen;
+      const isPv = rank === c.pvRank;
       const col = cssColor(m.score, 1.25);
-      svg += `<g class="card" role="button" tabindex="0" data-col="${i}" data-idx="${rank}" data-san="${esc(m.san)}" data-situation="${situation.key}" data-selected="${isPick}">`
+      svg += `<g class="card" role="button" tabindex="0" data-col="${i}" data-idx="${rank}"`
+        + ` data-san="${esc(m.san)}" data-from="${esc(m.from)}" data-to="${esc(m.to)}"`
+        + ` data-promotion="${esc(m.promotion || '')}" data-after="${esc(m.after)}"`
+        + ` data-situation="${situation.key}" data-selected="${isPick}"`
+        + ` data-pv="${isPv}" data-pv-index="${isPv ? c.pvIndex : ''}">`
         + `<rect x="${x}" y="${y}" width="${cardW}" height="${CARD_H}" rx="9"`
         + ` fill="${isPick ? 'rgba(60,96,140,.55)' : 'rgba(30,36,52,.62)'}"`
         + ` stroke="${isPick ? '#8fd8ff' : 'rgba(150,170,220,.18)'}" stroke-width="${isPick ? 1.8 : 1}"/>`
+        + (isPv
+          ? `<rect class="pv-card-ring" x="${x + 2.5}" y="${y + 2.5}" width="${cardW - 5}" height="${CARD_H - 5}" rx="7"/>`
+          : '')
         + `<rect x="${x}" y="${y + 7}" width="4" height="${CARD_H - 14}" rx="2" fill="${col}"/>`
         + `<text x="${x + 15}" y="${y + CARD_H / 2 + 1}" font-size="15" font-weight="600" dominant-baseline="middle" fill="#f0f4ff">${esc(m.san)}</text>`
         + `<text x="${x + cardW - 11}" y="${y + CARD_H / 2 + 1}" font-size="10.5" text-anchor="end" dominant-baseline="middle" fill="${col}">${situation.short}</text>`
-        + `<text x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="${isPick ? '#9edcff' : '#6f768c'}">${isPick ? '✓ 已选' : `#${rank + 1}`} · ${scoreText(m.score)}</text>`
+        + `<text class="${isPv ? 'pv-card-tag' : ''}" x="${x + cardW - 11}" y="${y + 11}" font-size="8.5" text-anchor="end" fill="${isPv ? '#ffd978' : isPick ? '#9edcff' : '#6f768c'}">${
+          isPv ? `★ AI${isPick ? ' · ✓' : ` · #${rank + 1}`}` : `${isPick ? '✓ 已选' : `#${rank + 1}`} · ${scoreText(m.score)}`
+        }</text>`
         + `</g>`;
     }
     if (hasToggle(c)) {
@@ -2786,6 +2996,7 @@ function renderFork(force = false, rebuild = true) {
   forkEl.setAttribute('height', H);
   forkEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
   forkEl.innerHTML = svg;
+  renderPvGuide();
 
   // 已经走过的棋谱
   const hist = game.history();
@@ -2882,6 +3093,7 @@ function showMoveDetails(c, m, rank) {
     + `　·　走完之后对方有 <b>${replies}</b> 种回应`
     + `　·　<b>${situation.label}</b>，${quality.label}`
     + `　·　引擎原分 ${scoreText(m.score)}`
+    + (c.pvRank === rank ? '　·　这一步在上次 AI 主变里' : '')
     + (isCurrentPosition ? '' : '　·　这是未来局面；用「放大探索」看逐格棋盘');
 }
 
@@ -4139,6 +4351,66 @@ window.__forkStats = () => columns.map((c, i) => ({
   topScores: c.ranked.slice(0, 3).map((m) => m.score),
 }));
 
+function pvGuideSnapshot() {
+  const rectOf = (el) => {
+    if (!el) return { x: 0, y: 0, w: 0, h: 0, right: 0, bottom: 0 };
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, w: r.width, h: r.height, right: r.right, bottom: r.bottom };
+  };
+  const steps = [...forkPvRailEl.querySelectorAll('.fork-pv-step')].map((step) => {
+    const rect = rectOf(step);
+    return {
+      index: Number(step.dataset.pvIndex),
+      from: step.dataset.from || '',
+      to: step.dataset.to || '',
+      promotion: step.dataset.promotion || '',
+      san: step.dataset.san || '',
+      after: step.dataset.after || '',
+      rect,
+      visible: !forkPvGuideEl.hidden && rect.w > 0 && rect.h > 0,
+    };
+  });
+  const goldCards = [...forkEl.querySelectorAll('g.card[data-pv="true"]')].map((card) => ({
+    col: Number(card.dataset.col),
+    rank: Number(card.dataset.idx),
+    index: Number(card.dataset.pvIndex),
+    from: card.dataset.from || '',
+    to: card.dataset.to || '',
+    promotion: card.dataset.promotion || '',
+    san: card.dataset.san || '',
+    after: card.dataset.after || '',
+    selected: card.dataset.selected === 'true',
+  }));
+  const goldEdges = [...forkEl.querySelectorAll('path.pv-edge[data-route="engine-pv"]')].map((edge) => ({
+    col: Number(edge.dataset.col),
+    index: Number(edge.dataset.pvIndex),
+    route: edge.dataset.route || '',
+    selected: edge.dataset.selected === 'true',
+  }));
+  const railRect = rectOf(forkPvRailEl);
+  return {
+    active: !forkPvGuideEl.hidden && steps.length > 0,
+    rootFen: forkPvGuideEl.dataset.rootFen || '',
+    sourceFen: forkPvGuideEl.dataset.sourceFen || '',
+    requestId: forkPvGuideEl.dataset.requestId || '',
+    depth: Number(forkPvGuideEl.dataset.depth || 0),
+    steps,
+    goldCards,
+    goldEdges,
+    userEdges: forkEl.querySelectorAll(
+      'path.branch-edge[data-route="user"][data-selected="true"]',
+    ).length,
+    userUnderlays: forkEl.querySelectorAll('path.route-underlay[data-route="user"]').length,
+    guideRect: rectOf(forkPvGuideEl),
+    rail: {
+      rect: railRect,
+      clientWidth: forkPvRailEl.clientWidth,
+      scrollWidth: forkPvRailEl.scrollWidth,
+      scrollLeft: forkPvRailEl.scrollLeft,
+    },
+  };
+}
+
 /**
  * 棋盘现状。棋子清单从实际渲染的 g.piece3d 读取，测试可拿 FEN 独立逐格对撞；
  * material 是实例真正继承到的 SVG paint，geometry 是实际子图元签名。
@@ -4721,6 +4993,7 @@ function resetGame(fen = null) {
   coachReplyCache.clear();
   lastAi = null;
   thinking = false;
+  clearPvGuide();
   branchPath = [];
   expanded = [];
   forkStale = false;
@@ -4755,6 +5028,7 @@ window.__test = {
   layout: layoutSnapshot,
   board: boardSnapshot,
   coach: coachSnapshot,
+  pv: pvGuideSnapshot,
   scoreLanguage: (score, bestScore = score, white = true) => ({
     raw: scoreText(score),
     situation: scoreSituation(score),

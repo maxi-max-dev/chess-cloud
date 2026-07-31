@@ -124,6 +124,71 @@ function moveSignature(move) {
   return `${move.from}:${move.to}:${move.promotion || ''}:${move.san}:${move.after}`;
 }
 
+function principalVariationError(fen, searched, Chess) {
+  if (!Array.isArray(searched.pv)) {
+    return 'search PV missing';
+  }
+  if (searched.depth === 0) {
+    return searched.pv.length === 0
+      ? ''
+      : `incomplete search returned a ${searched.pv.length}-ply PV`;
+  }
+  if (searched.pv.length === 0) {
+    return `completed depth ${searched.depth} returned an empty PV`;
+  }
+  if (searched.pv.length > searched.depth) {
+    return `search PV length ${searched.pv.length} exceeds completed depth ${searched.depth}`;
+  }
+
+  const first = searched.pv[0];
+  if (
+    first.from !== searched.move.from
+    || first.to !== searched.move.to
+    || (first.promotion || '') !== (searched.move.promotion || '')
+    || first.san !== searched.san
+  ) {
+    return 'search PV first move does not match returned move/SAN';
+  }
+
+  const replay = new Chess(fen);
+  for (let index = 0; index < searched.pv.length; index++) {
+    const step = searched.pv[index];
+    if (
+      !step
+      || typeof step.san !== 'string'
+      || typeof step.from !== 'string'
+      || typeof step.to !== 'string'
+      || typeof step.promotion !== 'string'
+      || typeof step.after !== 'string'
+    ) {
+      return `search PV ply ${index} is missing san/from/to/promotion/after`;
+    }
+    const legal = replay.moves({ verbose: true }).find((move) =>
+      move.from === step.from
+      && move.to === step.to
+      && (move.promotion || '') === step.promotion
+    );
+    if (!legal) {
+      return `search PV ply ${index} is illegal: ${step.from}-${step.to}`;
+    }
+    if (legal.san !== step.san) {
+      return `search PV ply ${index} SAN mismatch: ${step.san} != ${legal.san}`;
+    }
+    if (legal.after !== step.after) {
+      return `search PV ply ${index} after FEN mismatch`;
+    }
+    replay.move({
+      from: legal.from,
+      to: legal.to,
+      ...(legal.promotion ? { promotion: legal.promotion } : {}),
+    });
+  }
+  if (searched.pv.length < searched.depth && replay.moves().length > 0) {
+    return `search PV stopped at ${searched.pv.length}/${searched.depth} before a terminal position`;
+  }
+  return '';
+}
+
 function classifyTerminal(game, guard = '') {
   if (guard) return guard;
   if (game.isCheckmate()) return game.turn() === 'w' ? '0-1 checkmate' : '1-0 checkmate';
@@ -210,6 +275,7 @@ function playOne({
   const errors = [];
   let illegal = 0;
   let fenMismatch = 0;
+  let pvFailures = 0;
   let zeroDepth = 0;
   let guard = '';
   const started = performance.now();
@@ -245,6 +311,12 @@ function playOne({
       const wall = performance.now() - searchStarted;
       if (!searched) {
         errors.push(`ply ${ply}: search returned null with ${legal.length} legal moves`);
+        break;
+      }
+      const pvError = principalVariationError(beforeFen, searched, Chess);
+      if (pvError) {
+        pvFailures++;
+        errors.push(`ply ${ply}: ${pvError}`);
         break;
       }
       searchTimes.push(wall);
@@ -336,6 +408,7 @@ function playOne({
     opening,
     illegal,
     fenMismatch,
+    pvFailures,
     errors,
     elapsedMs: performance.now() - started,
     searchCalls: searchTimes.length,
@@ -369,6 +442,7 @@ function printReport(reports, annotationSamples, wallMs) {
       + ` result=${report.result} plies=${report.plies}`
       + ` opening=${report.opening.join(' ')}`
       + ` illegal=${report.illegal} fenMismatch=${report.fenMismatch}`
+      + ` pvFailures=${report.pvFailures}`
       + ` errors=${report.errors.length}`
       + ` search=${report.searchCalls}`
       + ` avg/p95/max=${report.searchAvgMs.toFixed(1)}/${report.searchP95Ms.toFixed(1)}`
@@ -408,6 +482,7 @@ function printReport(reports, annotationSamples, wallMs) {
     ).length,
     illegalMoves: reports.reduce((sum, report) => sum + report.illegal, 0),
     fenMismatches: reports.reduce((sum, report) => sum + report.fenMismatch, 0),
+    pvFailures: reports.reduce((sum, report) => sum + report.pvFailures, 0),
     totalPlies: reports.reduce((sum, report) => sum + report.plies, 0),
     results,
     searchCalls: totalSearchCalls,
@@ -467,6 +542,7 @@ async function main() {
     || summary.abnormalGames !== 0
     || summary.illegalMoves !== 0
     || summary.fenMismatches !== 0
+    || summary.pvFailures !== 0
     || summary.annotationFailures !== 0;
   process.exitCode = failed ? 1 : 0;
 }

@@ -308,6 +308,69 @@ function expectedBoardPieces(fen) {
   return out.sort((a, b) => a.sq.localeCompare(b.sq));
 }
 
+function auditPrincipalVariation(fen, result) {
+  const problems = [];
+  const pv = Array.isArray(result?.pv) ? result.pv : [];
+  if (!result || !Array.isArray(result.pv)) {
+    return { ok: false, problems: ['pv 不是数组'], replayFen: fen, terminal: false };
+  }
+  if (result.depth === 0 && pv.length !== 0) {
+    problems.push(`depth=0 却给了 ${pv.length} 手主变`);
+  }
+  if (result.depth > 0 && pv.length === 0) {
+    problems.push(`depth=${result.depth} 却没有主变`);
+  }
+  if (pv.length > result.depth) {
+    problems.push(`主变 ${pv.length} 手 > 完成深度 ${result.depth}`);
+  }
+  if (pv.length) {
+    const first = pv[0];
+    if (
+      first.from !== result.move?.from
+      || first.to !== result.move?.to
+      || (first.promotion || '') !== (result.move?.promotion || '')
+      || first.san !== result.san
+    ) {
+      problems.push('pv[0] 与 search.move/search.san 不同源');
+    }
+  }
+  const replay = new Chess(fen);
+  for (let index = 0; index < pv.length; index++) {
+    const step = pv[index];
+    const legal = replay.moves({ verbose: true }).find((move) =>
+      move.from === step?.from
+      && move.to === step?.to
+      && (move.promotion || '') === (step?.promotion || ''));
+    if (!legal) {
+      problems.push(`PV 第 ${index + 1} 手非法 ${step?.from}-${step?.to}`);
+      break;
+    }
+    if (legal.san !== step.san) {
+      problems.push(`PV 第 ${index + 1} 手 SAN ${step.san}≠${legal.san}`);
+    }
+    if (legal.after !== step.after) {
+      problems.push(`PV 第 ${index + 1} 手 after FEN 不同源`);
+    }
+    replay.move({
+      from: legal.from,
+      to: legal.to,
+      ...(legal.promotion ? { promotion: legal.promotion } : {}),
+    });
+    if (replay.fen() !== step.after) {
+      problems.push(`PV 第 ${index + 1} 手重放 FEN 不一致`);
+    }
+  }
+  if (result.depth > 0 && pv.length < result.depth && !replay.isGameOver()) {
+    problems.push(`非终局 PV ${pv.length} 手 < 完成深度 ${result.depth}`);
+  }
+  return {
+    ok: problems.length === 0,
+    problems,
+    replayFen: replay.fen(),
+    terminal: replay.isGameOver(),
+  };
+}
+
 function auditBoardDom(snapshot) {
   const actual = snapshot.pieces
     .map(({ sq, color, type }) => ({ sq, color, type }))
@@ -831,7 +894,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 86;
+const EXPECTED_RESULTS = 90;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -3162,6 +3225,238 @@ async function runMobileChecks() {
   }
 }
 
+async function runPvGuideChecks() {
+  try {
+    const fixedPvStart = await evalJs(`(() => {
+      window.__test.loadFen('7k/8/5K2/8/8/8/8/6R1 w - - 0 1');
+      const played = window.__test.tryMove('g1', 'h1');
+      return {
+        played,
+        sourceFen: window.__test.state().fen,
+        pending: window.__test.aiPending(),
+      };
+    })()`);
+    let fixedPv = null;
+    for (let index = 0; index < 120; index++) {
+      fixedPv = await evalJs(`({
+        state: window.__test.state(),
+        ai: window.__test.ai(),
+        pv: window.__test.pv(),
+        cols: window.__forkStats(),
+      })`);
+      if (fixedPv.ai?.painted && !fixedPv.state.thinking && fixedPv.pv?.active) break;
+      await sleep(40);
+    }
+    await sleep(180);
+    fixedPv = await evalJs(`({
+      state: window.__test.state(),
+      ai: window.__test.ai(),
+      pv: window.__test.pv(),
+      cols: window.__forkStats(),
+    })`);
+
+    const fullPvAudit = auditPrincipalVariation(fixedPvStart.sourceFen, fixedPv.ai);
+    const expectedTail = fixedPv.ai?.pv?.slice(1) || [];
+    const pvProjection = (steps) => steps.map((step) => ({
+      index: step.index,
+      from: step.from,
+      to: step.to,
+      promotion: step.promotion || '',
+      san: step.san,
+      after: step.after,
+    }));
+    const expectedProjection = expectedTail.map((step, index) => ({
+      index,
+      from: step.from,
+      to: step.to,
+      promotion: step.promotion || '',
+      san: step.san,
+      after: step.after,
+    }));
+    const railBefore = JSON.stringify(pvProjection(fixedPv.pv.steps));
+    const pvDomSame = railBefore === JSON.stringify(expectedProjection);
+    const samePvStep = (step, expected) =>
+      !!step
+      && !!expected
+      && step.from === expected.from
+      && step.to === expected.to
+      && (step.promotion || '') === (expected.promotion || '')
+      && step.san === expected.san
+      && step.after === expected.after;
+    const goldMappingOk = (snapshot) =>
+      snapshot.goldCards.length > 0
+      && snapshot.goldCards.every((card) =>
+        samePvStep(card, expectedTail[card.index]))
+      && snapshot.goldEdges.length === snapshot.goldCards.length
+      && snapshot.goldEdges.every((edge) =>
+        snapshot.goldCards.some(
+          (card) => card.col === edge.col && card.index === edge.index,
+        ));
+    const pvFirstCard = fixedPv.pv.goldCards.find(
+      (card) => card.index === 0 && card.col === 0,
+    );
+    const firstCol = fixedPv.cols[0];
+    const altRank = firstCol
+      ? [...Array(firstCol.total).keys()].find(
+        (rank) => rank !== pvFirstCard?.rank && rank !== firstCol.chosenRank,
+      ) ?? [...Array(firstCol.total).keys()].find((rank) => rank !== pvFirstCard?.rank) ?? -1
+      : -1;
+    const gameFenBeforePick = fixedPv.state.fen;
+    const userPicked = altRank >= 0
+      && await evalJs(`window.__test.pickBranch(0, ${altRank})`);
+    const divergedPv = await evalJs(`({
+      state: window.__test.state(),
+      pv: window.__test.pv(),
+      cols: window.__forkStats(),
+    })`);
+    const railAfter = JSON.stringify(pvProjection(divergedPv.pv.steps));
+    const pvUiOk =
+      fixedPvStart.played
+      && fixedPvStart.pending?.fen === fixedPvStart.sourceFen
+      && fixedPvStart.sourceFen === '7k/8/5K2/8/8/8/8/7R b - - 1 1'
+      && fixedPv.ai?.pv?.[0]?.san === 'Kg8'
+      && fixedPv.ai?.pv?.[0]?.after === '6k1/8/5K2/8/8/8/8/7R w - - 2 2'
+      && fixedPv.state.fen === fixedPv.ai?.pv?.[0]?.after
+      && fixedPv.pv.sourceFen === fixedPvStart.sourceFen
+      && fixedPv.pv.rootFen === fixedPv.state.fen
+      && String(fixedPv.pv.requestId) === String(fixedPvStart.pending?.id)
+      && fixedPv.pv.depth === fixedPv.ai?.depth
+      && fullPvAudit.ok
+      && expectedTail.length > 0
+      && pvDomSame
+      && !!pvFirstCard
+      && samePvStep(pvFirstCard, expectedTail[0])
+      && goldMappingOk(fixedPv.pv)
+      && fixedPv.pv.goldEdges.some((edge) => edge.col === 0)
+      && fixedPv.pv.userEdges === fixedPv.cols.length
+      && fixedPv.pv.userUnderlays === fixedPv.cols.length
+      && userPicked
+      && divergedPv.state.fen === gameFenBeforePick
+      && divergedPv.cols[0]?.chosenRank === altRank
+      && divergedPv.cols.every(
+        (column) => column.selectedCards === 1 && column.selectedEdges === 1,
+      )
+      && divergedPv.pv.userEdges === divergedPv.cols.length
+      && divergedPv.pv.userUnderlays === divergedPv.cols.length
+      && railAfter === railBefore
+      && goldMappingOk(divergedPv.pv)
+      && divergedPv.pv.goldCards.every(
+        (card) => card.col === 0 && card.selected === false,
+      )
+      && divergedPv.pv.goldEdges.length > 0
+      && divergedPv.pv.goldEdges.every(
+        (edge) => edge.col === 0
+          && edge.route === 'engine-pv'
+          && edge.selected === false,
+      );
+    record(
+      pvUiOk,
+      'AI 主变逐手同源；金线不覆盖蓝色选路，用户偏离后会在真实分歧处停止',
+      pvUiOk
+        ? `Worker ${fixedPv.ai.pv.map((move) => move.san).join(' → ')}`
+          + `｜rail ${expectedTail.map((move) => move.san).join(' → ')}`
+          + `｜用户改选 #${altRank + 1}，金边 ${fixedPv.pv.goldEdges.length}→${divergedPv.pv.goldEdges.length}`
+        : [...fullPvAudit.problems,
+          `DOM同源=${pvDomSame}`,
+          `金卡同源=${goldMappingOk(fixedPv.pv)}/${goldMappingOk(divergedPv.pv)}`,
+          `root/source=${fixedPv.pv.rootFen === fixedPv.state.fen}/${fixedPv.pv.sourceFen === fixedPvStart.sourceFen}`,
+          `用户改选=${userPicked}/${divergedPv.cols[0]?.chosenRank}`,
+          `金卡/边=${divergedPv.pv.goldCards.length}/${divergedPv.pv.goldEdges.length}`,
+          `rail不变=${railAfter === railBefore}`].join('；'),
+    );
+
+    await evalJs('window.scrollTo(0, 0)');
+    await settleLayout();
+    const pvDesktopFile = SHOT.replace(/\.png$/i, '-pv-guide.png');
+    const pvDesktopShot = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(pvDesktopFile, Buffer.from(pvDesktopShot.data, 'base64'));
+
+    await setViewport(390, 844, 'portraitPrimary');
+    await evalJs(`document.getElementById('forkPvGuide').scrollIntoView({
+      block: 'center',
+      inline: 'nearest',
+    })`);
+    await settleLayout();
+    const mobilePvBefore = await evalJs(`({
+      pv: window.__test.pv(),
+      layout: window.__test.layout(),
+    })`);
+    const rail = mobilePvBefore.pv.rail;
+    const canSwipePv = rail && rail.scrollWidth > rail.clientWidth + 4;
+    if (canSwipePv) {
+      await swipeTouch(
+        {
+          x: rail.rect.right - 22,
+          y: (rail.rect.y + rail.rect.bottom) / 2,
+        },
+        {
+          x: rail.rect.x + 22,
+          y: (rail.rect.y + rail.rect.bottom) / 2,
+        },
+        10,
+      );
+    }
+    const mobilePvScrolled = await evalJs(`({
+      pv: window.__test.pv(),
+      layout: window.__test.layout(),
+    })`);
+    const pvMobileFile = SHOT.replace(/\.png$/i, '-pv-guide-mobile.png');
+    const pvMobileShot = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(pvMobileFile, Buffer.from(pvMobileShot.data, 'base64'));
+    await waitCloudRenderIdle();
+    const pvIdleA = await evalJs(`({
+      raf: window.__rafAudit.read(),
+      render: window.__test.renderStats(),
+    })`);
+    await sleep(250);
+    const pvIdleB = await evalJs(`({
+      raf: window.__rafAudit.read(),
+      render: window.__test.renderStats(),
+    })`);
+    const guide = mobilePvScrolled.pv.guideRect;
+    const noRootOverflow =
+      Math.max(
+        mobilePvScrolled.layout.root.scrollW,
+        mobilePvScrolled.layout.body.scrollW,
+      ) <= mobilePvScrolled.layout.root.clientW + 1;
+    record(
+      mobilePvScrolled.pv.active
+        && mobilePvScrolled.pv.steps.length > 0
+        && guide.w > 0 && guide.h > 0
+        && guide.x >= -1 && guide.right <= 391
+        && guide.bottom > 0 && guide.y < 844
+        && mobilePvScrolled.pv.steps.every(
+          (step) => step.rect.w > 0 && step.rect.h > 0 && step.visible,
+        )
+        && noRootOverflow
+        && canSwipePv
+        && mobilePvScrolled.pv.rail.scrollLeft > rail.scrollLeft + 10
+        && pvIdleA.raf.pending === 0
+        && pvIdleB.raf.pending === 0
+        && pvIdleA.render.scheduled === false
+        && pvIdleB.render.scheduled === false
+        && pvIdleB.render.rendererFrame === pvIdleA.render.rendererFrame,
+      '390px 手机能看清并横滑 AI 主变，静止后不持续重绘',
+      `guide ${Math.round(guide.w)}×${Math.round(guide.h)}`
+        + `｜rail ${rail.clientWidth}/${rail.scrollWidth}`
+        + ` scroll ${rail.scrollLeft}→${mobilePvScrolled.pv.rail.scrollLeft}`
+        + `｜根横溢=${!noRootOverflow}`
+        + `｜250ms frame ${pvIdleA.render.rendererFrame}→${pvIdleB.render.rendererFrame}`
+        + `｜截图 ${pvDesktopFile} / ${pvMobileFile}`,
+    );
+  } finally {
+    try { await send('Emulation.clearDeviceMetricsOverride'); } catch {}
+    try {
+      await send('Emulation.setTouchEmulationEnabled', {
+        enabled: false,
+        maxTouchPoints: 1,
+      });
+    } catch {}
+    try { await evalJs('window.__test.reset()'); } catch {}
+    try { await settleLayout(); } catch {}
+  }
+}
+
 async function main() {
   if (PORT > 0) {
     if (await portInUse(PORT)) throw new Error(`CDP 端口 ${PORT} 已被占用，请换一个 --port`);
@@ -3460,6 +3755,41 @@ async function main() {
     `depth=${timedDeadlineProbe.depth}｜nodes=${timedDeadlineProbe.nodes}`
       + `｜search=${timedDeadlineProbe.searchMs.toFixed(1)}ms`
       + `｜外部=${timedDeadlineProbe.elapsed.toFixed(1)}ms`);
+
+  const pvProbe = await evalJs(`(async () => {
+    const { Chess, search } = await import('./engine.js');
+    const fen = new Chess().fen();
+    return { fen, result: search(fen, { timeBudgetMs: 1800, maxDepth: 4 }) };
+  })()`, true);
+  const pvAudit = auditPrincipalVariation(pvProbe.fen, pvProbe.result);
+  record(
+    pvProbe.result.depth === 4
+      && Array.isArray(pvProbe.result.pv)
+      && pvProbe.result.pv.length === 4
+      && pvAudit.ok,
+    'AI 主变来自最后一层完整搜索，逐手合法且长度吻合深度',
+    pvAudit.ok
+      ? `depth=${pvProbe.result.depth}｜PV ${pvProbe.result.pv.map((move) => move.san).join(' → ')}`
+      : pvAudit.problems.join('；'));
+
+  const zeroPvProbe = await evalJs(`(async () => {
+    const { Chess, search } = await import('./engine.js');
+    const fen = new Chess().fen();
+    return { fen, result: search(fen, { timeBudgetMs: 0, maxDepth: 4 }) };
+  })()`, true);
+  const zeroFallback = new Chess(zeroPvProbe.fen).moves({ verbose: true }).some((move) =>
+    move.from === zeroPvProbe.result.move.from
+    && move.to === zeroPvProbe.result.move.to
+    && (move.promotion || '') === (zeroPvProbe.result.move.promotion || ''));
+  record(
+    zeroPvProbe.result.depth === 0
+      && Array.isArray(zeroPvProbe.result.pv)
+      && zeroPvProbe.result.pv.length === 0
+      && zeroFallback,
+    '零预算只返回合法保底着，不冒充已搜索主变',
+    `depth=${zeroPvProbe.result.depth}`
+      + `｜pv=${Array.isArray(zeroPvProbe.result.pv) ? zeroPvProbe.result.pv.length : '缺失'}`
+      + `｜fallback=${zeroPvProbe.result.san}`);
 
   // 1.5) 顺手看一眼评估分的实际分布，星色刻度是照这个定的，不是拍脑袋
   const dist = await evalJs(`(async () => {
@@ -3811,7 +4141,14 @@ async function main() {
       history: window.__test.state().history,
     };
     window.__test.reset();
-    return { played, picked, toggled, before, staleUi };
+    return {
+      played,
+      picked,
+      toggled,
+      before,
+      staleUi,
+      resetPv: window.__test.pv(),
+    };
   })()`);
   record(
     resetRaceStarted.played
@@ -3833,18 +4170,26 @@ async function main() {
   const resetRace = await evalJs(`({
     state: window.__test.state(),
     ai: window.__test.ai(),
+    pv: window.__test.pv(),
   })`);
   const resetRaceOk =
     resetRaceStarted.played === true
     && resetRace.state.history.length === 0
     && resetRace.state.thinking === false
     && resetRace.ai === null
+    && resetRaceStarted.resetPv.active === false
+    && resetRaceStarted.resetPv.steps.length === 0
+    && resetRaceStarted.resetPv.goldCards.length === 0
+    && resetRaceStarted.resetPv.goldEdges.length === 0
+    && resetRace.pv.active === false
+    && resetRace.pv.steps.length === 0
     && pageErrors.length === errorsBeforeResetRace;
   record(
     resetRaceOk,
     '重开会作废途中 AI 回包，不会把旧应手塞进新棋局',
     `触发 e4=${resetRaceStarted.played}｜等 2200ms 后 history=${JSON.stringify(resetRace.state.history)}`
       + `｜thinking=${resetRace.state.thinking}｜AI=${resetRace.ai ? resetRace.ai.san : 'null'}`
+      + `｜PV 立即/迟到=${resetRaceStarted.resetPv.steps.length}/${resetRace.pv.steps.length}`
       + `｜新增错误=${pageErrors.length - errorsBeforeResetRace}`);
   await evalJs('window.__test.reset()');
 
@@ -3905,11 +4250,16 @@ async function main() {
     const terminated = window.__test.terminateAiWorker();
     return { played, terminated };
   })()`);
-  let fallbackAi = null, fallbackState = null;
+  let fallbackAi = null, fallbackState = null, fallbackPv = null;
   while (Date.now() - fallbackAt < 6000) {
-    const current = await evalJs('({ ai: window.__test.ai(), state: window.__test.state() })');
+    const current = await evalJs(`({
+      ai: window.__test.ai(),
+      state: window.__test.state(),
+      pv: window.__test.pv(),
+    })`);
     fallbackAi = current.ai;
     fallbackState = current.state;
+    fallbackPv = current.pv;
     if (fallbackAi?.painted && !fallbackState.thinking && fallbackState.history.length >= 2) break;
     await sleep(40);
   }
@@ -3927,10 +4277,13 @@ async function main() {
       && fallbackAi?.painted === true
       && fallbackAi?.totalMs <= 3000
       && fallbackState?.history?.length === 2
+      && fallbackPv?.active === false
+      && fallbackPv?.steps?.length === 0
       && fallbackReplayOk,
     '搜索 Worker 失败时仍在 3 秒内走合法保底步',
     `外部 ${fallbackWall}ms｜页面 ${fallbackAi?.totalMs ?? '无'}ms`
-      + `｜原因 ${fallbackAi?.reason || '无'}｜棋谱 ${JSON.stringify(fallbackState?.history || [])}`);
+      + `｜原因 ${fallbackAi?.reason || '无'}｜PV ${fallbackPv?.steps?.length ?? '无'} 手`
+      + `｜棋谱 ${JSON.stringify(fallbackState?.history || [])}`);
   await evalJs('window.__test.reset()');
 
   // 4) e4 → AI ≤3 秒应一步合法棋
@@ -4141,6 +4494,7 @@ async function main() {
   await closeCloudAndWaitPreview();
   await runTree2dChecks();
   await runMobileChecks();
+  await runPvGuideChecks();
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
 

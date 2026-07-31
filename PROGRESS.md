@@ -1,7 +1,8 @@
 # chess-cloud 进度
 
-线上入口：https://maxi-max-dev.github.io/chess-cloud/ ｜ 当前版本已加入真实线条路径网与落子教练；
-固定验收为 `verify.mjs` 8 项、`live-check.mjs` 83 项，最终本地/线上输出见文末与 `HANDOFF.md`。
+线上入口：https://maxi-max-dev.github.io/chess-cloud/ ｜ 当前本地版本已加入真实线条路径网、落子教练
+和搜索主变（PV）；固定验收为 `verify.mjs` 8 项、`live-check.mjs` 90 项。本地已全绿，
+本轮 PV 版本尚待发布，不能把上一版线上结果当成当前结果；详见文末与 `HANDOFF.md`。
 
 ## 我理解的目标（开工前写，≤10 行）
 1. 目标：网页版国际象棋，人执白落子后，把「这步之后所有可能未来」炸成三维星云；星色=局面评估（白优暖/黑优冷）；AI 执黑陪下。
@@ -25,6 +26,8 @@
 - [x] 任务 7 零光点路径网 + 棋子助手 + 人话评价
 - [x] 任务 8 路径网降载 + 可操作的真实变体棋盘
 - [x] 任务 9 3D/2D 真树切换 + 分叉数字 + 手机可读/低负载
+- [x] 任务 10 修复 2D 全景树永远显示“第一步”
+- [x] 任务 11 搜索 PV + 蓝色用户路径/金色引擎主变
 
 ---
 
@@ -196,17 +199,36 @@ Worker/星云生命周期和旧分叉隔离等关键路径，完整验收准确�
 - 反向验证先只加裁判，旧实现准确报红根/层回合字段缺失；恢复正式实现后完整复跑 83/83。
   `verify.mjs` 未修改。
 
+## 任务 11 搜索 PV + 蓝色用户路径/金色引擎主变
+
+- `search()` 的 negamax 新增三角 PV 表，只在当前迭代层完整结束后把结果公开。每手固定带
+  `san/from/to/promotion/after`，首着必须等于 `move/san`；非终局 PV 长度等于完成深度，
+  提前终局可缩短。零预算保底结果明确是 `depth=0,pv=[]`，不把未搜索走法包装成主变。
+- 页面不启动第二次分析搜索。它复用上次黑方 Worker 搜索的完整 PV，从搜索源 FEN 逐手核对合法性、
+  SAN 和 `after`，实际落下黑方 `pv[0]` 后，把新局面仍成立的 `pv.slice(1)` 投影到右侧分叉。
+  这条数据链没有增加 AI 的搜索预算，也不与 ≤3 秒应手争抢另一个 Worker。
+- 分叉保留两套独立语义：亮蓝主干继续表示用户当前选路，金色虚线/金框卡片表示引擎主变。
+  金卡在折叠区外仍保留；用户偏离后，后续父 FEN 已改变，金线在真实分歧处停止，上方 rail
+  继续保留完整主变供对照。reset、真实玩家下一步和 Worker fallback 都会清空旧 PV。
+- 390px 手机把 PV 做成面板内横滑 rail，不撑宽根页面；静止后 rAF pending=0、WebGL 帧不增长。
+  `self-play.mjs` 也逐次独立重放搜索 PV，报告新增 `pvFailures`，任何非 0 都退出 1。
+- 最新 `node self-play.mjs` 实跑 10 局、621 plies / 581 次 search：
+  `illegalMoves=0`、`fenMismatches=0`、`pvFailures=0`，89 条注释抽样失败 0，总耗时 13.78s。
+- `live-check.mjs` 固定扩到 90 项：完整搜索 PV、零预算空 PV、固定局面的
+  `pv.slice(1)`→rail/金卡/金边同源、蓝金分离与偏离停止、reset/fallback 清理、手机横滑与零持续帧
+  都有独立断言。本地完整复跑 90/90，`verify.mjs` 未修改。
+
 ## 完成条件核对
 - 架构条件 ✅ 六种分层 SVG 3D 棋子（非 WebGL mesh）；路径网 L1–L4 全在 Worker；AI 先真实绘制再延迟
   可视化；旧分叉 inert；缩略只保留 L3，明确放大才加载 L4，收起释放。
 - 裁判未改 ✅ `git diff verify.mjs` 零行；排除 verify.mjs 后全仓库 grep `197281` 无匹配，
   `8902` 在页面代码里也无匹配。
   （README.md 里有「197,281」这种带千位逗号的说明文字，是文档不是代码，grep 裸数字不命中。）
-- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 83/83。
-- 线上复验 ✅ `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 83/83；运行文件哈希
-  见 `HANDOFF.md` 第 6 节。
-- 发布状态 ✅ `main` 已推送；GitHub Pages 三个运行文件与本地逐字节一致。
-- BLOCKED.md 已提交，19 条待裁决。
+- 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 90/90。
+- 线上复验 ⏳ 本轮 PV 版尚待 push / Pages 生效后运行 90/90，并按 `HANDOFF.md` 第 8 节核对
+  `index.html` / `engine.js` / `worker.js` 三个哈希；这里不沿用上一版数字。
+- 发布状态 ⏳ 当前工作树含本轮改动，尚未同步到 GitHub Pages。
+- BLOCKED.md 保留 19 条设计记录；#13 已解决为历史，不再是待办。
 
 ## 期间为什么改过方向（如实记录）
 1. 第一版星云颜色全糊成白。原因两条：均势色被我调成偏蓝的（b 比 r 高 41），导致「黑优」和「均势」

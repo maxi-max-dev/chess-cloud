@@ -341,9 +341,32 @@ function orderMoves(moves) {
   moves.sort((a, b) => b.__ord - a.__ord);
 }
 
+function writePv(ctx, ply, move, includeChild) {
+  const row = ctx.pvTable[ply];
+  row[ply] = move;
+  let end = ply + 1;
+  if (includeChild) {
+    end = Math.max(end, ctx.pvLength[ply + 1]);
+    const child = ctx.pvTable[ply + 1];
+    for (let index = ply + 1; index < end; index++) row[index] = child[index];
+  }
+  ctx.pvLength[ply] = end;
+}
+
+function publicPvMove(move) {
+  return {
+    san: move.san,
+    from: move.from,
+    to: move.to,
+    promotion: move.promotion || '',
+    after: move.after,
+  };
+}
+
 // 负极大值搜索 + alpha-beta。返回值站在 game.turn() 这一方的视角（正 = 我好）。
 function negamax(game, depth, alpha, beta, ply, ctx) {
   ctx.nodes++;
+  ctx.pvLength[ply] = ply;
   // 不能隔 1024 节点才看钟：冷启动或与 WebGL/Worker 并发时，前 1024 节点本身就可能跑数秒。
   if ((ctx.nodes & 31) === 0 && performance.now() > ctx.deadline) throw TIMEOUT;
 
@@ -377,7 +400,10 @@ function negamax(game, depth, alpha, beta, ply, ctx) {
       v = -negamax(game, depth - 1, -beta, -alpha, ply + 1, ctx);
       game.undo();
     }
-    if (v > best) best = v;
+    if (v > best) {
+      best = v;
+      writePv(ctx, ply, m, depth > 1);
+    }
     if (best > alpha) alpha = best;
     if (alpha >= beta) break;          // 剪枝
   }
@@ -386,7 +412,8 @@ function negamax(game, depth, alpha, beta, ply, ctx) {
 
 /**
  * 迭代加深搜索。时间到就返回上一层已经搜完的最好走法，所以应手时间有硬上限。
- * @returns {{move, score, depth, ms, nodes}} 或 null（无合法走法）
+ * pv 只在一层完整搜完后替换；depth=0 表示只有合法 fallback、没有完成的主变。
+ * @returns {{move, san, score, depth, nodes, ms, pv}} 或 null（无合法走法）
  */
 export function search(fen, opts = {}) {
   const { maxDepth = 6, timeBudgetMs = 1600 } = opts;
@@ -396,9 +423,16 @@ export function search(fen, opts = {}) {
   if (rootMoves.length === 0) return null;
 
   orderMoves(rootMoves);
-  const ctx = { nodes: 0, deadline: t0 + timeBudgetMs };
+  const pvSize = Math.max(2, Math.floor(maxDepth) + 2);
+  const ctx = {
+    nodes: 0,
+    deadline: t0 + timeBudgetMs,
+    pvTable: Array.from({ length: pvSize }, () => new Array(pvSize)),
+    pvLength: new Uint16Array(pvSize),
+  };
   let best = rootMoves[0];
   let bestScore = 0;
+  let bestPv = [];
   let reached = 0;
 
   for (let d = 1; d <= maxDepth; d++) {
@@ -406,6 +440,7 @@ export function search(fen, opts = {}) {
     const ordered = [best, ...rootMoves.filter((m) => m !== best)];
     let alpha = -Infinity;
     let localBest = null;
+    let localPv = null;
     try {
       for (const m of ordered) {
         // 根节点每个候选前都查时间，保证浅层/低节点数时也不会越过预算。
@@ -413,7 +448,14 @@ export function search(fen, opts = {}) {
         game.move({ from: m.from, to: m.to, promotion: m.promotion });
         const v = -negamax(game, d - 1, -Infinity, -alpha, 1, ctx);
         game.undo();
-        if (localBest === null || v > alpha) { alpha = v; localBest = m; }
+        if (localBest === null || v > alpha) {
+          alpha = v;
+          localBest = m;
+          localPv = [publicPvMove(m)];
+          for (let index = 1; index < ctx.pvLength[1]; index++) {
+            localPv.push(publicPvMove(ctx.pvTable[1][index]));
+          }
+        }
       }
     } catch (e) {
       if (e !== TIMEOUT) throw e;
@@ -421,6 +463,7 @@ export function search(fen, opts = {}) {
     }
     best = localBest;
     bestScore = alpha;
+    bestPv = localPv;
     reached = d;
     if (Math.abs(bestScore) > MATE - 100) break;   // 算到将死了，不用再深
     if (performance.now() > ctx.deadline) break;
@@ -433,5 +476,6 @@ export function search(fen, opts = {}) {
     depth: reached,
     nodes: ctx.nodes,
     ms: performance.now() - t0,
+    pv: bestPv,
   };
 }
