@@ -97,7 +97,7 @@ AI 搜索在独立 Worker 中进行，主线程保留 watchdog 与合法 fallbac
 | `chess.html` / `engine.js` / `worker.js` | 国际象棋 UI、唯一评估 / 搜索、AI 与 L1–L4 路径 Worker |
 | `verify.mjs` / `live-check.mjs` / `self-play.mjs` | 国际象棋棋核、92 项真 Chrome、10 局稳定性验收 |
 | `xiangqi.html` / `xiangqi-engine.js` / `xiangqi-worker.js` | 中国象棋 UI、规则 / 唯一评估 / 搜索、搜索与分叉 Worker |
-| `xiangqi-verify.mjs` / `xiangqi-live-check.mjs` / `xiangqi-self-play.mjs` | 中国象棋棋核、47 项真 Chrome、固定 10 局稳定性验收 |
+| `xiangqi-verify.mjs` / `xiangqi-live-check.mjs` / `xiangqi-self-play.mjs` | 中国象棋棋核、48 项真 Chrome、固定 10 局稳定性验收 |
 | `portal-check.mjs` | 首页、共享未来地图契约、两个规则入口和运行代码红线的 21 项静态验收 |
 | `HANDOFF.md` / `BLOCKED.md` / `PROGRESS.md` | 自足交接、边界决策、迭代记录 |
 
@@ -126,7 +126,7 @@ node xiangqi-self-play.mjs
 
 - `npm test`：国际象棋 **8/8**、中国象棋 **19/19**、统一门户 **21/21**；
 - `node live-check.mjs`：**92/92**；
-- `node xiangqi-live-check.mjs`：**47/47**；
+- `node xiangqi-live-check.mjs`：**48/48**；
 - `node self-play.mjs`：10 局、727 plies、687 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
 - `node xiangqi-self-play.mjs`：10 局、710 plies、710 次搜索、1,258 个 PV 节点；
   `illegalMoves / fenMismatches / pvFailures / branchFailures / threatFailures` 全为 0。
@@ -138,7 +138,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
-统一“棋局未来地图”运行源码 `247492f` 已发布；八个运行文件与 GitHub Pages 逐字节一致，
-线上复验为国际象棋 **92/92**、中国象棋 **47/47**。完整哈希见 `HANDOFF.md`。
+统一“棋局未来地图”运行源码 `e2f396a` 已发布；八个运行文件与 GitHub Pages 逐字节一致，
+线上复验为国际象棋 **92/92**、中国象棋 **48/48**。完整哈希见 `HANDOFF.md`。
 
 作者 Max
