@@ -530,28 +530,30 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 中国 10 局自走（本次实测） | 841 plies / 841 searches / 1,476 PV 节点；4 终局 / 6 capped；五类错误全 0 |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-当前“棋局未来地图”运行源码冻结于 commit `083a58c`。以下 SHA-256 已在 GitHub Pages
+当前“棋局未来地图”运行源码冻结于 commit `8a45f30`。以下 SHA-256 已在 GitHub Pages
 逐文件下载并与本地逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
 | `index.html` | `5909c17a139c2e2eb2e6a3859710e0b4e44821fec9eaf76da848f12ef07735ed` |
-| `future-map.css` | `64e839fb16a8a0f0b56b5c75b5b8128c41b97b73969f222de1c4235c788d60bf` |
-| `chess.html` | `ec563f2e2879e6aade7b9bec6cc4db3488a098d3c4d9badd6744051bd54db64c` |
+| `future-map.css` | `9fce672f8f97e2e56f093a8ec9fa8f064379e31661c02ac493d9a3885c43a152` |
+| `chess.html` | `aa949efb0f07d4da887e29c4dc3adc2abfa29bb75c3a44d8c5a5dc84ad20e42b` |
 | `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
 | `worker.js` | `a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed` |
-| `xiangqi.html` | `83963fa448995869e67e86bd1df0f6b298703eb6b9fca0a55749a041edd6692e` |
+| `xiangqi.html` | `8d1cc3faaa706df376c635863cb2363cf158f811ebcdd20bcb5ec2a6657b63d8` |
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `06c9d33c946722bd2e6bfe0d4b13e304a89de61873a06eaace49a5a093459cd4` |
 
 线上行为复验：
 
-- `node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**95/95**；
-- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**51/51**；
-- 本轮线上国际首个 AI 外部可见应手 **1,523ms**，中国象棋 **1,183ms**，都低于 3 秒硬上限；
-- 国际局中 L4 **475,842** 条，逐层与独立棋核一致；
-- 中国象棋提前选路竞态会从 1 层升级为合法 2 层预演；全景大拖动后仍 **44/44** 节点可见；
-- 两页主棋盘预演、快速切路、预演期只读和播放中切换减少动态均在线上真 Chrome 通过；
+- `node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**101/101**；
+- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**58/58**；
+- 本轮线上国际首个 AI 外部可见应手 **1,351ms**，中国象棋 **1,161ms**，都低于 3 秒硬上限；
+- 国际局中 L4 **474,457** 条，逐层与独立棋核一致；
+- 中国象棋分叉 Worker 晚到只补建议与全部回应，仍停在 1 层等待用户选择；全景大拖动后仍
+  **44/44** 节点可见；
+- 两页未知回应、显式条件第二拍、快速切路、预演期只读、回到现在焦点和减少动态均在线上真 Chrome
+  通过；
 - 页面 JS 错误均为 0。
 
 ---
