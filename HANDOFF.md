@@ -431,7 +431,7 @@ xiangqi-worker.js
 | 中国 10 局自走 | 844 plies；4 终局 / 6 capped；五类错误全 0；最大搜索 23.0ms |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-中国象棋视觉 / 威胁运行版本 `c4df313` 已发布，以下 SHA-256 已与 GitHub Pages 逐字节核对：
+中国象棋上一步 / 攻击流运行版本 `66f5a92` 已发布，以下 SHA-256 已与 GitHub Pages 逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
@@ -439,11 +439,12 @@ xiangqi-worker.js
 | `chess.html` | `5badac7a9496a7ab2245721a830077cb6e9c3be1d0b569e6a8273ca3e3a4d12e` |
 | `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
 | `worker.js` | `a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed` |
-| `xiangqi.html` | `c91e65fd4e1bf944a959a963f45fcc77cf9db24ddfac936503cd7dfca159542c` |
+| `xiangqi.html` | `4337e955ee30e3e1157a19dd0bc1f382ed5ab9cbd55b22369043b750f7dd4f9e` |
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `06c9d33c946722bd2e6bfe0d4b13e304a89de61873a06eaace49a5a093459cd4` |
 
-上表是上一发布版本的线上哈希；本轮上一步 / 攻击流发布完成后必须在本节替换，不能沿用旧值。
+线上行为复验为中国象棋 **43/43**、国际象棋 **90/90**。相邻 `e5→e4` 方向仍为 1.00；
+双攻击者实测主线 / 背景不透明度为 `0.94 / 0.22`，减少动态后切回普通的运行中旧动画为 0。
 
 ---
 
@@ -528,4 +529,5 @@ git rev-list --left-right --count origin/main...main
   - 中国象棋 10 局：844 plies、4 终局 / 6 capped、五类错误全 0、最大搜索 23.0ms
 - 中国象棋规则边界已在页面和文档明示：没有历史状态，不判长将 / 长捉 / 复杂循环；
   威胁是几何攻击线；当前不是职业级引擎。
-- 本轮上一步 / 攻击流版本尚待提交、推送和线上逐字节核验；发布完成前不能宣称线上已更新。
+- 中国象棋上一步 / 攻击流运行版本 `66f5a92` 已推到 `main` 并发布；七个运行文件与线上逐字节一致。
+- 线上复验：中国象棋 **43/43**，国际象棋 **90/90**。

@@ -128,6 +128,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
-最新发布版本、线上逐字节哈希和线上复验结果见 `HANDOFF.md`。
+中国象棋上一步 / 攻击流运行版本 `66f5a92` 已发布；七个运行文件与线上逐字节一致，
+线上复验为国际象棋 **90/90**、中国象棋 **43/43**。完整哈希见 `HANDOFF.md`。
 
 作者 Max
