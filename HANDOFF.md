@@ -120,19 +120,19 @@ node xiangqi-self-play.mjs
 |---|---|
 | `index.html` | 统一产品首页；恰好两个真实规则入口 |
 | `future-map.css` | 两页共用的产品壳、路线颜色、图例、语境栏和响应式规则 |
-| `portal-check.mjs` | 首页、共享样式、同形未来地图根 / 状态契约和运行代码红线的 21 项静态裁判 |
+| `portal-check.mjs` | 首页、共享样式、同形未来地图根 / 状态契约和运行代码红线的 23 项静态裁判 |
 | `package.json` | `npm test` 与两套棋种验收快捷命令 |
 | `chess.html` | 国际象棋 UI；3D 全景、2D 推演、五列分叉、棋盘和同一路线语境 |
 | `engine.js` | 国际象棋唯一评估函数、排序、威胁、搜索、PV 和路径展开 |
 | `worker.js` | 国际象棋 AI search Worker / cloud Worker 的共同入口 |
 | `verify.mjs` | 国际象棋 perft / 棋核裁判 |
-| `live-check.mjs` | 国际象棋 92 项真 Chrome 裁判 |
+| `live-check.mjs` | 国际象棋 95 项真 Chrome 裁判 |
 | `self-play.mjs` | 国际象棋固定 10 局稳定性审计 |
 | `xiangqi.html` | 中国象棋 9×10 UI；3D 感全景、2D 推演、强回应、路线后果、实战历史和威胁 |
 | `xiangqi-engine.js` | 中国象棋规则、唯一评估函数、排序、威胁、搜索与 PV |
 | `xiangqi-worker.js` | 中国象棋搜索 / 分叉 / 分析 Worker 入口 |
 | `xiangqi-verify.mjs` | 中国象棋 19 项棋核 / 搜索裁判 |
-| `xiangqi-live-check.mjs` | 中国象棋 48 项真 Chrome / 路由 / 未来地图契约 / 上一步 / 威胁 / 棋子材质 / 手机裁判 |
+| `xiangqi-live-check.mjs` | 中国象棋 51 项真 Chrome / 路由 / 未来地图契约 / 上一步 / 威胁 / 棋子材质 / 手机裁判 |
 | `xiangqi-self-play.mjs` | 中国象棋固定 10 局稳定性审计 |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | 对外说明 / 决策边界 / 历史记录 |
 
