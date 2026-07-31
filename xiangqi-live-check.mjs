@@ -850,7 +850,7 @@ async function threatAndZoomAudit() {
       && adjacentDirection >= .98
       && adjacentLength >= adjacentCenterDistance * .15
       && adjacentLength < adjacentCenterDistance
-      && adjacentLine.marker.includes('threatArrowHead')
+      && adjacentLine.marker.includes('threatArrowHeadCompact')
       && adjacentLine.display !== 'none'
       && adjacentLine.visibility !== 'hidden'
       && adjacentLine.opacity > 0,

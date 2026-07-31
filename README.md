@@ -123,7 +123,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
-当前本地版本已完成国际象棋 **90/90**、中国象棋 **38/38** 回归；发布状态与运行文件哈希见
-`HANDOFF.md`。
+中国象棋视觉 / 威胁运行版本 `c4df313` 已发布；七个运行文件与线上逐字节一致，最新线上复验为
+国际象棋 **90/90**、中国象棋 **38/38**。完整运行文件哈希见 `HANDOFF.md`。
 
 作者 Max
