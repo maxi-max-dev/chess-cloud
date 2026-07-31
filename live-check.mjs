@@ -1,7 +1,7 @@
 // live-check.mjs —— 无头 Chrome + CDP 真机验收（本地或线上都能跑）
 // 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333]
 // 默认自动选空闲 CDP/静态服务端口；只有需要并行复现某次运行时才显式传 --port。
-// 不给 --url 就自己起一个静态服务器伺候 ~/code/chess-cloud
+// 不给 --url 就自己起一个静态服务器伺候 chess.html；线上可传站点根目录或 chess.html。
 
 import http from 'node:http';
 import net from 'node:net';
@@ -37,7 +37,18 @@ async function serveLocal() {
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const address = server.address();
-  return `http://127.0.0.1:${address.port}/index.html`;
+  return `http://127.0.0.1:${address.port}/chess.html`;
+}
+
+function chessPageUrl(input) {
+  const url = new URL(input);
+  if (url.pathname.endsWith('/chess.html')) return url.href;
+  if (url.pathname.endsWith('/index.html')) {
+    url.pathname = url.pathname.replace(/index\.html$/, 'chess.html');
+    return url.href;
+  }
+  if (!url.pathname.endsWith('/')) url.pathname += '/';
+  return new URL('chess.html', url).href;
 }
 
 function portInUse(port) {
@@ -3462,6 +3473,7 @@ async function main() {
     if (await portInUse(PORT)) throw new Error(`CDP 端口 ${PORT} 已被占用，请换一个 --port`);
   }
   if (!URL_) URL_ = await serveLocal();
+  else URL_ = chessPageUrl(URL_);
   chromeProcess = await launchChrome();
   console.log(`验收目标: ${URL_}（CDP ${PORT}）\n`);
   await attach();

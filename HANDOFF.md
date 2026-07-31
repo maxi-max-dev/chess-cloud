@@ -1,493 +1,430 @@
 # 交接文档 · chess-cloud
 
-写给下一个接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**，
-照着做就能接着干。截止 2026-07-31，当前最终架构已经写进这份文档；固定验收现在是
-`verify.mjs` 8 项、`live-check.mjs` 90 项；本地与线上都已全绿，状态见第 6、9 节。
+写给下一位接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**。
+截止 2026-07-31，项目已经从单一国际象棋页变成“双棋种入口 + 两套独立棋核”。
 
 - 线上：https://maxi-max-dev.github.io/chess-cloud/
-- 仓库：https://github.com/maxi-max-dev/chess-cloud （main 分支，GitHub Pages 从 main 根目录发布）
+- 仓库：https://github.com/maxi-max-dev/chess-cloud（`main`，GitHub Pages 从根目录发布）
 - 本地：`~/code/chess-cloud`
-- 公开署名一律写 **Max**，不写真名。
+- 公开署名只写 **Max**
 
 ---
 
-## 0. 三十秒看懂这是什么
+## 0. 三十秒看懂
 
-一个国际象棋网页。页面现在不只展示“很多未来”，而是直接辅助你做下一步决定：
+打开根首页先看到两个选择：
 
-1. **「这枚棋子怎么走、对手会怎么回」** —— 点任意白棋，助手列出这枚棋子的前三候选，
-   先用黄线动画演示“你的一步”，再用蓝线演示“对手的强回应”。它明确是引擎强度，
-   不是伪造的历史概率；预演不落子，确认后才走。实际应手回来后还会对照是否命中。
-2. **「接下来到底有多少种可能」** —— 以当前局面为根，往下四层全展开成三维父子路径网
-   （起始局面第 4 层 197,281 条路径，就是公认的 perft(4)）。零 `THREE.Points`；每个未来
-   节点恰有一条真实入边。缩略窗只建真实 L3；明确点「放大探索」才加载 L4，收起即释放。
-   同一位置可切成纯 2D 纵向树：每层列出当前父局面的全部合法孩子，每张卡写真实“走后 N 个分支”，
-   所选路线用连续 SVG 主干向下连接；全屏旁边仍是逐格显示分支结果的真实变体棋盘。
-3. **「这些可能里哪几条靠谱」** —— 右边下半部是「可能性分叉」：一列 = 一步棋，
-   列头写着这一步一共有多少种走法，列里先摆最靠谱的几条，点任意一条，右边几列顺它重新分叉。
-   卡片把浅层局面分、相对最佳着损失和“一步合法吃子风险”分开讲；原始 `+0.35` 只保留作核对。
-   亮蓝主干是用户当前选路；黑方应手搜索若完成了可验证的主变，金色虚线和横滑 rail 会独立展示
-   实际应手之后的 `pv.slice(1)`。它是引擎搜索线，不是假装成概率。
+1. `chess.html`：国际象棋，人执白、AI 执黑。保留棋子助手、一步威胁、五列分叉、零光点 3D 路径网、
+   纯 2D 树、逐格变体棋盘和蓝色用户路线 / 金色 AI 主变。
+2. `xiangqi.html`：中国象棋，人执红、AI 执黑。是真正的 9×10 规则核，不是给国际象棋换一套棋子。
+   页面会显示当前全部合法分叉、浅层强回应、威胁注释、真实分叉数和搜索 PV。
 
-黑方由自写的 minimax + alpha-beta 在 Web Worker 里应手。
+根 `index.html` 只做棋种选择，不包含任一棋种的规则。
 
-**这个项目的灵魂是「数字必须是真的」**。所有展示出来的数量，都能被一个独立的 Node 脚本
-重新算一遍撞上。下面第 3 节的红线，全是围绕这一条。
+**项目的灵魂仍然是“数字必须是真的”。** 页面说有多少棋子、多少合法走法、多少分叉、多少路径，
+就必须能从当前 DOM / geometry 现读，并由独立 Node 或真 Chrome 裁判从局面重新计算。不能自己记一本
+数字账，不能少画后仍报告全量，也不能把浅层引擎排序说成概率或职业棋力。
 
 ---
 
-## 1. 先跑一遍，确认接手时是绿的
+## 1. 接手先跑：绿是基线
 
 ```bash
-cd ~/code/chess-cloud && npm i chess.js@1.4.0
+cd ~/code/chess-cloud
+npm install
 ```
 
-**棋核验收**：
+### 1.1 快速固定裁判
 
 ```bash
+npm test
+```
+
+它依次运行：
+
+```text
 node verify.mjs
+node xiangqi-verify.mjs
+node portal-check.mjs
 ```
 
-期望：`全绿：8/8 项通过，零跳过`，退出码 0。
-断言的是 perft 标准值：起始局面 20 / 400 / 8902 / 197281，Kiwipete 局面 48 / 2039 / 97862，
-外加 `count(fen, 0) === 1` 的约定。
+当前期望输出：
 
-**真机验收**（无头 Chrome + CDP）：
+- 国际象棋棋核：**8/8**
+- 中国象棋棋核：**19/19**
+- 双棋种入口 / 路由 / 运行代码红线：**16/16**
+
+中国象棋起始局面 perft 必须是：
+
+| 深度 | 局面数 |
+|---|---:|
+| 1 | 44 |
+| 2 | 1,920 |
+| 3 | 79,666 |
+| 4 | 3,290,240 |
+
+### 1.2 真 Chrome 验收
 
 ```bash
 node live-check.mjs
+node xiangqi-live-check.mjs
 ```
 
-脚本用 `EXPECTED_RESULTS = 90` 锁定固定 90 项；成功时应输出 `全绿：90/90 项通过`。它会自己起
-静态服务器、拉起无头 Chrome、走棋、截图、对数，
-并切到 390×844 / 667×375 / 844×390 / 1024×768 验手机与平板布局、
-真实触摸/滑动、黑白棋子像素、棋子助手、AI/PV 竞态、空闲 WebGL 帧、背景和路径网全屏变体棋盘。
+当前本地期望：
 
-**打线上**：
+- 国际象棋：**90/90**
+- 中国象棋：**31/31**
 
-```bash
-node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
-```
+两条脚本都会自己起本地静态服务和无头 Chrome。国际象棋脚本的本地目标已经改为
+`chess.html`；中国象棋脚本会从根首页实际点击两张卡，验证路由后再进入 `xiangqi.html`。
+它们都覆盖手机尺寸、真实触控、Worker 应手、合法重放和页面零 JS 错误。
 
-参数：`--url`（不给就打本地）、`--port`（默认自动选空闲 CDP 端口；显式端口已占用会拒绝）、
-`--shot`（截图落盘路径）。本地静态服务也自动选空闲端口。
-
-**引擎自对弈冒烟**（不替代上面三条，也不是棋力基准）：
+### 1.3 固定 10 局稳定性审计
 
 ```bash
 node self-play.mjs
+node xiangqi-self-play.mjs
 ```
 
-默认用固定种子跑 10 局、每次搜索 18ms、每局最多 120 plies；逐手独立重放合法着并核对
-FEN / turn / history / PV，还会把真实 `rankMoves()` 分数送进页面的 situation / quality 函数抽查
-同源。每次搜索的 PV 都从当手 FEN 重放，检查首着、SAN、`after` 和完成深度；报告汇总
-`pvFailures`，非 0 会让命令退出 1。
+这两条是正确性 / 稳定性冒烟，**不是棋力基准**。最新中国象棋真实输出：
 
-> 如果这三条有任何一条是红的，**先把它弄绿再动新功能**。绿是基线。
+- 10 局、769 plies；
+- 6 局到真实终局，4 局达到 100 plies 测试上限并如实记作 `capped`；
+- `illegalMoves=0`
+- `fenMismatches=0`
+- `pvFailures=0`
+- `branchFailures=0`
+- `threatFailures=0`
+- 单次搜索最大 38.9ms
+
+> `npm test` 不包含两套真 Chrome 和两套自对弈。发布前不能只跑 `npm test`。
 
 ---
 
-## 2. 文件与数据流
+## 2. 文件职责与数据流
 
-| 文件 | 行数 | 干什么 |
-|---|---|---|
-| `index.html` | 5083 | 整个页面：分层 SVG 3D 棋子、棋子助手、一步威胁、3D/2D 路径网、变体棋盘、蓝色选路/金色 PV、响应式与交互 |
-| `engine.js` | 481 | **唯一的评估函数** + 带 PV 的搜索 + 逐层展开 + 走法排序 + 事实型一步威胁 |
-| `worker.js` | 91 | Web Worker：AI 应手 / 第 1～4 层路径。页面开两个实例，互不排队 |
-| `verify.mjs` | 94 | Node 端棋核验收，导出 `count(fen, depth)` 给别人对数用 |
-| `self-play.mjs` | 553 | 默认 10 局引擎自对弈稳定性审计；逐手核合法/FEN/历史/PV 并抽查注释同源 |
-| `live-check.mjs` | 4529 | 无头 Chrome 验收（含 PNG 差分、棋子/FEN、PV、2D/3D 路径几何、空闲帧、助手、威胁、触控与竞态） |
-| `README.md` / `BLOCKED.md` / `PROGRESS.md` | | 对外说明 / 待裁决清单 / 迭代过程记录 |
+### 2.1 路由与文件
 
-没有构建工具、没有框架、没有后端。chess.js 和 three.js 直接从 CDN 引，版本钉死：
+| 文件 | 职责 |
+|---|---|
+| `index.html` | 根首页；恰好两张卡，分别去 `chess.html` / `xiangqi.html` |
+| `portal-check.mjs` | 入口、独立页面连线和运行代码硬编码红线的静态裁判 |
+| `package.json` | `npm test` 与两套棋种验收快捷命令 |
+| `chess.html` | 国际象棋完整 UI；原单页从 `index.html` 原样迁入 |
+| `engine.js` | 国际象棋唯一评估函数、排序、威胁、搜索、PV 和路径展开 |
+| `worker.js` | 国际象棋 AI search Worker / cloud Worker 的共同入口 |
+| `verify.mjs` | 国际象棋 perft / 棋核裁判 |
+| `live-check.mjs` | 国际象棋 90 项真 Chrome 裁判 |
+| `self-play.mjs` | 国际象棋固定 10 局稳定性审计 |
+| `xiangqi.html` | 中国象棋 9×10 UI、纯 2D 路径、预演、威胁与 PV |
+| `xiangqi-engine.js` | 中国象棋规则、唯一评估函数、排序、威胁、搜索与 PV |
+| `xiangqi-worker.js` | 中国象棋搜索 / 分叉 / 分析 Worker 入口 |
+| `xiangqi-verify.mjs` | 中国象棋 19 项棋核 / 搜索裁判 |
+| `xiangqi-live-check.mjs` | 中国象棋 31 项真 Chrome / 路由 / 手机裁判 |
+| `xiangqi-self-play.mjs` | 中国象棋固定 10 局稳定性审计 |
+| `README.md` / `BLOCKED.md` / `PROGRESS.md` | 对外说明 / 决策边界 / 历史记录 |
 
-- `https://cdn.jsdelivr.net/npm/chess.js@1.4.0/+esm`
-- `https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js`
+没有构建工具、框架或后端。国际象棋从 CDN 载入钉死版本的 chess.js / three.js；中国象棋棋核为
+仓库内纯 ES module。两个棋种分开是刻意的：规则与评估不能混成一个充满条件分支的全局状态。
 
-### engine.js 对外导出
+### 2.2 国际象棋对外契约
+
+`engine.js` 的核心导出：
 
 ```js
-export { Chess };                       // 转出 chess.js，全项目只从这里拿
+export { Chess };
 export const MATE = 100000;
-export function evaluate(fen)           // ★ 唯一的评估函数。正=白优，单位百分兵
-export function scoreChild(move)        // 给一个 verbose 走法打分（'#' 结尾判将死，其余走 evaluate）
-export function expand(parentFens, opts)// 从一层局面展开出下一层：{parents, scores, fens}
-export function rankMoves(fen, opts)    // 排序；结果还带 piece/captured/flags，助手用它解释回应类型
-export function captureSquare(move)     // 普通/吃过路兵的真实被吃格
-export function currentAttacks(fen)     // 当前行棋方受到的几何攻击线（不冒充合法吃子）
-export function analyzeCandidateThreat(afterFen, movedSquare, replies)
-                                        // 候选走后的合法吃子、回吃与一步交换分类
-export function search(fen, opts)       // 迭代加深 alpha-beta，返回 {move, san, score, depth, nodes, ms, pv}
+export function evaluate(fen);
+export function scoreChild(move);
+export function expand(parentFens, opts);
+export function rankMoves(fen, opts);
+export function captureSquare(move);
+export function currentAttacks(fen);
+export function analyzeCandidateThreat(afterFen, movedSquare, replies);
+export function search(fen, opts);
 ```
 
-`search()` 的 PV 契约：
+约束：
 
-- 只在一层搜索**完整结束**后替换公开 PV；超时不会泄漏半层结果。
-- 每步固定为 `{san, from, to, promotion, after}`，`pv[0]` 必须与 `move/san` 同源。
-- `depth=0` 表示只拿到合法 fallback，必须 `pv=[]`。
-- `depth>0` 的非终局线必须有 `pv.length === depth`；若主变提前走到终局，可短于 `depth`。
+- `evaluate(fen)` 是国际象棋唯一评估函数，正数表示白优。
+- `search()` 只公开最后一层完整搜完的 PV。每手带
+  `san/from/to/promotion/after`；`depth=0` 必须 `pv=[]`。
+- AI search Worker 与 cloud Worker 是两个实例，重开会 terminate / recreate，避免旧同步任务堵住新请求。
+- 3D 路径 L1–L4 全在 cloud Worker 生成；主线程只用回传数组创建精确 geometry。
+- 缩略只保留完整 L3；明确放大才计算 L4；完成后同层批次合并，收起 / 离屏 / 后台释放 L4。
+- `__cloudStats()` 的路径数从真实非索引 `LineSegments.position.count / 2` 求和。
+- `__forkStats()` 的卡片数从当前 SVG `g.card` 现数。
+- 国际象棋蓝线是用户选择；金线是从 AI 搜索源 FEN 逐手重放验证后的 `pv.slice(1)`，两者不能互相覆盖。
 
-### 为什么拆成三个文件（不是一个 HTML）
-
-因为「评估函数只准有一份」。页面的分叉排序调用 `engine.js`，cloud Worker 用它展开并给星打分，
-search Worker 用它做 minimax 叶子打分；三条路径只有 import 同一个 ES module 才可能共享一套口径。
-要塞进单文件，就得把评估函数源码字符串化再拼 Blob URL 造 Worker，那才是真的坑。
-
-### 一次落子发生了什么
-
-```
-玩家点棋盘 → tryMove(from, to)
-   ├─ chess.js 判合法（非法就直接 return false，这就是「被拒」）
-   ├─ captureCoachPrediction() → 保存该步及前三条强回应，只用于事后对照
-   ├─ renderBoard()      → 先把玩家走法画出来
-   ├─ requestAi()        → 派给独立 searchWorker
-   ├─ prepareCloud()     → 终止旧云，只留根点；thinking 时不算中间云
-   └─ markForkStale()    → 旧分叉淡化 + inert + 禁用确认，当前任务立即返回
-AI 应手回来 → onAiMove()
-   ├─ 从搜索源 FEN 逐手校验完整 PV；非法、半层或 fallback 一律丢弃
-   ├─ chess.js 落下 pv[0] + renderBoard() + 状态文字
-   ├─ installPvGuide(fullPv) → 内部保存 pv.slice(1)，画成新局面的金色主变；不启动第二搜索
-   ├─ 一帧真正绘制后才设置 lastAi.painted / totalMs，并用实际应手更新助手
-   └─ 再延迟一个后续任务 renderFork(true)，随后让 cloudWorker 从第 1 层长最终路径网
-```
-
-搜索 Worker 有两道时限：引擎内部每 32 节点/根候选看 deadline；主线程另有 2.2 秒 watchdog。
-Worker 超时、报错或通信失败时，页面会终止它并走请求发出时预存的第一步合法棋。reset 也会直接
-terminate + 重建 Worker，不能只丢弃旧回包，否则新请求仍会排在旧同步搜索后面。
-验收的 3 秒终点是棋盘完成绘制后的 `painted=true`，不是 Worker 回包或页面提前记下的数字。
-fallback、reset 和玩家下一次真实落子都会同步清空旧 PV；不会把上一局面的金线留在新 FEN 上。
-
-### 棋盘棋子怎么画
-
-- 不使用 `♚` 之类 Unicode 字符，也不依赖系统字体。旧实现对黑白双方都用了黑棋字形，只靠 fill 染白，
-  Safari/彩色字体回退会忽略 fill，正是“白棋也变黑”的根因。
-- `<defs id="boardPieceDefs">` 有兵/车/马/象/后/王六套分层 SVG 几何。每颗实际棋是
-  `g.piece3d[data-sq][data-color][data-type][data-render="vector-3d"]`；黑白共用几何，只换渐变材质。
-- `boardSquares / boardPieces / boardOverlay` 三层分开清理。棋子 `pointer-events:none`，触控仍落到格子；
-  合法落点、分叉预览、助手的两段动画单独在 overlay 上画。
-- 这是六种确定性的**分层 SVG 3D 视觉造型**，不是另一个可旋转的 WebGL mesh 棋盘；不要在文案里
-  把它说成真实网格模型或自由相机棋局。
-
-### 棋子助手怎么算的
-
-- 只在白方可走且用户选中一枚白棋时工作。候选来自当前 `columns[0].ranked`，先按 `from` 过滤，
-  DOM 最多展示前三条，但 `modelTotal` 保留该棋子的真实合法走法总数。
-- 每个候选的对手回应来自 `rankMoves(candidate.after, {depth: 2})`，会再看白方一次回手，
-  避免把“吃完立刻被回吃”的坏交换排成首选。黑方排序方向由 `rankMoves` 自己处理。
-  文案只能说“对手强回应（按浅层引擎强度）”，不能说历史胜率或概率。
-- `currentAttacks()` 的橙圈只表示当前行棋方的棋处在对方几何攻击线上；攻击者可能被钉住，
-  所以不能写成“对手有合法吃法”。真正的红色高危只从候选落子后的全部合法回应生成。
-- `analyzeCandidateThreat()` 必须区分：吃刚走的棋 / 首选吃别处 / 无合法回吃 / 有回吃的等价交换 /
-  虽能回吃仍亏子。吃过路兵的真实目标格用 `captureSquare()`，不能直接拿 `reply.to`。
-  这只是“一步直接吃子风险”，不冒充完整 SEE、两步战术或必然失子。
-- 动画只重建 `boardOverlay`，绝不 `game.move()`。切换棋子、重开、真实落子都会换 `lineId`
-  或清空旧动画。黄/蓝两段都只播一次、1.5 秒后停住，不允许无限循环继续耗帧。
-  棋盘格支持触摸、鼠标和 Enter/Space。
-- `scoreSituation()` 把唯一引擎分翻译成“接近均衡 / 你稍优 / 对手明显优 / 将死”；`moveQuality()`
-  用候选相对本列最佳的损失翻译成“首选 / 稳健可下 / 需要准确 / 局面损失较大”。它不是吃子风险；
-  黑方列必须反向算损失。
-- 默认升变在预测和真实落子两边都归一成 `q`。白方一步直接结束棋局时走
-  `presentCoachTerminal()`，不能留在“正在等黑方”。fallback 的说明必须使用真实 `reason`，
-  不能把 Worker 故障一概伪装成超时。
-
-### 分叉图（主舞台）怎么算的
-
-- `buildColumns()`：从当前局面出发，连续 `COLS`(=5) 列。每列调 `rankMoves(fen, {depth: RANK_DEPTH})`
-  拿到**全部**走法（已按对行棋方好坏排序），选中的那条决定下一列的局面。
-- `branchPath[i]` = 第 i 列选中的是排序后的第几条（默认 0，也就是最靠谱那条）。
-- `expanded[i]` = 这一列有没有被点开「还有 N 条」。
-- `branchPath` 只控制亮蓝用户主干。经校验的 `pvGuide.moves` 从当前 `game.fen()` 另行逐列匹配，
-  画成金色虚线/金框，绝不替用户改 `branchPath`。金卡即使在折叠区外也要保留。
-- 用户在任一列偏离金色 PV 后，下一列父 FEN 已改变，后续金线必须停止；上方 rail 仍保留完整
-  `pv.slice(1)` 供对照。rail 在 390px 手机里横滑，静置不排 rAF、不触发 WebGL 重绘。
-- 渲染是**纯 SVG 字符串拼接**后 `innerHTML` 一次性塞进去，事件用委托。列一律**顶对齐**——
-  这一点是踩过坑才改的，见第 5 节。
-
-### 全屏变体棋盘怎么算的
-
-- `explorerState` 与真实 `game` 完全分离，只保存 `rootFen + path`。点线旁标签、右侧候选或面包屑，
-  只用各步真实 `after` FEN 重画 `#exploreBoard`；绝不调用真实 `game.move()`。
-- 当前分支局面的全部合法走法由 `rankMoves(fen, {depth: 1})` 生成并缓存，明确标成“即时评估”；
-  棋子助手和主分叉用 depth=2、标成“含对手强回应”，两种视野不能混写成同一个分数。
-- 变体最多连续探索 `SYNC_DEPTH`(=3) 步。选路同时驱动真实 L1–L3 geometry 上的亮线、SAN 标签、
-  面包屑和逐格棋盘；第 3 步后明确提示回退，不伪造不存在的第 4 步交互。
-- 变体棋盘复用主棋盘的六套分层 SVG 3D 几何和黑白材质。验收不仅对 `data-*`，还检查每枚棋子的
-  实际屏幕矩形落在对应格内，避免“元数据对、棋子画错格”。
-
-### 二维路径树怎么算的
-
-- `#cloudMode` 在 3D 与 2D 间切换，两边**复用同一个 `explorerState.rootFen + path`**，没有第二本
-  路径账。2D→3D→2D、在旧层换兄弟、甚至 L3 尚未回传时快速切换，选路都必须保留。
-- 2D 每层只渲染“当前已选父节点”的全部合法孩子，最多交互 `SYNC_DEPTH`(=3) 步，不把完整 L4
-  复制成几十万 DOM。每张卡的“走后 N 个分支”直接对 `move.after` 重新生成合法走法并取 `.length`。
-- 内部 `data-depth` / `parentDepth` 始终是“从当前根往后”的相对 1–3 层，只用于索引和回退；
-  **绝不能把它再写成实战步数**。可见标题的“第 N 回合、白/黑方走、已走 N 手”由 `fenTurnContext()`
-  直接解析各层 `parentFen` 的 side/fullmove；副标题另写“未来第 1/2/3 步”。所以真实落子后首层会从
-  第 1 回合前进到第 2、3…回合，`loadFen()` 到第 37 回合也不会因为 `game.history()` 为空而归零。
-- 根到各层选中节点之间由实际 SVG path 连成连续主干；横向分支用真实滚动容器，桌面有左右箭头，
-  手机可横滑；整棵树可纵向滚。箭头的显示和 disabled 状态从 `scrollWidth/clientWidth/scrollLeft`
-  现读，不为终局或不可滚动层显示死按钮。
-- 2D 缩略图只露当前下一层及每张卡的分叉数；全屏左/上是树，右/下是同源变体棋盘。
-  390×844、短横屏、1440×900、1280×800，以及模拟 47px 刘海/34px 底部手势区都有几何断言。
-- 进入 2D 会停巡航、取消待绘帧、释放 L4；放大/收起 2D 不调用 `renderer.setSize()`，因此隐藏
-  WebGL backing store 的像素尺寸不变。AI 思考时树和变体棋盘同时 `inert/aria-busy`，清空旧卡；
-  真实应手完成绘制后才按新 `game.fen()` 重建。
-
-### 三维路径网怎么算的
-
-- 第 0 层 = 根局面自己（用一条“过去 → 现在”的短边表示，终点严格在原点）。第 1–4 层棋局展开
-  **全部在 cloud Worker**：第 1–3 层逐层整批回传，
-  第 4 层按父节点边界分批回传；主线程只把真实数组转换成 Three.js geometry。
-- 展开走的是 chess.js 的 verbose 走法：**走法对象自带 `after`（子局面 FEN）和 `san`**，
-  一次走法生成就同时拿到子局面和分数，不用 make/undo。
-- 每个未来节点恰有一条父→子 `THREE.LineSegments` 入边；零 `THREE.Points`。L1–L3 各自一个
-  刚好尺寸的 geometry；L4 计算中每批也是刚好尺寸，完整结束后合并成一个同样精确的 geometry。
-  真实路径数始终是 `position.count / 2`。**不预分配、不用 drawRange。**
-  `selected-route` 单独挂在 scene，不进入 `layers` 账本。
-- 缩略窗无论桌面或手机都只保留真实第 0–3 层；只有 `body.cloud-full` 且画布可见时才从保存的
-  第 3 层 FEN 完整计算 L4。收起全屏、离开视口或切后台都会释放 L4，保留完整 L3 和当前变体路径。
-  `deepPending` 明确表示“还有完整第 4 层待长”，不能把三层伪装成四层。
-- L4 分批尚未完成时若 Worker 报错，`discardPartialDeepLayer()` 会删除部分 L4 并退回完整 L3；
-  不能把“收到过一个 batch”当成“第 4 层完整”。
-- 深层线透明度低但不是不可见：验收单独截图对撞“完整图 vs 隐藏 L4”。相机最大距离受 fog
-  约束；全屏有“回到全景”，标签也会在进入雾区时隐藏，避免只剩浮空文字。
-- 渲染是事件驱动的：`requestCloudRender()` 会合并同一帧请求；默认巡航关闭，镜头收敛后不再
-  `requestAnimationFrame`。用户明确开巡航才约 24fps 运行，收起或切后台立即停止。
-- 缩略窗 DPR 固定 1；全屏桌面封顶 1.5，粗指针/短边设备封顶 1.25。`ResizeObserver` 与
-  `visualViewport.resize` 都会重算 backing store，避免旋转后既糊又白算像素。
-
----
-
-## 3. 红线（改之前先读这一节）
-
-违反下面任何一条，这个项目就失去它唯一的价值。**这些不是风格偏好，是产品的地基。**
-
-1. **`__cloudStats()` / `__forkStats()` 里的数量，必须从渲染对象上现读，不许自己记计数器。**
-   - 路径数：每个真实非索引 `LineSegments` 的 `obj.geometry.attributes.position.count / 2` 求和。
-   - 卡片数：`forkEl.querySelectorAll('g.card[data-col="i"]').length`。
-   - 一旦改成「我记一个变量」，少画一半线也报得出漂亮数字，验收就成了摆设。
-   - 同理不许预分配大 buffer 再用 `drawRange` —— 那等于自记计数器。
-
-2. **不许把 8902 / 197281 这类数字写死进页面代码。**
-   它们必须是算出来的。检查（只查代码，文档里作为说明文字提到不算）：
-
-   ```bash
-   grep -n "197281\|8902" index.html engine.js worker.js
-   ```
-
-   必须无匹配。`verify.mjs` 里有 197281 是对的——它是裁判，断言值就该写在那儿。
-
-3. **不许改 `verify.mjs` 来让验收变绿。** 它是裁判，不是被告。
-   （唯一允许的改动是**加**新断言，且加完必须自己先跑红一次证明它真的会红。）
-
-4. **评估函数只准有一份**，就是 `engine.js` 里的 `evaluate(fen)`。
-   星色、分叉排序、AI 搜索，全部读它。想加第二套打分标准 → 先在 BLOCKED.md 写清楚为什么。
-
-5. **第 1–4 层棋局展开必须全在 Worker 里算。** 不许把前 1–3 层挪回主线程，也不许主线程
-   算完第 4 层再假装分批送进来。主线程只接收数组、创建真实 geometry 和更新交互。
-
-6. **AI 应手有硬上限 ≤3 秒。** 搜索预算是桌面 1.3 秒、手机/矮视口 0.9 秒，但预算本身不算硬保证；
-   必须保留 2.2 秒主线程 watchdog、合法 fallback、reset 时 terminate/recreate Worker，
-   且 thinking 时不得启动任何会被 AI 应手替换的云展开。四道一起才守得住冷启动和连续重开的 3 秒；
-   加任何耗时功能前，先想清楚会不会挤掉这 3 秒。
-
-7. **不新增构建工具 / 框架 / 后端。** 想加就先写进 BLOCKED.md 等人拍板。
-
-8. **改完必须自己跑验收并贴出真实输出。** 「我觉得应该没问题」不算。
-   改了行为就要有对应的新验收项，并且做一次**反向验证**（故意改坏 → 看它变红 → 改回 → 看它变绿）。
-
----
-
-## 4. 验收脚本怎么用、怎么扩
-
-`live-check.mjs` 现在固定验这些（90 项，`EXPECTED_RESULTS = 90`，少跑一项也会失败）：
-
-| 组 | 验什么 |
-|---|---|
-| ① | `__cloudStats().nodes` 与 `count(同 fen, 同 depth)` 逐层相等。起始局面 1/20/400/8902/197281，**AI 应手后的局中局面 1/30/654/20144/475842 也对**（这些数页面都没写死） |
-| ② | 零 `THREE.Points`；根短边终点在原点；L1 边数等于合法走法；所有对象是真实非索引 `LineSegments`，顶点成对、颜色对齐、无隐藏/孤儿/drawRange；L4 完成后每层恰一个对象；截图对撞正常图、隐藏全网、单独隐藏 L4；真实差分中暖冷两色可见；缩略静置 700ms 后 rAF/WebGL 均为 0；L4 首批前切后台会停 Worker、保留 L3/选路并自动续满；真实 ＋/－/全景；连续点两步后路线、面包屑、逐格变体棋盘与 Node 重放 FEN 同源，实战不动；2D 根/每层完整走法集/每卡走后分叉逐一由 Node 重放，连续 SVG 主干端点必须落在真实选中卡，2D 不加载 L4、不重画或扩容隐藏 canvas，2D↔3D 与 L3 未到的快速切换都保留路径；AI thinking 时禁旧卡，完成后按新 FEN 重建；根已走手数、每层绝对 ply/fullmove/行棋方必须与父 FEN 相等，真实走完一回合显示第 2 回合，空 history 的第 37 回合 FEN 仍显示第 37 回合 |
-| ③ | 分叉图每列总数和卡片数对账；排序方向对；每列恰有一张选中卡、一条选中边和一段连续蓝色主干；真实点击改路；真实展开→收起；推荐区外的选中卡在收起后仍可见；走满两回合后仍对；AI PV 从搜索源 FEN 逐手重放，金卡/金边与 `pv.slice(1)` 同源且不覆盖蓝线，用户偏离后金线在分歧处停止、rail 不丢 |
-| ④ | 390×844、667/844 横屏与 1024 平板；真实页面/分叉/候选/PV rail 滑动；全部关键入口 ≥44px 且中心可命中；背景首尾；真全屏四角；真实 SAN 标签和多步主路径；连续触摸两层图标签会更新逐格棋盘且不落子；拖动后标签显隐；主动巡航会动、收起会停；缩略 L3→放大 L4→收起释放回 L3→再次放大完整 L4，空闲 rAF/WebGL=0；2D 手机缩略横滑、全屏纵滑、触摸选满三步、树/棋盘不重叠；桌面 1440×900 与 1280×800 不撞板；模拟 47px 刘海/34px 底部安全区仍不遮挡；667×375 全屏双栏可看可点可收；真实 touch e4 后 AI ≤3 秒；390px 主变 rail 可看清并横滑，静止后 rAF/WebGL 不增长 |
-| ⑤ | 实际棋子与 FEN 逐格对撞；32/16/16 和六类数量；六种分层造型；零 Unicode；黑白同几何不同材质；桌面/手机截图差分后的真实亮度、覆盖与明暗跨度 |
-| ⑥ | 手机真触摸选棋且 FEN 不变；候选逐项合法；回应能独立重放且等于 `rankMoves(after,{depth:2})` 首选；两段动画同 `lineId`；切棋/重开/落子清旧动画；人话分档与 raw score 同源；当前攻击线与 chess.js 攻/护方逐项一致；固定局面覆盖悬子、等价回吃、亏交换、被钉假攻击、首选吃别处、吃过路兵，并覆盖黑方方向、默认升后、一步终局和键盘入口 |
-| 其他 | 非法走子；吃子/升变/王车易位后的棋子/FEN；引擎 deadline；完成搜索的 PV 长度/首着/SAN/after 与逐手合法性；零预算 `depth=0,pv=[]`；首屏冷启动；重开终止旧搜索并立刻/迟到都无旧 PV；强杀 Worker 的合法保底且无伪 PV；AI 真实绘制后再延迟可视化；旧分叉淡化、`inert` 且不可触发重排；旧 AI/UI/横滚清理；云坐标 finite；AI 合法重放；页面零 JS 报错 |
-
-历史反向验证是在脚本尚为 63 项时，同时故意破坏白方单类材质、引擎 deadline、Worker/路径网
-生命周期和旧分叉隔离等关键路径，验收准确出现 **10/63 项失败**。恢复实现后才新增固定项并把
-`EXPECTED_RESULTS` 锁到 64；不要把“10/63”改写成“10/64”，那不是当时真实运行的输出。
-随后又针对新补的黑棋可见轮廓与手机精确层集合做聚焦反向验证：让黑象只剩公共底座，并只在手机端
-删除第 2 层，固定套件准确出现 **6/64 项失败**；恢复正式实现后完整复跑为 64/64。
-
-本轮 70 项版又做了聚焦反向验证：临时把真实 L1 `LineSegments` 设为不可见，并把助手的强回应
-排序反转。固定裁判分别准确报红“隐藏路径对象”和“回应不是 depth=1 首选”；看到两项红后停止该次
-长跑，删除临时破坏，再完整复跑 70/70。`verify.mjs` 全程零改动。
-
-本轮 75 项版再做了两次独立反向验证：① 在 `renderCloudFrame()` 末尾故意持续请求下一帧，
-空闲断言准确报红 `rAF +15 / WebGL +15 / pending=1`；② 让变体棋盘故意始终渲染根 FEN，
-“连续点两步、逐格棋盘与 Node 重放同源”准确报红。两次都看到目标红项后立刻停止长跑、删除临时
-破坏，再完整复跑 75/75。`verify.mjs` 仍全程零改动。
-
-固定项扩到 77 后又补了两个漏网边界：① L4 Worker 首批尚未到达时触发后台分支，旧实现准确报红
-`后台 depth/growing/pending=3/true/false`；② 用旧样式真实打开 844×390 全屏，准确报红
-`board=236`、重开/面包屑/候选/根标签四类触控目标不可命中。修复后必须完整复跑 77/77。
-
-固定项扩到 82 后，2D 树做了新的反向验证：临时把每张卡显示的真实 `replies` 改为
-`replies + 1`，裁判立即逐节点报红，例如 `L1 Nc3 走后分支 21≠20`，并连带让路径、手机和新 FEN
-重建的同源断言变红。看到目标红后停止长跑，恢复真实值，完整复跑回 82/82；`verify.mjs` 零改动。
-
-固定项扩到 83 前先把新的 FEN 回合断言放进裁判，旧页面按预期报红：
-`根回合显示不是 FEN 实值：{}`、`L1 回合显示=空 / rel=undefined ...`。随后才实现
-`fenTurnContext()`、DOM 回合字段和两行标题。正式实现对真实一回合与 fullmove=37 的空 history FEN
-都通过，完整复跑 83/83；`verify.mjs` 仍零改动。
-
-固定项扩到 86 前先加入三条一步威胁裁判，旧页面按预期三项全红：没有几何攻击圈、没有
-悬子/回吃/亏交换分类、卡片漏掉吃过路兵真实目标格且回应仍是 depth=1。实现后固定局面逐项转绿：
-悬后=`hanging`、受保护车=`protected-trade`、后换车=`bad-trade`、被钉攻击者合法吃子数 0、
-吃过路兵目标为 e4；受保护交换的首选由旧 `Rxh5` 修正为 depth=2 的 `Re8`。
-`verify.mjs` 全程零改动。
-
-固定项扩到 90 后新增四类 PV 事实核对：① 完成到 depth=4 的搜索必须给出四手、逐手可从源 FEN
-合法重放的 PV；② 零预算只许返回合法保底着和空 PV；③ 固定局面实走黑方首着后，rail/金卡/金边
-必须逐项等于 `pv.slice(1)`，亮蓝选路独立，偏离后金线只停在真实分歧处；④ reset 和 Worker
-fallback 都清旧 PV，390px rail 能真实横滑且静止后无新增 rAF/WebGL 帧。本地完整套件为 90/90，
-`verify.mjs` 仍未修改。
-
-### 加一条新验收
-
-1. 页面上开一个只读钩子（放在 `index.html` 底部 `window.__test` 附近），
-   **数量类的一律从 DOM / 几何体现读**。
-2. 在 `live-check.mjs` 里 `evalJs('window.__xxx()')` 拿回来，
-   用 `count()` 或 `new Chess(...)` 在 Node 端独立算一遍对撞，`record(ok, 名字, 细节)`。
-3. 跑一次红的（故意改坏页面），再改回来跑绿，两份输出都留着。
-
-### 截图取样区
-
-不要再按屏幕比例猜。现在是 `window.__test.skyRect()` 返回 canvas 的
-`getBoundingClientRect()`，像素差只统计那个矩形。路径网截图前会冻结自动相机，再分别隐藏
-`cloudGroup` 和 L4，避免标签移动造成假阳性。**以后怎么改版式都不用靠猜比例。**
-
----
-
-## 5. 踩过的坑（别重踩）
-
-- **`gl.readPixels` 在 rAF 之外读回来是全 0**。没开 `preserveDrawingBuffer` 时这是规范行为，
-  不是画面空。→ 改成解 CDP 截下来的 PNG 数像素（`decodePng` 在 live-check.mjs 里，零依赖）。
-- **CDP 新开的 tab `document.hidden = true`，rAF 全冻结**，three.js 一帧都不画。
-  → attach 后必须发 `Emulation.setFocusEmulationEnabled` + `Page.bringToFront`。
-- **无头 Chrome 跑 WebGL 别用 `--disable-gpu`**（会出合成伪影/黑画布）。
-  用 `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`。
-- **路径网的「均势」颜色一定要是真中性灰**。曾经调成偏蓝的（b 比 r 高 41），
-  结果「黑优」和「均势」在画面上根本分不开，肉眼和像素统计都被骗过。
-- **满色刻度要照实测分布定**。起始局面第 3 层 8,902 个分数实测 min -90 / p05 -55 / p50 +5 /
-  p95 +70 / max +320（百分兵）。刻度定 900 时整个画面是灰白的，颜色白给。现在 `COLOR_FULL = 120`。
-- **20 万条线仍会叠成发光毛球**。现在用 NormalBlending、窄前向锥和逐层 `EDGE_OPAC`；
-  L4 不能低到单独隐藏它时零像素差，也不能高到重新糊成球。
-- **分叉图的列必须顶对齐，展开后「收起」要留在顶部。** 曾经让每列在整块高度里垂直居中，结果点开某一列的 38 条之后，
-  其他列的卡片被推到屏幕外面去了。
-- **第一层不能 360° 铺球。** 根虽然真的是 1 个，20 个首层走法若用 Fibonacci sphere 围住它，
-  第一眼仍然只会看到一颗球。现在根方向固定向未来，首层只在前向锥内张开。
-- **棋子不能再退回 Unicode 字形。** 黑白双方共用黑棋码点再靠 `fill` 染色，在本机 Chrome 看似正常，
-  到 Safari/彩色字体回退就可能全部发黑。必须保留本地几何和真实截图差分验收。
-- **重开不能只作废旧 AI 回包。** `search()` 在 Worker 里是同步的；只校验 id 会让新请求排在旧搜索后。
-  reset 必须 terminate + recreate。实测旧实现 `e4 → reset → d4` 外部 3,559ms，已越过硬线。
-- **引擎预算不等于真实硬上限。** 旧版每 1024 节点才看钟，首屏并发时第一次检查前就跑了约 4 秒。
-  现在每 32 节点/根候选检查，外加主线程 watchdog 和合法 fallback；三道保护都不能删。
-- **AI 思考时不要长任何中间云。** 那朵黑方待走云会被 AI 新局面替换，只会抢 CPU。
-- **旧分叉只降透明度不够。** SVG 仍能吃鼠标、触摸、键盘和 hover，甚至会在 AI 思考期间触发
-  `rankMoves()`。必须保留 `forkStale`、`forkWrap.inert`、确认按钮禁用和事件入口的双重守卫，
-  直到延迟的 `renderFork(true)` 真正换成新局面。
-- **第 4 层不能只“暂停绘制”却继续占着 geometry。** 现在缩略态一律 L3；只有明确放大全屏才加载
-  L4，收起、离屏或切后台都删除 L4、恢复 L3 的真实计时和 `deepPending`。验收会跑
-  L3→放大 L4→收起 L3→再次放大 L4 全生命周期。
-- **“停止自动旋转”不等于停止渲染。** 如果 `renderCloudFrame()` 无条件再排下一帧，静止画面仍会
-  满速提交 WebGL。只能在镜头尚未收敛或用户明确开巡航时续帧；验收会直接数 rAF 与 renderer 帧差。
-- **L4 分批回传不能永久留下几十/上百个对象。** 计算中可以渐进显示，`cloudDone` 后必须把同层
-  精确合并成一个 geometry 并 dispose 旧批次，否则拖动时 draw calls 会随局面分支数暴涨。
-- **变体棋盘不能只把正确 FEN 塞进 `data-*`。** 真实图形也必须按那个 FEN 落格；验收用 Node
-  chess.js 独立重放，再检查每枚棋子的屏幕矩形、材质和六类几何。真实 `game` 必须始终不变。
-- **云 Worker 的代际校验要同时比当前实例和 `cloudState.gen`。** 只比旧闭包自己的 gen 永远会通过。
-- **收到首个 L4 batch 不等于 L4 完整。** Worker 中途报错必须删掉部分层并回到完整 L3。
-- **相机缩放上限要和 fog 配套。** 旧值允许退到 220、fog far 却只有 74，结果线全消失只剩标签。
-  现在最大 58、标签检查 fog 距离，并有“回到全景”。
-- **助手的相对质量要按行棋方算方向。** 白方损失是 `best-score`，黑方是 `score-best`；
-  直接将死/错过将死也要反向，不能把黑方坏棋标成“首选”。
-- **预测和真实落子的升变默认值必须同一处归一。** 未传 promotion 一律按 `q`；否则同分稳定排序
-  可能预演升马、实际却升后。
-- **fallback 原因不能统一写成超时。** Worker 加载、通信、搜索异常和无效走法都要展示真实 reason。
-- **不要只把带 `backdrop-filter` 面板里的子元素设成 fixed 来做全屏。**
-  这个父层会建立 fixed containing block 和 stacking context，子元素会偏移、露暗边、还可能被后面的面板盖住。
-  现在是 `body.cloud-full #cloudPanel` 自己接管 viewport，`#skyBox` 只在里面绝对铺满。
-- **`Runtime.evaluate` 里裸 `await` 会报错**，要包成 `(async()=>{...})()` 并传 `awaitPromise: true`。
-- **本机铁律**：`/opt/homebrew/bin/node` 必须指向 node@22（全栈只在 v22 上验过）。
-
----
-
-## 6. 已确认的基线
-
-下面是恢复正式实现后在本机跑出的真实基线，不沿用旧架构数字。耗时会受机器负载影响，
-但数量、线程归属、renderer 和固定验收项数不能漂移。
-
-| 指标 | 基线 |
-|---|---|
-| 起始局面 perft 1/2/3/4 | 20 / 400 / 8,902 / 197,281 |
-| 1.e4 Nc6 后 perft 1/2/3/4 | 30 / 654 / 20,144 / 475,842 |
-| 路径展开线程 | 第 1–4 层全部在 cloud Worker；主线程只建 geometry |
-| 路径网生命周期 | 缩略 L3 / 明确放大 L4 / 收起释放回 L3 / 再放大完整重建 L4 |
-| 空闲渲染 | 缩略静置 700ms：rAF +0、WebGL frame +0、pending=0；默认巡航关闭 |
-| WebGL 对象 | L4 完成后 L0–L4 每层各 1 个 `LineSegments`；全屏约 6 draw calls，收起 geometry 6→5 |
-| 渲染倍率 | 缩略 DPR 1；桌面全屏最高 1.5；粗指针/短边设备最高 1.25 |
-| 棋子 renderer | 六种分层 SVG 3D 视觉造型；零 Unicode；不是 WebGL mesh |
-| 棋子助手 | 候选/回应均 depth=2；橙圈=几何攻击线；红色=候选后合法一步吃子；区分回吃/亏交换/吃过路兵；黄/蓝两段 1.5s 单次 SVG 动画；预演不改 FEN |
-| 搜索主变 | `search()` 只发布最后完整层；每手含 SAN/from/to/promotion/after；depth=0 时 pv=[]；页面复用黑方搜索的 `pv.slice(1)`，无第二搜索 |
-| 分叉路径语义 | 亮蓝=用户选路；金色=引擎 PV；偏离后金线停止但 rail 保留；reset/fallback 清空 |
-| 全屏变体探索 | 全部合法走法；可连续 3 步；线、标签、面包屑、逐格 3D 棋盘同一 FEN；实战不动 |
-| `live-check.mjs` 项数 | 固定 90 项；含 2D 数字/主干/生命周期/触控/安全区、AI/FEN/PV 重建、真实 FEN 回合与一步威胁 |
-| `verify.mjs` 项数 | 固定 8 项 |
-| 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 90/90 |
-| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 90/90 |
-| AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,559ms / 929ms / 1,051ms |
-| 两套独立浏览器同时冷启动 | 2,718ms / 2,564ms，均未改 3 秒门槛 |
-| 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 975ms / 966ms / 2,208ms |
-| 正预算 deadline 探针 | 正常 141.5ms；临时关周期查钟 210.7ms 并按预期报红 |
-| 10 局自对弈稳定性审计 | 最新 621 plies / 581 次 search；非法/FEN/PV 错误 0；89 条注释抽样 0 失败；13.78s |
-| 桌面白/黑棋截图中位亮度 | 195.7 / 57.4；逐类型最小差 122.9 |
-| 线上 AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,337ms / 1,308ms / 1,043ms |
-| 线上 4× CPU / reset 后新请求 / Worker 被杀保底 | 927ms / 1,314ms / 2,206ms |
-| 环境 | node v22.23.1、chess.js 1.4.0、three 0.160.0 |
-
-本轮发布后的逐字节哈希（本地与 GitHub Pages 已完全一致）：
+一次真实落子：
 
 ```text
-5badac7a9496a7ab2245721a830077cb6e9c3be1d0b569e6a8273ca3e3a4d12e  index.html
-8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959  engine.js
-a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed  worker.js
+玩家确认合法着
+  → chess.js 改 FEN、先画棋盘
+  → searchWorker 搜黑方应手
+  → thinking 期间旧分叉淡化 + inert，不计算会被替换的中间路径
+  → Worker 回来后从搜索源 FEN 校验 move / PV
+  → 落下黑方首着并真正绘制
+  → 安装剩余金色 PV
+  → 后续任务重建最终分叉与 cloud
+```
+
+### 2.3 中国象棋对外契约
+
+`xiangqi-engine.js` 的公开 API：
+
+```js
+START_FEN, MATE
+indexToSquare(), squareToIndex()
+parseFen(), toFen()
+generatePseudoMoves(), generateLegalMoves()
+applyMove(), isInCheck(), getGameStatus()
+evaluate(), moveToNotation(), getThreats()
+search(), rankMoves()
+```
+
+局面对象：
+
+```js
+{
+  board: Array(90),  // FEN 顺序：黑方底线 → 红方底线
+  turn: 'w' | 'b',  // w = 红，b = 黑
+  halfmove,
+  fullmove
+}
+```
+
+坐标采用常见引擎坐标：`a0` 是红方左下，`i9` 是黑方右上。
+
+规则核已覆盖将 / 帅九宫与照面、士、象眼与不过河、马腿、车、炮架、兵卒过河、己方被将过滤、
+将死和困毙。`evaluate()` 是中国象棋唯一评估函数，正数表示红优。`search()` 返回：
+
+```js
+{
+  move, notation, score, depth, nodes, ms, pv,
+  branchCount, branches
+}
+```
+
+页面使用两个 `xiangqi-worker.js` 实例：
+
+- `searchWorker`：黑方 AI，页面预算 1.1 秒，2.8 秒 watchdog；
+- `branchWorker`：当前局面全部候选和浅层强回应。
+
+两者必须分开，否则较慢的分叉排序会把 AI 应手排在后面。reset 会同时重建两个实例。
+搜索预算在引擎层钳到 2.4 秒，给消息传输 / 绘制留出 3 秒红线余量。
+
+中国象棋 UI 的数量来自当前事实：
+
+- 棋子数：`[data-piece]` / `[data-side]` 的实际 DOM；
+- 合法落点：当前合法着生成结果与 `[data-target]`；
+- 当前分叉：实际 `.branch-node` 数量；
+- 节点分叉数：从该节点 `data-fen` 重新生成下一手合法着；
+- 路径节点：实际 DOM 的 `data-fen/data-branches/data-ply`。
+
+点分叉卡只做两步预演：蓝色“1”是用户候选，金色“2”是浅层强回应；FEN 不变。
+真正点蓝色合法落点才落子。分叉排序会看对方最强回应，并额外检查一步合法同格回吃；
+它仍然只是浅层局面排序，**不是胜率、概率或职业级分析**。
+
+`getThreats()` 表示几何攻击线，并列出攻击者 / 保护者。它不保证攻击者下一手有合法吃法，
+也不代表被瞄准的棋一定会丢。
+
+---
+
+## 3. 八条红线
+
+这些不是风格偏好，是产品地基。
+
+1. **数量必须从当前渲染对象或局面现读，不许自记账。**
+   - 国际象棋路径：真实非索引 `LineSegments.position.count / 2`。
+   - 国际象棋 / 中国象棋卡片：当前 DOM `querySelectorAll(...).length`。
+   - 中国象棋棋子 / 路径节点：当前 `[data-*]` 元素现数。
+   - 不许预分配 buffer 再用 `drawRange` 冒充真实全量；不许用另一个计数器覆盖少画 / 漏画。
+
+2. **不许把验证基线写死进运行页面。**
+   - 国际象棋的 8,902 / 197,281 只能出现在裁判或文档。
+   - 中国象棋的 perft 表只能出现在裁判或文档；页面不能拿常量 `44` 当起始分叉总数
+     （CSS 中 `44px` 是触控尺寸，不是棋局基线）。
+   - 运行以下命令必须全绿，而不是靠删检查：
+
+   ```bash
+   node portal-check.mjs
+   ```
+
+3. **不许改裁判来让实现变绿。**
+   - `verify.mjs`、`xiangqi-verify.mjs`、`portal-check.mjs`、两套 live-check 都是裁判。
+   - 允许新增断言；新增后要先让它对旧 / 故意破坏的实现红一次，再修实现，最后完整跑绿。
+   - 不许降低期望项数、跳过失败分支、放宽数字或把真实错误改成日志。
+
+4. **每个规则集只能有一份评估函数。**
+   - 国际象棋只有 `engine.js::evaluate(fen)`。
+   - 中国象棋只有 `xiangqi-engine.js::evaluate(position)`。
+   - 两个棋种各一份是规则边界，不是重复实现；同一棋种再复制第二份才违反红线。
+
+5. **重计算必须真的在对应 Worker 中完成。**
+   - 国际象棋 L1–L4 路径展开不能移回主线程后假装分批回传。
+   - 两个棋种的 AI 搜索都不能在主线程先算完再包装成 Worker 结果。
+   - 中国象棋 search / branch Worker 必须隔离，不能让候选排序堵住 AI。
+
+6. **AI 可见应手 ≤3 秒是硬上限。**
+   - 国际象棋保留 1.3s / 0.9s 搜索预算、2.2s watchdog、合法 fallback、reset 重建 Worker。
+   - 中国象棋保留 1.1s 页面预算、2.8s watchdog、引擎 2.4s 最大钳制与合法 fallback。
+   - `depth=0` fallback 只能给合法着和空 PV，不能冒充已经搜索。
+
+7. **不新增构建工具、框架或后端。**
+   - 当前是可直接发布到 GitHub Pages 的静态文件。
+   - 若要引入 WASM、外部职业引擎或后端，先在 `BLOCKED.md` 写清许可、体积、线程和降级方案。
+
+8. **改完必须跑真实验收，并诚实表达规则边界。**
+   - 行为变化必须加对应裁判 + 做反向验证。
+   - 中国象棋没有历史状态，就不能用 `halfmove` 伪造长将 / 长捉 / 循环裁决或随意判和。
+   - 几何威胁不能写成“必吃”或概率，浅层排序不能写成职业棋力。
+   - 交付时贴实际输出，不写“理论上应该通过”。
+
+运行代码红线检查的覆盖文件至少要包含：
+
+```text
+index.html
+chess.html
+engine.js
+worker.js
+xiangqi.html
+xiangqi-engine.js
+xiangqi-worker.js
 ```
 
 ---
 
-## 7. 接下来可以做什么
+## 4. 验收怎么扩
 
-**BLOCKED.md 有 19 条设计决策与边界记录，包含已解决历史；#13 的 PV 已完成，不再是待办。**
-下面是仍值得做的几件，按优先级：
+### 4.1 国际象棋
 
-1. **把分叉排序做准一点**（BLOCKED #17）。现在 `rankMoves(depth:2)` 只往前看两步，
-   能认出送子，认不出更深的战术，开局会把 Nc3/Nf3 排在 e4/d4 前面，懂棋的人看着别扭。
-   两条路：① 第一列改成往前看三步（约 160ms，只在落子后算一次）；
-   ② 直接调 `search()` 给每个候选打分。**注意别挤掉「AI ≤3 秒」那条红线。**
+`verify.mjs` 固定 8 项：起始局面 20 / 400 / 8902 / 197281，Kiwipete
+48 / 2039 / 97862，以及 `count(fen, 0) === 1`。
 
-2. **升变选棋子的界面**（BLOCKED #7）。现在默认成后。
-   `tryMove(from, to, promotion)` 已经收第三个参数，接个 UI 就行。
+`live-check.mjs` 用 `EXPECTED_RESULTS = 90` 锁定 90 项，覆盖：
 
-3. **搜索加和棋判定**（BLOCKED #4）。现在只判将死和困毙，不判三次重复 / 50 步 / 子力不足，
-   残局会自我感觉良好。代价是每个节点多一次走法生成，深度会掉。
+- L0–L4 真实 geometry、DOM 分叉数和 Node 独立 perft 对撞；
+- 零 `THREE.Points`、无预分配 / drawRange / 隐藏孤儿对象；
+- 3D / 2D 路径、真实变体棋盘、FEN 回合、蓝 / 金两条路线；
+- 棋子 SVG 几何与真实像素，避免白棋因 Unicode / 字体回退变黑；
+- 棋子助手、几何攻击、合法一步吃子、回吃和亏交换；
+- 390×844、短横屏、平板、安全区、44px 触控；
+- AI deadline、watchdog、reset / fallback / PV 和空闲零持续帧。
 
-4. **规则/分析适配层，再接中国象棋。** 当前已经是小型国际象棋引擎，但 UI 仍写死 chess.js、
-   8×8、SAN、`w/b` 与六种国际象棋棋子。先拆 `RulesAdapter`（局面、合法着、终局、真实分叉）
-   和 `AnalysisAdapter`（最佳着、PV/MultiPV、分数/WDL）；2D/3D 布局、Worker 生命周期和真实计数
-   原则可以复用。纯静态站可先评估 Fairy-Stockfish WASM；专门棋力再评估 Pikafish。
-   不要把规则替换误写成“换一套棋子皮肤”。
+数量钩子在 `chess.html` 的 `window.__test`；数量类只能从 DOM / geometry 返回。
 
-5. **正式名还没定**（BLOCKED #9）。仓库名 `chess-cloud` 是定死的，页面标题现在叫「可能性分叉」。
+### 4.2 中国象棋
+
+`xiangqi-verify.mjs` 固定 19 项，覆盖：
+
+- FEN 无损往返；
+- 起始 perft 1–4；
+- 马腿、象眼 / 不过河、炮架、兵过河、将帅照面；
+- 将军、将死、困毙和非法着拒绝；
+- 攻击者 / 保护者、唯一评估方向；
+- search 合法 PV、真实根分叉、时限与 `depth=0,pv=[]`；
+- 候选会看对方强回应与一步合法回吃，不把开局送炮换马排第一。
+
+`xiangqi-live-check.mjs` 用 `EXPECTED_RESULTS = 31` 锁定 31 项，覆盖：
+
+- 根首页两张卡可实际点击；
+- 起始 32 枚棋、红 16 / 黑 16、90 个交互点；
+- 起始 44 张分叉卡及每卡 FEN / 后续分叉与 Node 重放一致；
+- 选棋 / 预演不改 FEN，真实落子后 Worker AI ≤3 秒且 PV 可重放；
+- 连续两回合后路径 ply / FEN / 分叉继续前进，不会卡在第一步；
+- 威胁固定局面、缩放、reset 竞态、强杀 Worker 合法 fallback；
+- 1440×900、390×844、667×375 无根横向溢出，非棋盘控件 ≥44px；
+- 页面静止 `requestAnimationFrame` 请求 / 回调均不增长，零 JS 错误。
+
+数量钩子是 `window.__xiangqiTest`，公开 getters 和只读 snapshot；裁判不能信任一份页面自报总数，
+必须从 DOM 和 `xiangqi-engine.js` 两边独立对撞。
+
+### 4.3 已做过的反向验证
+
+- 门户裁判先对旧单页运行：**8/16**，两条路由和中国象棋契约按预期报红；实现后 **16/16**。
+- 中国象棋 live-check 首次运行：**30/31**，真实测出 `＋/－` 控件只有 40×44；修为 44×44 后
+  完整 **31/31**。
+- 国际象棋历史反向验证的详细过程保留在 `PROGRESS.md`；`verify.mjs` 没有被放宽。
+
+加新验收时：
+
+1. 页面只开放只读状态 / DOM 钩子；
+2. Node 端根据 FEN 自己生成合法着、应用走法和数分叉；
+3. 先故意让实现错一处，看新增断言定点红；
+4. 恢复 / 修复后跑完整固定套件，确认没有少执行项目。
+
+---
+
+## 5. 踩过的坑
+
+- **白棋不能用黑棋 Unicode 再靠 fill 染白。** Safari / 彩色字体可能忽略 fill。国际象棋必须保留
+  六类本地分层 SVG 几何和真实截图差分。
+- **3D 路径不能用预分配 + drawRange。** 那让 buffer 容量替代实际绘制数，数字会自欺。
+- **收到首个 L4 batch 不等于 L4 完整。** Worker 错误时删掉部分 L4，退回完整 L3。
+- **停止旋转不等于停止渲染。** 只有相机过渡或用户明确巡航才续 rAF；默认静置必须零新帧。
+- **L4 完成后不能留下上百批 geometry。** 同层精确合并并 dispose 旧批次，否则拖动 draw calls 爆炸。
+- **AI reset 不能只丢弃旧回包。** 同步 Worker 仍会堵队列；必须 terminate / recreate。
+- **预算不等于硬上限。** 引擎内部周期查钟、主线程 watchdog、合法 fallback 缺一不可。
+- **AI thinking 时不要算会被应手替换的中间图。** 这只会抢搜索 CPU。
+- **旧分叉只变淡不够。** 必须 `inert`、禁按钮并在事件入口再守一次。
+- **变体棋盘不能只把正确 FEN 塞进 `data-*`。** 真实棋子几何也要逐格与该 FEN 对上。
+- **中国象棋不能靠 `halfmove >= N` 伪造和棋。** 没有完整历史就无法判长将、长捉和循环责任方；
+  当前实现选择不假装裁决。
+- **中国象棋零预算搜索允许合法 fallback + 空 PV。** 自对弈裁判不能把这个契约误报成 PV 失败。
+- **中国象棋分叉和 AI 必须用两个 Worker。** 单 Worker 会让昂贵候选分析排在 AI 应手前。
+- **威胁是几何攻击线。** 被钉住的攻击者、将军限制和后续交换会改变“能否真吃”；文案不能升级成概率。
+- **分叉卡预演不是落子。** 蓝 1 / 金 2 只是候选与浅层回应；只有棋盘合法落点改变 FEN。
+- **CDP 新标签可能 `document.hidden=true`。** 真 WebGL 验收要 bring-to-front 并启用 focus emulation。
+- **无头 Chrome 测 WebGL 不要直接 `--disable-gpu`。** 使用 ANGLE / SwiftShader 参数。
+- **`Runtime.evaluate` 的裸 `await` 会报错。** 包进 async IIFE 并设置 `awaitPromise: true`。
+- **本机验收环境是 Node 22。** `/opt/homebrew/bin/node` 当前为 v22.23.1。
+
+---
+
+## 6. 已确认本地基线
+
+| 指标 | 当前基线 |
+|---|---|
+| 根首页 | 恰好两张选择卡：国际象棋 / 中国象棋 |
+| 国际象棋起始 perft 1/2/3/4 | 20 / 400 / 8,902 / 197,281 |
+| 中国象棋起始 perft 1/2/3/4 | 44 / 1,920 / 79,666 / 3,290,240 |
+| `npm test` | 国际 8/8 + 中国 19/19 + 门户 16/16 |
+| `node live-check.mjs` | 90/90 |
+| `node xiangqi-live-check.mjs` | 31/31 |
+| 国际路径线程 | L1–L4 全在 cloud Worker；主线程只建 geometry |
+| 国际路径生命周期 | 缩略 L3 / 明确放大 L4 / 收起释放 / 再放大完整重建 |
+| 国际空闲渲染 | 静置 rAF +0、WebGL frame +0 |
+| 国际棋子 | 六类分层 SVG 3D 视觉造型；零 Unicode |
+| 国际搜索 | 最后完整层单条 PV；蓝=用户，金=引擎；fallback 无伪 PV |
+| 中国规则线程 | search / branch 两个 Worker 实例 |
+| 中国棋盘初始 | 90 个交互点、32 枚棋、44 条合法分叉 |
+| 中国搜索页面预算 / watchdog | 1.1s / 2.8s；实测 AI ≤3s |
+| 中国威胁 | 几何攻击线 + 攻击者 / 保护者，不是概率 |
+| 中国 10 局自走 | 769 plies；6 终局 / 4 capped；五类错误全 0；最大搜索 38.9ms |
+| 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
+
+不要把旧版本的 SHA-256 当成新门户发布哈希。双棋种版本发布后应按第 8 节重新记录所有运行文件；
+在逐字节核对完成前，只能写“本地全绿”，不能宣称线上已经换版。
+
+---
+
+## 7. 下一步候选
+
+按优先级：
+
+1. **中国象棋历史规则。** 若要判长将、长捉与复杂循环，必须先把位置 / 着法历史加入局面与搜索，
+   明确采用哪套竞赛规则，再加专门测试；不能拿 `halfmove` 阈值凑一个“和棋”。
+2. **更强的中国象棋分析。** 当前是可解释的小型本地引擎，不是职业棋力。若接 Fairy-Stockfish、
+   Pikafish 或其他引擎，先核对许可、浏览器 / WASM 分发、Worker 体积、移动端启动和无引擎降级；
+   UI 的“概率 / 胜率”文案仍需真实 WDL 来源。
+3. **国际象棋分叉排序加深。** `rankMoves(depth:2)` 能看送子但认不出更深战术，开局排序仍可能
+   不符合人类常识。加深不能挤破 AI 3 秒红线。
+4. **国际象棋和棋 / 升变 UI。** 搜索尚不判三次重复、50 步、子力不足；升变默认后。
+5. **更深路径交互。** 国际 3D / 2D 目前可连续预演三步；任意 L4+ 节点重新设根仍未做。
+6. **正式产品名。** 仓库名固定 `chess-cloud`，页面品牌“棋路”仍可讨论。
+
+`BLOCKED.md` 保留更完整的历史理由和推翻方式。
 
 ---
 
@@ -495,40 +432,61 @@ a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed  worker.js
 
 ```bash
 cd ~/code/chess-cloud
-node verify.mjs && node live-check.mjs      # 先本地全绿
-git add -A && git commit -m "..."
+
+npm test
+node live-check.mjs
+node xiangqi-live-check.mjs
+node self-play.mjs
+node xiangqi-self-play.mjs
+
+git add -A
+git commit -m "..."
 git push origin main
-# Pages 大约 30–60 秒后生效；三个运行文件都要逐一核对，不能只看 index：
-for f in index.html engine.js worker.js; do
-  local_hash=$(shasum -a 256 "$f" | awk '{print $1}')
-  online_hash=$(curl -fsS "https://maxi-max-dev.github.io/chess-cloud/$f?v=$(date +%s)" | shasum -a 256 | awk '{print $1}')
-  test "$local_hash" = "$online_hash" || exit 1
-done
-node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
-**不要留未推送的 commit。** 这个仓库是公开展示用的，本地和线上必须一致。
+Pages 生效后，逐一核对全部运行文件，不能只看根 `index.html`：
+
+```bash
+for f in \
+  index.html chess.html engine.js worker.js \
+  xiangqi.html xiangqi-engine.js xiangqi-worker.js
+do
+  local_hash=$(shasum -a 256 "$f" | awk '{print $1}')
+  online_hash=$(curl -fsS \
+    "https://maxi-max-dev.github.io/chess-cloud/$f?v=$(date +%s)" \
+    | shasum -a 256 | awk '{print $1}')
+  test "$local_hash" = "$online_hash" || exit 1
+done
+```
+
+再打线上行为：
+
+```bash
+node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
+node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
+```
+
+最后：
+
+```bash
+git status --short
+git rev-list --left-right --count origin/main...main
+```
+
+期望工作树为空、左右都是 0。不要留下未推送 commit，也不要只凭 Pages 首页肉眼变化判断发布成功。
 
 ---
 
-## 9. 交接时的状态
+## 9. 当前交接状态
 
-- 当前功能基线：六种分层 SVG 3D 棋子（非 WebGL mesh）；点棋子会出现合法候选、对手强回应和
-  两段单次动画；局势分、相对最佳着损失和一步合法吃子风险分开显示，橙圈只标几何攻击线；
-  主视图是连续分叉；全景图是零光点的真实父子路径线网，
-  可切成逐层列出全部合法走法和“走后 N 个分支”的 2D 纵向树；两种模式都可连续预演三步，
-  并在旁边逐格显示同源 3D 变体棋盘；2D 的根和层标题从 FEN 显示真实已走手数/回合/行棋方，
-  “未来第几步”与内部相对层号明确分开；手机竖屏/短横屏、刘海和底部手势区均已适配。
-- 性能基线：缩略窗只建 L3、静置零 rAF/零 WebGL 新帧；L4 只在明确放大时计算，完成后每层一个
-  geometry，收起立即释放；2D 完全不加载 L4、重绘或扩容隐藏 canvas；默认巡航关闭，
-  手机全屏 DPR 封顶 1.25；PV rail 只响应横滑，静置不增加 rAF/WebGL 帧。
-- 搜索现返回最后完整层的单条 PV；页面逐手验证后复用黑方搜索的 `pv.slice(1)`。分叉中亮蓝是
-  用户选路、金色是引擎主变；偏离后金线停止、rail 保留，reset/fallback 会清空，且无第二次搜索。
-- 本轮最终本地输出：`node verify.mjs` **8/8**、`node live-check.mjs` **90/90**。
-- `node self-play.mjs` 最新真实输出：10 局、621 plies / 581 次 search；
-  `illegalMoves=0`、`fenMismatches=0`、`pvFailures=0`，页面注释抽样 89 条失败 0，总耗时 13.78s。
-  18ms 时限会导致不同机器/负载下搜到的深度和胜负漂移；它只证明稳定性，不证明棋力。
-- 本轮最终线上输出：`node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`
-  **90/90**；三个运行文件 SHA-256 已按第 8 节确认与本地逐字节一致。
-- PV 运行版本提交 `c8212c1` 已推到 `main` 并由 GitHub Pages 发布；交接时还要确认最后一笔
-  文档状态提交也已推送，工作树保持干净。
+- 根 `index.html` 已改为两个棋种的选择首页。
+- 原国际象棋完整应用已迁到 `chess.html`，原 90 项真机回归仍为 **90/90**。
+- 中国象棋页面、规则核、Worker、棋核裁判、真 Chrome 裁判和固定 10 局自走均已加入。
+- 最新本地：
+  - `npm test`：**8/8 + 19/19 + 16/16**
+  - `node live-check.mjs`：**90/90**
+  - `node xiangqi-live-check.mjs`：**31/31**
+  - 中国象棋 10 局：769 plies、6 终局 / 4 capped、五类错误全 0、最大搜索 38.9ms
+- 中国象棋规则边界已在页面和文档明示：没有历史状态，不判长将 / 长捉 / 复杂循环；
+  威胁是几何攻击线；当前不是职业级引擎。
+- 发布者必须按第 8 节重新核对七个运行文件哈希并跑两套线上 live-check，完成前不要沿用旧版线上声明。

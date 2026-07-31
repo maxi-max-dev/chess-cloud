@@ -1,0 +1,1220 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#080b10" />
+<title>中国象棋 · 可能性分叉</title>
+<style>
+  :root {
+    --bg: #080b10;
+    --panel: rgba(15, 20, 29, .92);
+    --panel-2: #101722;
+    --edge: rgba(179, 202, 232, .16);
+    --text: #eef3f9;
+    --muted: #929dad;
+    --blue: #69bfff;
+    --blue-2: #183c59;
+    --gold: #f2bd63;
+    --red: #c7352e;
+    --danger: #ff716b;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; }
+  html { min-height: 100%; background: var(--bg); }
+  body {
+    min-height: 100vh; margin: 0; color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC",
+      "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(circle at 18% 9%, rgba(31, 98, 146, .16), transparent 32rem),
+      radial-gradient(circle at 88% 88%, rgba(190, 126, 53, .10), transparent 30rem),
+      var(--bg);
+  }
+  button, select { font: inherit; }
+  button { -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  a { color: inherit; }
+
+  .app {
+    width: min(1480px, 100%); min-height: 100vh; margin: 0 auto;
+    padding: calc(18px + var(--safe-top)) 22px calc(20px + var(--safe-bottom));
+  }
+  .topbar {
+    display: flex; align-items: center; gap: 14px;
+    min-height: 50px; margin-bottom: 14px;
+  }
+  .back {
+    display: inline-grid; place-items: center; width: 44px; height: 44px;
+    border: 1px solid var(--edge); border-radius: 12px;
+    color: #c8d4e1; text-decoration: none; background: rgba(19, 27, 39, .74);
+  }
+  .brand { min-width: 0; }
+  .brand h1 { margin: 0; font-size: 18px; line-height: 1.2; letter-spacing: .03em; }
+  .brand p { margin: 4px 0 0; color: var(--muted); font-size: 11.5px; }
+  .turn-pill {
+    margin-left: auto; flex: 0 0 auto; padding: 7px 11px;
+    border: 1px solid var(--edge); border-radius: 999px;
+    background: rgba(16, 23, 34, .86); color: #cfd9e5; font-size: 12px;
+  }
+  .turn-pill[data-side="red"]::before,
+  .turn-pill[data-side="black"]::before {
+    content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px;
+    border-radius: 50%; vertical-align: 1px;
+  }
+  .turn-pill[data-side="red"]::before { background: #ed5b52; }
+  .turn-pill[data-side="black"]::before { background: #d5dce4; }
+
+  .layout {
+    display: grid; grid-template-columns: minmax(480px, 650px) minmax(360px, 1fr);
+    gap: 16px; align-items: start;
+  }
+  .panel {
+    min-width: 0; border: 1px solid var(--edge); border-radius: 18px;
+    background: var(--panel); box-shadow: 0 20px 64px rgba(0, 0, 0, .32);
+  }
+  .play-panel { padding: 15px; }
+  .board-shell { width: min(100%, 590px); margin: 0 auto; }
+  .board-frame {
+    position: relative; width: 100%; aspect-ratio: 9 / 10;
+    border-radius: 14px; overflow: hidden;
+    background: linear-gradient(145deg, #d7ad70, #bd884e);
+    border: 1px solid rgba(255, 234, 197, .25);
+    box-shadow: inset 0 0 0 5px rgba(77, 43, 17, .35), 0 14px 34px rgba(0, 0, 0, .32);
+    user-select: none; touch-action: manipulation;
+  }
+  #boardLines { position: absolute; inset: 3.6%; width: 92.8%; height: 92.8%; }
+  #boardLines line, #boardLines path, #boardLines rect {
+    stroke: rgba(69, 37, 17, .78); stroke-width: 1.25; fill: none; vector-effect: non-scaling-stroke;
+  }
+  #boardLines .outer { stroke-width: 2.1; }
+  #boardLines text {
+    fill: rgba(75, 38, 16, .82); font: 700 7px "STKaiti", "KaiTi", serif;
+    letter-spacing: 2px;
+  }
+  #board { position: absolute; inset: 3.6%; }
+  .square {
+    position: absolute; width: 10.5%; height: 9.35%; padding: 0;
+    transform: translate(-50%, -50%); border: 0; border-radius: 50%;
+    background: transparent; cursor: pointer;
+  }
+  .square::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 15%; aspect-ratio: 1; border-radius: 50%;
+    transform: translate(-50%, -50%); opacity: 0;
+    background: rgba(39, 111, 153, .9); box-shadow: 0 0 0 5px rgba(53, 142, 196, .18);
+  }
+  .square.legal-empty::after { opacity: 1; }
+  .square.legal-capture::after {
+    width: 72%; background: transparent; opacity: 1;
+    box-shadow: 0 0 0 3px rgba(208, 53, 48, .86), inset 0 0 0 2px rgba(255, 225, 181, .52);
+  }
+  .square.preview-you::before,
+  .square.preview-reply::before {
+    position: absolute; z-index: 5; right: 1%; top: 2%;
+    display: grid; place-items: center; width: 29%; aspect-ratio: 1;
+    border: 2px solid rgba(232, 247, 255, .9); border-radius: 50%;
+    color: #07131c; background: var(--blue);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, .35);
+    font: 800 10px/1 system-ui;
+  }
+  .square.preview-you::before { content: "1"; }
+  .square.preview-reply::before { content: "2"; background: var(--gold); }
+  .piece {
+    position: absolute; z-index: 2; left: 50%; top: 50%;
+    display: grid; place-items: center; width: 82%; aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    border-radius: 50%; border: clamp(1px, .32vw, 3px) solid #5b371d;
+    background:
+      radial-gradient(circle at 38% 29%, #fff5d5 0 19%, #e4c18b 54%, #ad7440 100%);
+    box-shadow:
+      inset 0 0 0 2px rgba(255, 246, 209, .58),
+      inset 0 -5px 8px rgba(92, 46, 18, .20),
+      0 3px 0 #724522, 0 6px 10px rgba(55, 30, 12, .36);
+    color: #24221e; font: 700 clamp(20px, 4.15vw, 36px)/1 "STKaiti", "KaiTi", serif;
+    pointer-events: none;
+  }
+  .piece.red { color: var(--red); border-color: #a2332d; }
+  .square.selected .piece {
+    outline: 3px solid rgba(73, 180, 245, .9); outline-offset: 3px;
+    box-shadow: inset 0 0 0 2px #fff1c7, 0 3px 0 #724522, 0 0 0 7px rgba(64, 166, 229, .20);
+  }
+  .square.last-from .piece, .square.last-to .piece {
+    box-shadow: inset 0 0 0 2px #fff1c7, 0 3px 0 #724522, 0 0 0 5px rgba(242, 189, 99, .36);
+  }
+  .square.threatened .piece::after {
+    content: "!"; position: absolute; right: -7%; top: -9%;
+    display: grid; place-items: center; width: 26%; aspect-ratio: 1;
+    border-radius: 50%; color: #fff; background: #c53834;
+    border: 2px solid #f2d4aa; font: 800 11px/1 system-ui;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, .42);
+  }
+  .square:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+  .board-info {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px; align-items: start; margin-top: 13px;
+  }
+  .coach {
+    min-height: 66px; padding: 10px 12px;
+    border: 1px solid rgba(105, 191, 255, .19); border-radius: 12px;
+    background: rgba(12, 21, 31, .88);
+  }
+  .coach strong { display: block; margin-bottom: 4px; color: #dff3ff; font-size: 13px; }
+  .coach p { margin: 0; color: #9eacba; font-size: 12px; }
+  .coach[data-tone="danger"] { border-color: rgba(255, 113, 107, .35); }
+  .coach[data-tone="danger"] strong { color: #ffada8; }
+  .actions { display: flex; flex-direction: column; gap: 7px; }
+  .actions button, .tree-toolbar button {
+    min-height: 44px; padding: 7px 12px; border: 1px solid var(--edge);
+    border-radius: 10px; color: #dae5ef; background: #17202d; cursor: pointer;
+  }
+  .actions button:disabled { opacity: .36; cursor: default; }
+  .facts {
+    display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px;
+    color: #8e9cad; font-size: 11px;
+  }
+  .fact {
+    padding: 5px 8px; border: 1px solid rgba(170, 192, 222, .11);
+    border-radius: 8px; background: rgba(12, 17, 25, .72);
+  }
+  .fact b { color: #dce7f3; font-variant-numeric: tabular-nums; }
+  .rule-scope {
+    margin: 8px 1px 0; color: #71808f; font-size: 10px; line-height: 1.5;
+  }
+
+  .tree-panel { min-height: 720px; overflow: hidden; }
+  .tree-head {
+    display: flex; gap: 12px; align-items: center; padding: 15px 16px 12px;
+    border-bottom: 1px solid var(--edge);
+  }
+  .tree-title { min-width: 0; }
+  .tree-title h2 { margin: 0; font-size: 15px; }
+  .tree-title p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+  .tree-toolbar { display: flex; gap: 6px; margin-left: auto; }
+  .tree-toolbar button { min-width: 44px; padding: 5px 9px; }
+  .tree-viewport {
+    position: relative; height: 646px; overflow: auto; overscroll-behavior: contain;
+    background:
+      linear-gradient(rgba(135, 166, 201, .035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(135, 166, 201, .035) 1px, transparent 1px),
+      #0b111a;
+    background-size: 28px 28px;
+    scrollbar-color: rgba(105, 191, 255, .42) #0b111a;
+  }
+  .tree-canvas {
+    min-width: 650px; width: max-content; min-height: 100%;
+    padding: 20px 22px 42px; transform-origin: 0 0;
+  }
+  .legend { display: flex; gap: 14px; margin-bottom: 16px; color: #8190a2; font-size: 10px; }
+  .legend span::before {
+    content: ""; display: inline-block; width: 18px; height: 2px; margin-right: 6px;
+    vertical-align: 3px; background: currentColor;
+  }
+  .legend .user { color: var(--blue); }
+  .legend .pv { color: var(--gold); }
+  .path-lane, .pv-lane, .branch-block { position: relative; padding-left: 30px; }
+  .lane-label {
+    position: absolute; left: 0; top: 6px; color: #738195;
+    font-size: 10px; writing-mode: vertical-rl; letter-spacing: .12em;
+  }
+  .node-row {
+    position: relative; display: flex; align-items: stretch; gap: 20px;
+    width: max-content; min-height: 64px;
+  }
+  .node-row::before {
+    content: ""; position: absolute; left: 52px; right: 52px; top: 28px;
+    height: 2px; background: var(--blue);
+  }
+  .path-node, .pv-node, .branch-node, .root-node {
+    position: relative; z-index: 1; display: flex; flex-direction: column;
+    justify-content: center; width: 118px; min-height: 58px; padding: 8px 10px;
+    border: 1px solid rgba(105, 191, 255, .34); border-radius: 11px;
+    color: #e5f4ff; background: #102537; box-shadow: 0 8px 18px rgba(0, 0, 0, .2);
+  }
+  .path-node b, .pv-node b, .branch-node b, .root-node b {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;
+  }
+  .path-node small, .pv-node small, .branch-node small, .root-node small {
+    margin-top: 3px; color: #91a5b5; font-size: 9.5px; font-variant-numeric: tabular-nums;
+  }
+  .root-node { border-color: rgba(122, 211, 166, .38); background: #10281f; }
+  .path-node.ai-move { border-color: rgba(242, 189, 99, .38); background: #2e2516; color: #ffe9ba; }
+  .empty-path {
+    display: grid; place-items: center; width: 240px; min-height: 58px;
+    border: 1px dashed rgba(105, 191, 255, .24); border-radius: 11px;
+    color: #6f8092; font-size: 11px; background: rgba(13, 22, 32, .72);
+  }
+  .pv-lane { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(242, 189, 99, .12); }
+  .pv-lane .node-row::before { background: var(--gold); }
+  .pv-node { border-color: rgba(242, 189, 99, .42); color: #ffe9bd; background: #302616; }
+  .pv-empty { color: #766c59; font-size: 11px; padding: 12px 0; }
+  .branch-block { margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--edge); }
+  .branch-summary { margin: 0 0 12px; color: #cbd7e3; font-size: 12px; }
+  .branch-summary b { color: var(--blue); font-size: 16px; }
+  .branch-grid {
+    position: relative; display: grid; grid-template-columns: repeat(4, 118px);
+    gap: 12px 14px; width: max-content; padding-top: 16px;
+  }
+  .branch-grid::before {
+    content: ""; position: absolute; left: 58px; right: 58px; top: 0;
+    height: 1px; background: rgba(105, 191, 255, .33);
+  }
+  .branch-node {
+    min-height: 54px; padding: 7px 9px; text-align: left; cursor: pointer;
+    border-color: rgba(151, 178, 207, .19); background: #131d29;
+  }
+  button.branch-node::before {
+    content: ""; position: absolute; left: 50%; top: -17px;
+    width: 1px; height: 16px; background: rgba(105, 191, 255, .32);
+  }
+  button.branch-node:hover { border-color: rgba(105, 191, 255, .6); background: #172a3b; }
+  .branch-node.capture { border-color: rgba(255, 113, 107, .30); }
+  .branch-node.suggested {
+    border-color: rgba(105, 191, 255, .72);
+    background: #17334a;
+    box-shadow: inset 3px 0 0 var(--blue), 0 8px 18px rgba(0, 0, 0, .2);
+  }
+  .branch-node.suggested small { color: #a9dbff; }
+  .thinking-row {
+    width: 100%; margin-top: 18px; padding: 12px;
+    border: 1px solid rgba(242, 189, 99, .20); border-radius: 10px;
+    color: #c3ae81; background: rgba(44, 34, 18, .62); font-size: 11px;
+  }
+
+  .fatal {
+    position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 24px;
+    background: rgba(5, 8, 12, .96);
+  }
+  .fatal div { max-width: 520px; text-align: center; }
+  .fatal h2 { margin: 0 0 9px; }
+  .fatal p { color: #9aa6b4; }
+
+  @media (max-width: 980px) {
+    .app { padding-inline: 14px; }
+    .layout { grid-template-columns: minmax(370px, 580px) minmax(330px, 1fr); }
+    .play-panel { padding: 11px; }
+    .tree-panel { min-height: 650px; }
+    .tree-viewport { height: 576px; }
+  }
+  @media (max-width: 760px) {
+    body { background: var(--bg); }
+    .app { padding: calc(10px + var(--safe-top)) 9px calc(15px + var(--safe-bottom)); }
+    .topbar { min-height: 44px; margin: 0 2px 9px; gap: 10px; }
+    .back { width: 44px; height: 44px; border-radius: 10px; }
+    .brand h1 { font-size: 15px; }
+    .brand p { display: none; }
+    .turn-pill { padding: 6px 9px; font-size: 10.5px; }
+    .layout { display: block; }
+    .panel { border-radius: 14px; }
+    .play-panel { padding: 8px; }
+    .board-shell { width: min(100%, 510px); }
+    .piece { font-size: clamp(20px, 8.7vw, 34px); }
+    .board-info { grid-template-columns: minmax(0, 1fr); margin-top: 9px; }
+    .coach { min-height: 58px; padding: 8px 10px; }
+    .coach strong { font-size: 12px; }
+    .coach p { font-size: 10.5px; }
+    .actions { flex-direction: row; }
+    .actions button { flex: 1; min-height: 44px; }
+    .facts { margin-top: 8px; gap: 5px; }
+    .fact { padding: 4px 6px; font-size: 9.5px; }
+    .tree-panel { min-height: 0; margin-top: 10px; }
+    .tree-head { padding: 11px 12px 9px; }
+    .tree-title h2 { font-size: 13px; }
+    .tree-title p { font-size: 9.5px; }
+    .tree-toolbar button { min-width: 44px; min-height: 44px; }
+    .tree-viewport { height: min(56vh, 520px); min-height: 360px; }
+    .tree-canvas { min-width: 610px; padding: 16px 16px 32px; }
+    .branch-grid { grid-template-columns: repeat(4, 112px); }
+    .path-node, .pv-node, .branch-node, .root-node { width: 112px; }
+  }
+  @media (max-width: 390px) {
+    .app { padding-inline: 6px; }
+    .play-panel { padding: 6px; }
+    .board-frame { border-radius: 10px; }
+    .topbar { margin-inline: 1px; }
+    .brand h1 { font-size: 14px; }
+    .turn-pill { max-width: 122px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { scroll-behavior: auto !important; }
+  }
+</style>
+</head>
+<body>
+<main class="app">
+  <header class="topbar">
+    <a class="back" href="./" aria-label="返回棋类选择">←</a>
+    <div class="brand">
+      <h1>中国象棋 · 可能性分叉</h1>
+      <p>每一个数字来自当前真实局面；点击棋子，看合法去处和当前攻击线。</p>
+    </div>
+    <div id="turnPill" class="turn-pill" data-side="red">红方行棋</div>
+  </header>
+
+  <div class="layout">
+    <section class="panel play-panel" aria-label="中国象棋棋盘">
+      <div class="board-shell">
+        <div class="board-frame">
+          <svg id="boardLines" viewBox="0 0 80 90" aria-hidden="true">
+            <rect class="outer" x=".5" y=".5" width="79" height="89" />
+            <path d="M10 0V40 M20 0V40 M30 0V40 M40 0V40 M50 0V40 M60 0V40 M70 0V40
+                     M10 50V90 M20 50V90 M30 50V90 M40 50V90 M50 50V90 M60 50V90 M70 50V90
+                     M0 10H80 M0 20H80 M0 30H80 M0 40H80 M0 50H80 M0 60H80 M0 70H80 M0 80H80
+                     M30 0L50 20 M50 0L30 20 M30 70L50 90 M50 70L30 90" />
+            <text x="13" y="47.5">楚 河</text>
+            <text x="54" y="47.5">汉 界</text>
+          </svg>
+          <div id="board" data-xq-board role="grid" aria-label="九路十行中国象棋棋盘"></div>
+        </div>
+
+        <div class="board-info">
+          <div id="coach" class="coach" aria-live="polite">
+            <strong>先点一枚红棋</strong>
+            <p>蓝点是合法落点；感叹号表示棋子正被对方攻击线瞄准，并不等于下一手必丢。</p>
+          </div>
+          <div class="actions">
+            <button id="undo" type="button" disabled>悔棋一回合</button>
+            <button id="reset" type="button">重新开局</button>
+          </div>
+        </div>
+        <div class="facts" aria-label="局面事实">
+          <span class="fact">合法分叉 <b id="legalCount">—</b></span>
+          <span class="fact">被瞄准棋子 <b id="threatCount">—</b></span>
+          <span class="fact">路径步数 <b id="pathCount">0</b></span>
+          <span class="fact">搜索 <b id="searchFact">待命</b></span>
+        </div>
+        <p class="rule-scope">规则范围：已覆盖走子、将军、将死与困毙；长将、长捉等复杂循环裁决暂未纳入。</p>
+      </div>
+    </section>
+
+    <section class="panel tree-panel" aria-label="二维分叉路径">
+      <header class="tree-head">
+        <div class="tree-title">
+          <h2>全景路径图 · 纯 2D</h2>
+          <p>横向拖动查看；蓝色是你走过的路，金色是引擎当前主线。</p>
+        </div>
+        <div class="tree-toolbar" aria-label="路径图缩放">
+          <button id="zoomOut" type="button" aria-label="缩小路径图">−</button>
+          <button id="zoomReset" type="button" aria-label="恢复路径图大小">100%</button>
+          <button id="zoomIn" type="button" aria-label="放大路径图">＋</button>
+        </div>
+      </header>
+      <div id="treeViewport" class="tree-viewport">
+        <div id="treeCanvas" class="tree-canvas">
+          <div class="legend"><span class="user">已选择路径</span><span class="pv">引擎主变（不是概率）</span></div>
+          <section class="path-lane">
+            <span class="lane-label">实战路径</span>
+            <div id="pathRow" class="node-row"></div>
+          </section>
+          <section class="pv-lane">
+            <span class="lane-label">引擎主线</span>
+            <div id="pvRow" class="node-row"></div>
+          </section>
+          <section class="branch-block">
+            <span class="lane-label">此刻分叉</span>
+            <p id="branchSummary" class="branch-summary"></p>
+            <div id="branchGrid" class="branch-grid"></div>
+            <div id="thinkingRow" class="thinking-row" hidden>黑方正在 Worker 中计算应手，完成前不会伪造分叉。</div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="fatal" class="fatal" hidden>
+  <div><h2>中国象棋引擎没有载入</h2><p id="fatalMessage"></p></div>
+</div>
+
+<script type="module">
+const INITIAL_FEN =
+  'rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1';
+const GLYPHS = Object.freeze({
+  K: '帅', A: '仕', B: '相', E: '相', N: '马', H: '马', R: '车', C: '炮', P: '兵',
+  k: '将', a: '士', b: '象', e: '象', n: '马', h: '马', r: '车', c: '炮', p: '卒',
+});
+const PIECE_NAMES = Object.freeze({
+  K: '帅', A: '仕', B: '相', E: '相', N: '红马', H: '红马', R: '红车', C: '红炮', P: '兵',
+  k: '将', a: '士', b: '象', e: '象', n: '黑马', h: '黑马', r: '黑车', c: '黑炮', p: '卒',
+});
+const FILES = 'abcdefghi';
+
+const els = Object.freeze({
+  board: document.getElementById('board'),
+  turn: document.getElementById('turnPill'),
+  coach: document.getElementById('coach'),
+  legalCount: document.getElementById('legalCount'),
+  threatCount: document.getElementById('threatCount'),
+  pathCount: document.getElementById('pathCount'),
+  searchFact: document.getElementById('searchFact'),
+  undo: document.getElementById('undo'),
+  reset: document.getElementById('reset'),
+  pathRow: document.getElementById('pathRow'),
+  pvRow: document.getElementById('pvRow'),
+  branchSummary: document.getElementById('branchSummary'),
+  branchGrid: document.getElementById('branchGrid'),
+  thinkingRow: document.getElementById('thinkingRow'),
+  treeViewport: document.getElementById('treeViewport'),
+  treeCanvas: document.getElementById('treeCanvas'),
+  zoomOut: document.getElementById('zoomOut'),
+  zoomReset: document.getElementById('zoomReset'),
+  zoomIn: document.getElementById('zoomIn'),
+  fatal: document.getElementById('fatal'),
+  fatalMessage: document.getElementById('fatalMessage'),
+});
+
+let engine;
+try {
+  engine = await import('./xiangqi-engine.js');
+} catch (error) {
+  els.fatal.hidden = false;
+  els.fatalMessage.textContent = String(error && error.message || error);
+  throw error;
+}
+
+// ── 引擎适配层：页面其余部分只使用这里的规范形状。
+const api = (() => {
+  const parse = engine.parseFen || engine.fromFen || engine.createPosition;
+  const stringify = engine.toFen || engine.fen;
+  const legal = engine.generateLegalMoves || engine.legalMoves || engine.moves;
+  const apply = engine.applyMove || engine.makeMove || engine.playMove;
+  if (![parse, stringify, legal, apply].every((fn) => typeof fn === 'function')) {
+    throw new Error('xiangqi-engine.js 缺少 parseFen / toFen / generateLegalMoves / applyMove');
+  }
+
+  function parseFen(fen) { return parse(fen); }
+  function toFen(position) { return stringify(position); }
+  function legalMoves(position) {
+    const result = legal(position);
+    return Array.isArray(result) ? result : (result && result.moves) || [];
+  }
+  function applyMove(position, move) {
+    const result = apply(position, move);
+    return result || position;
+  }
+  function initialFen() {
+    return engine.INITIAL_FEN || engine.START_FEN || INITIAL_FEN;
+  }
+  function notation(position, move) {
+    return typeof engine.moveToNotation === 'function'
+      ? engine.moveToNotation(position, move)
+      : '';
+  }
+  function isCheck(position) {
+    if (typeof engine.isInCheck === 'function') return !!engine.isInCheck(position);
+    if (typeof engine.inCheck === 'function') return !!engine.inCheck(position);
+    return !!(position && (position.inCheck || position.check));
+  }
+  function threats(position) {
+    return typeof engine.getThreats === 'function' ? engine.getThreats(position) : null;
+  }
+  function status(position) {
+    return typeof engine.getGameStatus === 'function' ? engine.getGameStatus(position) : null;
+  }
+  return Object.freeze({
+    parseFen, toFen, legalMoves, applyMove, initialFen, notation, isCheck, threats, status,
+  });
+})();
+
+function fenSide(fen) {
+  const token = String(fen).trim().split(/\s+/)[1] || 'r';
+  return token === 'b' ? 'black' : 'red';
+}
+function fenWithSide(fen, side) {
+  const fields = String(fen).trim().split(/\s+/);
+  fields[1] = side === 'black' ? 'b' : 'w';
+  return fields.join(' ');
+}
+function boardFromFen(fen) {
+  const ranks = String(fen).split(/\s+/)[0].split('/');
+  const board = Array(90).fill('');
+  for (let row = 0; row < 10; row++) {
+    let col = 0;
+    for (const char of ranks[row] || '') {
+      if (/\d/.test(char)) col += Number(char);
+      else if (col < 9) board[row * 9 + col++] = char;
+    }
+  }
+  return board;
+}
+function normalizeSquare(value) {
+  if (Number.isInteger(value)) return value >= 0 && value < 90 ? value : -1;
+  if (Array.isArray(value) && value.length >= 2) {
+    const [row, col] = value.map(Number);
+    return row >= 0 && row < 10 && col >= 0 && col < 9 ? row * 9 + col : -1;
+  }
+  if (value && typeof value === 'object') {
+    const row = Number(value.row ?? value.r ?? value.rank);
+    const col = Number(value.col ?? value.c ?? value.file);
+    if (row >= 0 && row < 10 && col >= 0 && col < 9) return row * 9 + col;
+  }
+  if (typeof value === 'string') {
+    if (/^\d{1,2}$/.test(value)) return normalizeSquare(Number(value));
+    const compact = value.toLowerCase().replace(/[^a-i0-9]/g, '');
+    const m = /^([a-i])([0-9])$/.exec(compact);
+    if (m) return (9 - Number(m[2])) * 9 + FILES.indexOf(m[1]);
+    const rc = /^([0-9]),?([0-8])$/.exec(value);
+    if (rc) return Number(rc[1]) * 9 + Number(rc[2]);
+  }
+  return -1;
+}
+function moveFrom(move) { return normalizeSquare(move && (move.from ?? move.src ?? move.source)); }
+function moveTo(move) { return normalizeSquare(move && (move.to ?? move.dst ?? move.target)); }
+function coord(square) {
+  const row = Math.floor(square / 9), col = square % 9;
+  return `${FILES[col]}${9 - row}`;
+}
+function moveLabel(move, positionBefore = null) {
+  return String(move && (move.notation || move.san || move.label || move.uci || move.iccs
+    || (positionBefore && api.notation(positionBefore, move)))
+    || `${coord(moveFrom(move))}→${coord(moveTo(move))}`);
+}
+function sameMove(a, b) {
+  return moveFrom(a) === moveFrom(b) && moveTo(a) === moveTo(b);
+}
+function pieceIsRed(piece) { return !!piece && piece === piece.toUpperCase(); }
+function sideOwns(piece, side) { return !!piece && pieceIsRed(piece) === (side === 'red'); }
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[ch]);
+}
+
+let currentFen = api.initialFen();
+let position = api.parseFen(currentFen);
+let currentMoves = api.legalMoves(position);
+let selectedSquare = -1;
+let threatened = new Set();
+let lastMove = null;
+let path = [];
+let snapshots = [{ fen: currentFen, pathLength: 0 }];
+let pv = [];
+let thinking = false;
+let gameOver = false;
+let searchWorker = null;
+let branchWorker = null;
+let requestId = 0;
+let branchRequestId = 0;
+let branchRequestFen = '';
+let rankedBranches = [];
+let lastSearchMs = 0;
+let lastSearchDepth = 0;
+let zoom = 1;
+let previewLine = null;
+
+function refreshPosition(fen) {
+  position = api.parseFen(fen);
+  currentFen = api.toFen(position);
+  currentMoves = api.legalMoves(position);
+  gameOver = currentMoves.length === 0;
+  threatened = computeThreatened(currentFen);
+}
+
+function computeThreatened(fen) {
+  try {
+    const direct = api.threats(api.parseFen(fen));
+    if (Array.isArray(direct)) {
+      return new Set(direct.map((entry) => normalizeSquare(entry.square)).filter((square) => square >= 0));
+    }
+  } catch {
+    // 旧引擎没有威胁接口时，退到下一段的合法吃子推导。
+  }
+  const board = boardFromFen(fen);
+  const side = fenSide(fen);
+  const opponent = side === 'red' ? 'black' : 'red';
+  let attacks = [];
+  try {
+    attacks = api.legalMoves(api.parseFen(fenWithSide(fen, opponent)));
+  } catch {
+    return new Set();
+  }
+  const result = new Set();
+  for (const move of attacks) {
+    const to = moveTo(move);
+    const target = board[to];
+    if (to >= 0 && target && sideOwns(target, side)) result.add(to);
+  }
+  return result;
+}
+
+function createBoardSquares() {
+  const fragment = document.createDocumentFragment();
+  for (let square = 0; square < 90; square++) {
+    const row = Math.floor(square / 9), col = square % 9;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'square';
+    button.dataset.square = String(square);
+    button.setAttribute('role', 'gridcell');
+    button.style.left = `${(col / 8) * 100}%`;
+    button.style.top = `${(row / 9) * 100}%`;
+    button.addEventListener('click', () => handleSquare(square));
+    fragment.append(button);
+  }
+  els.board.append(fragment);
+}
+
+function legalForSelected() {
+  return selectedSquare < 0 ? [] : currentMoves.filter((move) => moveFrom(move) === selectedSquare);
+}
+
+function renderBoard() {
+  const board = boardFromFen(currentFen);
+  const selectedMoves = legalForSelected();
+  const legalTargets = new Map(selectedMoves.map((move) => [moveTo(move), move]));
+  for (const squareEl of els.board.children) {
+    const square = Number(squareEl.dataset.square);
+    const piece = board[square];
+    squareEl.className = 'square';
+    squareEl.replaceChildren();
+    if (square === selectedSquare) squareEl.classList.add('selected');
+    if (lastMove && square === moveFrom(lastMove)) squareEl.classList.add('last-from');
+    if (lastMove && square === moveTo(lastMove)) squareEl.classList.add('last-to');
+    if (previewLine && square === moveTo(previewLine.move)) squareEl.classList.add('preview-you');
+    if (previewLine?.reply && square === moveTo(previewLine.reply)) squareEl.classList.add('preview-reply');
+    if (threatened.has(square)) {
+      squareEl.classList.add('threatened');
+      squareEl.dataset.threatened = 'true';
+    } else {
+      delete squareEl.dataset.threatened;
+    }
+    if (legalTargets.has(square)) {
+      squareEl.classList.add(piece ? 'legal-capture' : 'legal-empty');
+      squareEl.dataset.target = coord(square);
+    } else {
+      delete squareEl.dataset.target;
+    }
+    if (piece) {
+      const disk = document.createElement('span');
+      disk.className = `piece ${pieceIsRed(piece) ? 'red' : 'black'}`;
+      disk.textContent = GLYPHS[piece] || piece;
+      disk.dataset.square = coord(square);
+      disk.dataset.side = pieceIsRed(piece) ? 'red' : 'black';
+      disk.dataset.piece = piece.toLowerCase();
+      squareEl.append(disk);
+    }
+    const place = coord(square);
+    const threatCopy = threatened.has(square) ? '，被攻击线瞄准' : '';
+    const previewCopy = previewLine && square === moveTo(previewLine.move)
+      ? '，预演第 1 步'
+      : previewLine?.reply && square === moveTo(previewLine.reply)
+        ? '，预演第 2 步'
+        : '';
+    squareEl.setAttribute('aria-label', piece
+      ? `${place} ${PIECE_NAMES[piece] || piece}${threatCopy}${previewCopy}`
+      : `${place} 空位${previewCopy}`);
+    squareEl.disabled = thinking || gameOver
+      || (!piece && !legalTargets.has(square))
+      || (piece && !sideOwns(piece, fenSide(currentFen)) && !legalTargets.has(square));
+  }
+}
+
+function renderStatus() {
+  const side = fenSide(currentFen);
+  els.turn.dataset.side = side;
+  els.turn.textContent = gameOver ? '对局结束' : thinking ? '黑方思考中' : side === 'red' ? '红方行棋' : '黑方行棋';
+  els.legalCount.textContent = String(currentMoves.length);
+  els.threatCount.textContent = String(threatened.size);
+  els.pathCount.textContent = String(path.length);
+  els.undo.disabled = thinking || path.length < 2;
+  els.thinkingRow.hidden = !thinking;
+
+  const selectedMoves = legalForSelected();
+  const board = boardFromFen(currentFen);
+  const status = api.status(position);
+  const checked = status ? !!status.inCheck : api.isCheck(position);
+  els.coach.dataset.tone = checked ? 'danger' : threatened.size ? 'danger' : 'normal';
+  if (gameOver) {
+    els.coach.innerHTML = `<strong>${checked ? '将军且无合法应手' : '当前一方无合法着法'}</strong>`
+      + '<p>这盘棋已经结束，可以悔棋或重新开局。</p>';
+  } else if (thinking) {
+    els.coach.innerHTML = '<strong>黑方正在计算</strong><p>搜索在独立 Worker 中进行；棋盘保持可读，完成后一次落子。</p>';
+  } else if (checked) {
+    els.coach.innerHTML = `<strong>将军：必须先解围</strong><p>当前只有 ${currentMoves.length} 条真实合法应手。</p>`;
+  } else if (previewLine?.reply) {
+    els.coach.innerHTML = `<strong>预演：你走 ${escapeHtml(moveLabel(previewLine.move, position))}`
+      + `，黑方浅层强回应 ${escapeHtml(moveLabel(previewLine.reply))}</strong>`
+      + '<p>蓝色 1 → 金色 2；这是含一步合法回吃的局面排序，不是概率。点蓝色落点才会真正走棋。</p>';
+  } else if (selectedSquare >= 0) {
+    const piece = board[selectedSquare];
+    const danger = threatened.has(selectedSquare) ? '；它正被攻击线瞄准' : '';
+    els.coach.innerHTML = `<strong>${PIECE_NAMES[piece] || '棋子'}有 ${selectedMoves.length} 个合法去处${danger}</strong>`
+      + '<p>点蓝点落子；带红圈的目标是可以立即吃到的对方棋子。</p>';
+  } else if (threatened.size) {
+    els.coach.innerHTML = `<strong>有 ${threatened.size} 枚红棋被攻击线瞄准</strong>`
+      + '<p>“!”来自当前几何攻击线，只提示风险，不代表对方下一手一定能吃。</p>';
+  } else if (rankedBranches.length) {
+    els.coach.innerHTML = `<strong>可以先看 ${escapeHtml(moveLabel(rankedBranches[0]))}</strong>`
+      + '<p>这是浅层局面排序的第一候选，不是“唯一正确答案”；蓝色合法落点仍由棋核决定。</p>';
+  } else {
+    els.coach.innerHTML = '<strong>选择一枚红棋</strong><p>点棋子后只显示真实合法落点，右侧同时保留当前全部分叉。</p>';
+  }
+}
+
+function renderTree() {
+  const rootCount = snapshots[0] && snapshots[0].legalCount;
+  const nodes = [
+    `<span class="root-node" data-fen="${escapeHtml(snapshots[0]?.fen || api.initialFen())}"`
+      + ` data-branches="${Number.isInteger(rootCount) ? rootCount : path[0]?.beforeCount ?? currentMoves.length}" data-ply="0">`
+      + `<b>开局</b><small>${Number.isInteger(rootCount) ? rootCount : path[0]?.beforeCount ?? currentMoves.length} 个合法分叉</small></span>`,
+  ];
+  if (!path.length) {
+    nodes.push('<span class="empty-path">你的选择会从这里向右生长</span>');
+  } else {
+    for (let index = 0; index < path.length; index++) {
+      const step = path[index];
+      nodes.push(`<span class="path-node ${step.side === 'black' ? 'ai-move' : ''}" data-path-index="${index}"`
+        + ` data-fen="${escapeHtml(step.fen)}" data-branches="${step.afterCount}" data-ply="${index + 1}">`
+        + `<b>${index + 1}. ${escapeHtml(step.label)}</b>`
+        + `<small>${step.side === 'red' ? '你' : '黑方'}走后 · ${step.afterCount} 个合法分叉</small></span>`);
+    }
+  }
+  els.pathRow.innerHTML = nodes.join('');
+
+  if (pv.length) {
+    els.pvRow.innerHTML = pv.map((step, index) =>
+      `<span class="pv-node" data-pv-index="${index}" data-fen="${escapeHtml(step.after || '')}"`
+      + ` data-branches="${Number.isInteger(step.branchCount) ? step.branchCount : ''}" data-ply="${path.length + index + 1}">`
+      + `<b>${index + 1}. ${escapeHtml(moveLabel(step))}</b>`
+      + `<small>${index % 2 === 0 ? '主线下一着' : '主线应对'} · 搜索完成层</small></span>`).join('');
+  } else {
+    els.pvRow.innerHTML = '<span class="pv-empty">落子后，这里会显示 Worker 完整搜索层中的主变；它不是胜率。</span>';
+  }
+
+  els.branchSummary.innerHTML = thinking
+    ? '当前由黑方计算，分叉将在真实应手落盘后刷新。'
+    : `这个局面共有 <b>${currentMoves.length}</b> 条合法分叉。点卡片预演，再点棋盘蓝色落点确认。`;
+  if (thinking) {
+    els.branchGrid.replaceChildren();
+  } else {
+    const board = boardFromFen(currentFen);
+    const rankMap = new Map(rankedBranches.map((move, index) => [
+      `${moveFrom(move)}-${moveTo(move)}`, { move, rank: index },
+    ]));
+    const visibleMoves = currentMoves.slice().sort((a, b) =>
+      (rankMap.get(`${moveFrom(a)}-${moveTo(a)}`)?.rank ?? 999)
+      - (rankMap.get(`${moveFrom(b)}-${moveTo(b)}`)?.rank ?? 999));
+    els.branchGrid.innerHTML = visibleMoves.map((move, index) => {
+      const target = board[moveTo(move)];
+      const ranked = rankMap.get(`${moveFrom(move)}-${moveTo(move)}`)?.move;
+      const replyLabel = ranked?.reply ? escapeHtml(moveLabel(ranked.reply)) : '无合法应手';
+      const copy = index === 0 && ranked
+        ? `当前建议 · 回应 ${replyLabel}`
+        : ranked
+          ? `回应 ${replyLabel} · ${ranked.replyCount} 应手`
+          : target
+            ? `可吃 ${escapeHtml(PIECE_NAMES[target] || target)}`
+            : `${coord(moveFrom(move))} 到 ${coord(moveTo(move))}`;
+      return `<button class="branch-node ${target ? 'capture' : ''} ${index === 0 && ranked ? 'suggested' : ''}"`
+        + ` type="button" data-from="${moveFrom(move)}" data-to="${moveTo(move)}"`
+        + ` data-reply-from="${ranked?.reply ? moveFrom(ranked.reply) : ''}"`
+        + ` data-reply-to="${ranked?.reply ? moveTo(ranked.reply) : ''}"`
+        + ` data-fen="${escapeHtml(ranked?.after || '')}" data-branches="${ranked?.replyCount ?? ''}" data-ply="${path.length + 1}">`
+        + `<b>${escapeHtml(ranked ? moveLabel(ranked) : moveLabel(move, position))}</b>`
+        + `<small>${copy}</small></button>`;
+    }).join('');
+  }
+  els.branchGrid.querySelectorAll('[data-from][data-to]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const move = currentMoves.find((candidate) =>
+        moveFrom(candidate) === Number(button.dataset.from)
+        && moveTo(candidate) === Number(button.dataset.to));
+      const ranked = rankedBranches.find((candidate) => sameMove(candidate, move));
+      focusMove(move, ranked);
+    });
+  });
+}
+
+function render() {
+  renderBoard();
+  renderStatus();
+  renderTree();
+}
+
+function focusMove(move, ranked = null) {
+  if (!move || thinking || gameOver) return;
+  selectedSquare = moveFrom(move);
+  previewLine = {
+    move: ranked || move,
+    reply: ranked?.reply || null,
+  };
+  render();
+  els.board.querySelector(`[data-square="${moveTo(move)}"]`)?.focus({ preventScroll: true });
+}
+
+function handleSquare(square) {
+  if (thinking || gameOver) return;
+  const board = boardFromFen(currentFen);
+  const targetMove = legalForSelected().find((move) => moveTo(move) === square);
+  if (targetMove) {
+    play(targetMove, 'red');
+    return;
+  }
+  if (sideOwns(board[square], fenSide(currentFen))) {
+    selectedSquare = selectedSquare === square ? -1 : square;
+  } else {
+    selectedSquare = -1;
+  }
+  previewLine = null;
+  render();
+}
+
+function applyOn(positionBefore, move) {
+  const fenBefore = api.toFen(positionBefore);
+  const legalMove = api.legalMoves(positionBefore).find((candidate) => sameMove(candidate, move));
+  if (!legalMove) throw new Error(`引擎拒绝非法着法 ${moveLabel(move)}`);
+  const next = api.applyMove(positionBefore, legalMove);
+  const afterFen = api.toFen(next);
+  if (!afterFen || afterFen === fenBefore) throw new Error('applyMove 没有产生新局面');
+  return { position: next, move: legalMove, fen: afterFen };
+}
+
+function play(move, actor) {
+  const beforeCount = currentMoves.length;
+  const label = moveLabel(move, position);
+  const result = applyOn(position, move);
+  position = result.position;
+  currentFen = result.fen;
+  currentMoves = api.legalMoves(position);
+  const step = {
+    move: result.move,
+    label,
+    side: actor,
+    beforeCount,
+    afterCount: currentMoves.length,
+    fen: currentFen,
+  };
+  path.push(step);
+  snapshots.push({ fen: currentFen, pathLength: path.length, legalCount: currentMoves.length });
+  selectedSquare = -1;
+  previewLine = null;
+  lastMove = result.move;
+  pv = [];
+  rankedBranches = [];
+  threatened = computeThreatened(currentFen);
+  gameOver = currentMoves.length === 0;
+  render();
+  if (!gameOver && fenSide(currentFen) === 'black') requestAiMove();
+  else if (!gameOver && actor === 'black') requestBranches();
+}
+
+function makeSearchWorker() {
+  if (searchWorker) searchWorker.terminate();
+  const worker = new Worker('./xiangqi-worker.js', { type: 'module' });
+  searchWorker = worker;
+  worker.addEventListener('message', onWorkerMessage);
+  worker.addEventListener('error', () => fallbackAi('Worker 载入失败'));
+  worker.addEventListener('messageerror', () => fallbackAi('Worker 通信失败'));
+  worker.postMessage({ type: 'ping' });
+  return worker;
+}
+
+function makeBranchWorker() {
+  if (branchWorker) branchWorker.terminate();
+  const worker = new Worker('./xiangqi-worker.js', { type: 'module' });
+  branchWorker = worker;
+  worker.addEventListener('message', onWorkerMessage);
+  worker.addEventListener('error', () => {
+    rankedBranches = [];
+    render();
+  });
+  worker.addEventListener('messageerror', () => {
+    rankedBranches = [];
+    render();
+  });
+  worker.postMessage({ type: 'ping' });
+  return worker;
+}
+
+function requestAiMove() {
+  if (thinking || gameOver) return;
+  thinking = true;
+  const id = ++requestId;
+  const fen = currentFen;
+  els.searchFact.textContent = '计算中';
+  render();
+  if (!searchWorker) makeSearchWorker();
+  searchWorker.postMessage({ type: 'search', id, fen, timeMs: 1100, timeBudgetMs: 1100, maxDepth: 5 });
+  window.setTimeout(() => {
+    if (thinking && id === requestId && currentFen === fen) fallbackAi('搜索超时');
+  }, 2800);
+}
+
+function requestBranches() {
+  if (thinking || gameOver || fenSide(currentFen) !== 'red') return;
+  if (!branchWorker) makeBranchWorker();
+  const id = ++branchRequestId;
+  branchRequestFen = currentFen;
+  branchWorker.postMessage({ type: 'branches', id, fen: currentFen });
+}
+
+function resultMove(result) {
+  return result && (result.move || result.bestMove || result.best);
+}
+function resultPv(result) {
+  return Array.isArray(result && result.pv) ? result.pv : [];
+}
+function onWorkerMessage(event) {
+  const message = event.data || {};
+  if (message.type === 'pong') return;
+  if (message.type === 'branchesDone') {
+    if (Number(message.id) !== branchRequestId || currentFen !== branchRequestFen || thinking) return;
+    rankedBranches = Array.isArray(message.result?.branches) ? message.result.branches : [];
+    render();
+    return;
+  }
+  if (message.type === 'branchesError') return;
+  const payload = message.result || message;
+  if (!thinking || Number(message.id ?? payload.id) !== requestId) return;
+  if (message.type === 'searchError' || message.type === 'error') {
+    fallbackAi(message.message || '搜索出错');
+    return;
+  }
+  if (!['result', 'searchDone', 'searchResult'].includes(message.type) && !resultMove(payload)) return;
+  const move = resultMove(payload);
+  const legalMove = currentMoves.find((candidate) => sameMove(candidate, move));
+  if (!legalMove) {
+    fallbackAi('搜索返回了非当前局面的着法');
+    return;
+  }
+  pv = validatePv(currentFen, resultPv(payload));
+  thinking = false;
+  lastSearchMs = Number(payload.ms) || 0;
+  lastSearchDepth = Number(payload.depth) || 0;
+  els.searchFact.textContent = `${advantageText(payload.score)} · ${payload.depth || 0} 层`;
+  play(legalMove, 'black');
+  // play 会在落盘时清空旧局面的 PV；保留黑方搜索给出的后续主线。
+  pv = validatePv(currentFen, resultPv(payload).slice(1));
+  render();
+}
+
+function advantageText(score) {
+  const value = Number(score);
+  if (!Number.isFinite(value) || Math.abs(value) < 45) return '局势接近';
+  if (value >= 600) return '红方明显主动';
+  if (value >= 45) return '红方稍主动';
+  if (value <= -600) return '黑方明显主动';
+  return '黑方稍主动';
+}
+
+function validatePv(sourceFen, candidatePv) {
+  if (!Array.isArray(candidatePv) || !candidatePv.length) return [];
+  let replay;
+  try { replay = api.parseFen(sourceFen); } catch { return []; }
+  const clean = [];
+  for (const raw of candidatePv.slice(0, 8)) {
+    const legalMove = api.legalMoves(replay).find((candidate) => sameMove(candidate, raw));
+    if (!legalMove) break;
+    const notation = moveLabel(raw, replay);
+    replay = api.applyMove(replay, legalMove);
+    clean.push({
+      ...legalMove,
+      notation,
+      after: api.toFen(replay),
+      branchCount: api.legalMoves(replay).length,
+    });
+  }
+  return clean;
+}
+
+function fallbackAi(reason) {
+  if (!thinking) return;
+  thinking = false;
+  makeSearchWorker();
+  const legalMove = currentMoves[0];
+  els.searchFact.textContent = reason;
+  if (legalMove) play(legalMove, 'black');
+  else render();
+}
+
+function resetGame() {
+  requestId++;
+  thinking = false;
+  selectedSquare = -1;
+  previewLine = null;
+  lastMove = null;
+  path = [];
+  pv = [];
+  currentFen = api.initialFen();
+  position = api.parseFen(currentFen);
+  currentFen = api.toFen(position);
+  currentMoves = api.legalMoves(position);
+  threatened = computeThreatened(currentFen);
+  gameOver = currentMoves.length === 0;
+  snapshots = [{ fen: currentFen, pathLength: 0, legalCount: currentMoves.length }];
+  rankedBranches = [];
+  lastSearchMs = 0;
+  lastSearchDepth = 0;
+  els.searchFact.textContent = '待命';
+  makeSearchWorker();
+  makeBranchWorker();
+  render();
+  requestBranches();
+}
+
+function undoRound() {
+  if (thinking || path.length < 2) return;
+  requestId++;
+  path = path.slice(0, -2);
+  snapshots = snapshots.slice(0, -2);
+  const snapshot = snapshots.at(-1);
+  currentFen = snapshot.fen;
+  position = api.parseFen(currentFen);
+  currentFen = api.toFen(position);
+  currentMoves = api.legalMoves(position);
+  threatened = computeThreatened(currentFen);
+  selectedSquare = -1;
+  previewLine = null;
+  lastMove = path.at(-1)?.move || null;
+  pv = [];
+  rankedBranches = [];
+  gameOver = currentMoves.length === 0;
+  els.searchFact.textContent = '已撤回';
+  render();
+  requestBranches();
+}
+
+function setZoom(next) {
+  zoom = Math.max(.72, Math.min(1.55, next));
+  els.treeCanvas.style.zoom = String(zoom);
+  els.zoomReset.textContent = `${Math.round(zoom * 100)}%`;
+}
+
+els.undo.addEventListener('click', undoRound);
+els.reset.addEventListener('click', resetGame);
+els.zoomOut.addEventListener('click', () => setZoom(zoom - .12));
+els.zoomIn.addEventListener('click', () => setZoom(zoom + .12));
+els.zoomReset.addEventListener('click', () => setZoom(1));
+
+createBoardSquares();
+resetGame();
+
+function loadFenForTest(fen) {
+  requestId++;
+  branchRequestId++;
+  thinking = false;
+  selectedSquare = -1;
+  previewLine = null;
+  lastMove = null;
+  path = [];
+  pv = [];
+  rankedBranches = [];
+  position = api.parseFen(fen);
+  currentFen = api.toFen(position);
+  currentMoves = api.legalMoves(position);
+  threatened = computeThreatened(currentFen);
+  gameOver = currentMoves.length === 0;
+  snapshots = [{ fen: currentFen, pathLength: 0, legalCount: currentMoves.length }];
+  els.searchFact.textContent = '测试局面';
+  render();
+  requestBranches();
+  return currentFen;
+}
+
+function tryMoveForTest(from, to) {
+  if (thinking || gameOver) return false;
+  const wanted = { from, to };
+  const move = currentMoves.find((candidate) => sameMove(candidate, wanted));
+  if (!move) return false;
+  play(move, fenSide(currentFen));
+  return true;
+}
+
+function killWorkerForTest() {
+  if (searchWorker) searchWorker.terminate();
+  searchWorker = null;
+  if (thinking) fallbackAi('测试终止 Worker');
+  return true;
+}
+
+const testHook = {};
+Object.defineProperties(testHook, {
+  fen: { enumerable: true, get: () => currentFen },
+  side: { enumerable: true, get: () => fenSide(currentFen) },
+  legalMoveCount: { enumerable: true, get: () => currentMoves.length },
+  renderedPieceCount: { enumerable: true, get: () => els.board.querySelectorAll('.piece').length },
+  renderedBranchCount: { enumerable: true, get: () => els.branchGrid.querySelectorAll('.branch-node').length },
+  threatenedPieceCount: { enumerable: true, get: () => els.board.querySelectorAll('.threatened .piece').length },
+  pathLength: { enumerable: true, get: () => path.length },
+  thinking: { enumerable: true, get: () => thinking },
+  pvLength: { enumerable: true, get: () => pv.length },
+  zoom: { enumerable: true, get: () => zoom },
+  state: {
+    enumerable: true,
+    get: () => Object.freeze({
+      fen: currentFen,
+      side: fenSide(currentFen),
+      legalMoveCount: currentMoves.length,
+      selectedSquare: selectedSquare < 0 ? null : coord(selectedSquare),
+      thinking,
+      gameOver,
+      pathLength: path.length,
+    }),
+  },
+  board: {
+    enumerable: true,
+    get: () => Object.freeze(boardFromFen(currentFen).flatMap((piece, square) => piece
+      ? [Object.freeze({
+        square: coord(square),
+        side: pieceIsRed(piece) ? 'red' : 'black',
+        piece: piece.toLowerCase(),
+      })]
+      : [])),
+  },
+  tree: {
+    enumerable: true,
+    get: () => Object.freeze({
+      path: Object.freeze(path.map((step, index) => Object.freeze({
+        ply: index + 1, fen: step.fen, branches: step.afterCount, label: step.label, side: step.side,
+      }))),
+      pv: Object.freeze(pv.map((step, index) => Object.freeze({
+        ply: path.length + index + 1,
+        fen: step.after || '',
+        branches: step.branchCount ?? null,
+        label: moveLabel(step),
+      }))),
+      renderedBranches: els.branchGrid.querySelectorAll('.branch-node').length,
+    }),
+  },
+  threats: {
+    enumerable: true,
+    get: () => Object.freeze([...threatened].map(coord)),
+  },
+  performance: {
+    enumerable: true,
+    get: () => Object.freeze({
+      aiPending: thinking,
+      lastSearchMs,
+      lastSearchDepth,
+      workerBudgetMs: 1100,
+      watchdogMs: 2800,
+      continuousAnimation: false,
+    }),
+  },
+});
+testHook.reset = resetGame;
+testHook.loadFen = loadFenForTest;
+testHook.tryMove = tryMoveForTest;
+testHook.killWorker = killWorkerForTest;
+testHook.snapshot = () => Object.freeze({
+  fen: currentFen,
+  side: fenSide(currentFen),
+  legalMoveCount: currentMoves.length,
+  renderedPieceCount: els.board.querySelectorAll('.piece').length,
+  renderedBranchCount: els.branchGrid.querySelectorAll('.branch-node').length,
+  threatenedPieceCount: els.board.querySelectorAll('.threatened .piece').length,
+  path: Object.freeze(path.map((step) => Object.freeze({
+    label: step.label, side: step.side, afterCount: step.afterCount,
+  }))),
+  thinking,
+  pvLength: pv.length,
+});
+Object.freeze(testHook);
+Object.defineProperty(window, '__xiangqiTest', {
+  value: testHook, enumerable: false, configurable: false, writable: false,
+});
+</script>
+</body>
+</html>

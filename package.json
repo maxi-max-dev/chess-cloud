@@ -1,10 +1,15 @@
 {
   "name": "chess-cloud",
   "version": "1.0.0",
+  "type": "module",
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node verify.mjs && node xiangqi-verify.mjs && node portal-check.mjs",
+    "test:chess": "node verify.mjs && node live-check.mjs",
+    "test:xiangqi": "node xiangqi-verify.mjs && node xiangqi-live-check.mjs",
+    "self-play:chess": "node self-play.mjs",
+    "self-play:xiangqi": "node xiangqi-self-play.mjs"
   },
   "keywords": [],
   "author": "",
