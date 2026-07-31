@@ -134,7 +134,7 @@
   }
   .square.preview-you::before,
   .square.preview-reply::before {
-    position: absolute; z-index: 5; right: 1%; top: 2%;
+    position: absolute; z-index: 5; left: -2%; top: 1%;
     display: grid; place-items: center; width: 29%; aspect-ratio: 1;
     border: 2px solid rgba(232, 247, 255, .9); border-radius: 50%;
     color: #07131c; background: var(--blue);
@@ -142,49 +142,77 @@
     font: 800 10px/1 system-ui;
   }
   .square.preview-you::before { content: "1"; }
-  .square.preview-reply::before { content: "2"; background: var(--gold); }
+  .square.preview-reply::before {
+    content: "2"; top: auto; bottom: 1%; background: var(--gold);
+  }
   .piece {
+    --piece-rim: #654226;
+    --piece-edge: #724421;
+    --piece-state-ring: inset 0 0 0 0 rgba(0, 0, 0, 0);
     position: absolute; z-index: 2; left: 50%; top: 50%;
     display: grid; place-items: center; width: 87%; aspect-ratio: 1;
     transform: translate(-50%, -50%);
-    border-radius: 50%; border: clamp(2px, .27vw, 3px) solid #62452c;
+    isolation: isolate;
+    border-radius: 50%; border: clamp(2px, .24vw, 3px) solid var(--piece-rim);
     background:
-      radial-gradient(circle at 38% 27%, #fffdf0 0 17%, #f1dfba 46%, #d3aa70 76%, #a66b36 100%);
+      radial-gradient(circle at 34% 20%, rgba(255, 255, 255, .98) 0 3%, rgba(255, 255, 255, .38) 8%, transparent 23%),
+      linear-gradient(145deg, rgba(255, 255, 255, .32) 0 24%, transparent 43%, rgba(103, 55, 22, .12) 78% 100%),
+      radial-gradient(circle at 48% 42%, #fffbed 0 43%, #f3dfb4 57%, #d5aa6d 76%, #9c5f2f 92%, #6c3d20 100%);
     box-shadow:
-      inset 0 0 0 2px rgba(255, 249, 221, .72),
-      inset 0 -5px 8px rgba(88, 48, 23, .18),
-      0 3px 0 #714724,
-      0 6px 10px rgba(55, 30, 12, .34);
-    color: #24211c; font: 700 clamp(24px, 3.45vw, 34px)/1 "STKaiti", "KaiTi", serif;
+      inset 0 1px 1px rgba(255, 255, 244, .86),
+      inset 0 -5px 7px rgba(82, 43, 19, .20),
+      0 3px 0 var(--piece-edge),
+      0 6px 10px rgba(55, 30, 12, .33);
+    color: #24211c;
+    font: 700 clamp(23px, 3.35vw, 33px)/1 "Kaiti SC", "STKaiti", "KaiTi", "Songti SC", "Noto Serif CJK SC", serif;
+    -webkit-font-smoothing: antialiased;
     pointer-events: none;
   }
   .piece-glyph {
-    position: relative; z-index: 2; transform: translateY(-1%);
-    text-shadow: 0 1px 0 rgba(255, 255, 255, .24);
+    position: relative; z-index: 2; transform: translateY(-1.5%) scaleX(.98);
+    -webkit-text-stroke: .2px currentColor;
+    text-shadow:
+      0 1px 0 rgba(255, 255, 255, .44),
+      0 1.4px 1.2px rgba(57, 30, 13, .18);
   }
-  .piece.red { color: #a52623; border-color: #993b2f; }
-  .piece.black { color: #23221f; border-color: #514331; }
+  .piece.red {
+    --piece-rim: #96372c; --piece-edge: #703521;
+    color: #a51f1f;
+  }
+  .piece.black {
+    --piece-rim: #49443a; --piece-edge: #543923;
+    color: #202522;
+  }
   .piece.red::before, .piece.black::before {
-    content: ""; position: absolute; inset: 10%; border: 1px solid currentColor;
-    border-radius: 50%; opacity: .42;
+    content: ""; position: absolute; z-index: 1; inset: 10%;
+    border: clamp(1px, .1vw, 1.5px) solid currentColor; border-radius: 50%;
+    box-shadow:
+      0 0 0 1px rgba(255, 250, 225, .54),
+      inset 0 0 0 1px rgba(86, 44, 22, .14);
+    opacity: .56;
   }
-  .square.selected .piece {
-    outline: 3px solid rgba(55, 166, 141, .98); outline-offset: 3px;
-    box-shadow: inset 0 0 0 2px #fff1c7, 0 3px 0 #724522, 0 0 0 7px rgba(55, 166, 141, .20);
+  .piece::after {
+    content: ""; position: absolute; z-index: 1; inset: 4%;
+    border-radius: 50%;
+    background:
+      radial-gradient(ellipse at 32% 14%, rgba(255, 255, 255, .58) 0 4%, rgba(255, 255, 255, .16) 11%, transparent 28%),
+      linear-gradient(150deg, transparent 56%, rgba(91, 47, 21, .08) 100%);
+    box-shadow: var(--piece-state-ring);
+    pointer-events: none;
+  }
+  .square.last-to .piece {
+    --piece-state-ring: inset 0 0 0 1.5px rgba(242, 189, 99, .72);
+  }
+  .square.selected .piece,
+  .square.selected.last-to .piece {
+    --piece-state-ring: inset 0 0 0 2.5px rgba(55, 166, 141, .98);
   }
   .square.last-from {
     background: radial-gradient(circle, transparent 0 27%, rgba(255, 225, 154, .88) 29% 34%, transparent 36%);
   }
-  .square.last-to .piece {
-    box-shadow:
-      inset 0 0 0 2px #fff1c7,
-      0 3px 0 #724522,
-      0 0 0 5px rgba(242, 189, 99, .62),
-      0 0 18px rgba(242, 189, 99, .42);
-  }
   .piece.just-moved {
     z-index: 7;
-    animation: piece-arrive .54s cubic-bezier(.2, .76, .26, 1) 1 both;
+    animation: piece-arrive .42s cubic-bezier(.2, .76, .26, 1) 1 both;
     will-change: transform, opacity;
   }
   @keyframes piece-arrive {
@@ -194,7 +222,7 @@
         translate(calc(-50% + var(--move-dx)), calc(-50% + var(--move-dy)))
         scale(.94);
     }
-    74% { opacity: 1; transform: translate(-50%, -50%) scale(1.07); }
+    74% { opacity: 1; transform: translate(-50%, -50%) scale(1.035); }
     100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
   .last-move-trace {
@@ -235,7 +263,7 @@
     100% { opacity: 1; transform: scale(1); }
   }
   .threat-ring {
-    position: absolute; z-index: 1; inset: -12%; border: 2px solid #c93934;
+    position: absolute; z-index: 3; inset: -12%; border: 2px solid #c93934;
     border-radius: 50%; box-shadow: 0 0 0 3px rgba(162, 32, 28, .17);
   }
   .threat-ring::after {

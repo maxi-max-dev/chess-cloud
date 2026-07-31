@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 47;
+const EXPECTED_RESULTS = 48;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -1567,6 +1567,71 @@ async function boardReadabilityAudit() {
       + `｜字盘比=${Math.min(...portrait.pieces.map((piece) => piece.fontSize / piece.width)).toFixed(2)}`
       + `..${Math.max(...portrait.pieces.map((piece) => piece.fontSize / piece.width)).toFixed(2)}`
       + `｜威胁装饰=${portrait.decorations.length}/${decorationsInside}`,
+  );
+
+  const material = await evaluate(`(() => {
+    const red = document.querySelector('#board .piece.red');
+    const black = document.querySelector('#board .piece.black');
+    const square = red.closest('.square');
+    const shadowLayers = (value) => (value.match(/rgba?\\(/g) || []).length;
+    const sample = (piece) => {
+      const style = getComputedStyle(piece);
+      const before = getComputedStyle(piece, '::before');
+      const after = getComputedStyle(piece, '::after');
+      const glyph = getComputedStyle(piece.querySelector('.piece-glyph'));
+      return {
+        color: style.color,
+        gradientLayers: (style.backgroundImage.match(/gradient\\(/g) || []).length,
+        shadowLayers: shadowLayers(style.boxShadow),
+        beforeContent: before.content,
+        beforeBorder: parseFloat(before.borderTopWidth),
+        afterContent: after.content,
+        afterBackground: after.backgroundImage,
+        glyphShadow: glyph.textShadow,
+      };
+    };
+    const matchesMaterial = (piece) => {
+      const value = sample(piece);
+      return value.gradientLayers >= 3
+        && value.shadowLayers >= 4
+        && value.beforeContent === '""'
+        && value.beforeBorder >= 1
+        && value.afterContent === '""'
+        && value.afterBackground !== 'none'
+        && value.glyphShadow !== 'none';
+    };
+    const baseline = matchesMaterial(red) && matchesMaterial(black)
+      && getComputedStyle(red).color !== getComputedStyle(black).color;
+    const baseShadows = shadowLayers(getComputedStyle(red).boxShadow);
+    square.classList.add('selected');
+    const selectedShadows = shadowLayers(getComputedStyle(red).boxShadow);
+    square.classList.remove('selected');
+    square.classList.add('last-to');
+    const lastMoveShadows = shadowLayers(getComputedStyle(red).boxShadow);
+    square.classList.remove('last-to');
+    const originalBackground = red.style.background;
+    red.style.background = 'none';
+    const poisoned = matchesMaterial(red);
+    red.style.background = originalBackground;
+    return {
+      baseline,
+      poisoned,
+      baseShadows,
+      selectedShadows,
+      lastMoveShadows,
+      red: sample(red),
+      black: sample(black),
+    };
+  })()`);
+  record(
+    material.baseline
+      && !material.poisoned
+      && material.selectedShadows >= material.baseShadows
+      && material.lastMoveShadows >= material.baseShadows,
+    '棋子真机材质有刻线、高光与纵深，状态光圈不压扁本体；反向去材质会被抓住',
+    `渐变=${material.red.gradientLayers}/${material.black.gradientLayers}`
+      + `｜阴影=${material.baseShadows}/${material.selectedShadows}/${material.lastMoveShadows}`
+      + `｜反向污染=${material.poisoned}`,
   );
 
   await setViewport(667, 375);
