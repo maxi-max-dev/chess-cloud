@@ -2,7 +2,7 @@
 
 写给下一个接手的人（AI 或人类）。这份文档是自足的：**不需要问任何人，也不需要看聊天记录**，
 照着做就能接着干。截止 2026-07-31，当前最终架构已经写进这份文档；固定验收现在是
-`verify.mjs` 8 项、`live-check.mjs` 90 项；本地已全绿，本轮线上版本尚待发布，状态见第 6、9 节。
+`verify.mjs` 8 项、`live-check.mjs` 90 项；本地与线上都已全绿，状态见第 6、9 节。
 
 - 线上：https://maxi-max-dev.github.io/chess-cloud/
 - 仓库：https://github.com/maxi-max-dev/chess-cloud （main 分支，GitHub Pages 从 main 根目录发布）
@@ -444,19 +444,24 @@ fallback 都清旧 PV，390px rail 能真实横滑且静止后无新增 rAF/WebG
 | `live-check.mjs` 项数 | 固定 90 项；含 2D 数字/主干/生命周期/触控/安全区、AI/FEN/PV 重建、真实 FEN 回合与一步威胁 |
 | `verify.mjs` 项数 | 固定 8 项 |
 | 本地完整验收 | `verify.mjs` 8/8；`live-check.mjs` 90/90 |
-| 线上完整验收 | **本轮 PV 版本待发布后复跑；不得沿用上一版 86/86 冒充结果** |
-| AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,397ms / 1,348ms / 967ms |
+| 线上完整验收 | `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 90/90 |
+| AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,559ms / 929ms / 1,051ms |
 | 两套独立浏览器同时冷启动 | 2,718ms / 2,564ms，均未改 3 秒门槛 |
-| 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 949ms / 1,423ms / 2,243ms |
-| 正预算 deadline 探针 | 正常 140.4ms；临时关周期查钟 210.7ms 并按预期报红 |
+| 4× CPU 慢速手机 / reset 后新请求 / Worker 被杀保底 | 975ms / 966ms / 2,208ms |
+| 正预算 deadline 探针 | 正常 141.5ms；临时关周期查钟 210.7ms 并按预期报红 |
 | 10 局自对弈稳定性审计 | 最新 621 plies / 581 次 search；非法/FEN/PV 错误 0；89 条注释抽样 0 失败；13.78s |
 | 桌面白/黑棋截图中位亮度 | 195.7 / 57.4；逐类型最小差 122.9 |
-| 上一已发布版线上 AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,930ms / 1,357ms / 955ms（PV 版发布后应重测） |
-| 上一已发布版线上 4× CPU / reset / Worker 被杀保底 | 944ms / 1,420ms / 2,259ms（PV 版发布后应重测） |
+| 线上 AI 首屏路径并发 / 正常桌面 / 真实手机 | 1,337ms / 1,308ms / 1,043ms |
+| 线上 4× CPU / reset 后新请求 / Worker 被杀保底 | 927ms / 1,314ms / 2,206ms |
 | 环境 | node v22.23.1、chess.js 1.4.0、three 0.160.0 |
 
-本轮 `index.html` / `engine.js` 已改动，**尚未发布，线上哈希待第 8 节流程逐文件核对后补录**。
-不要复制上一版哈希，也不要只验证 `index.html`。
+本轮发布后的逐字节哈希（本地与 GitHub Pages 已完全一致）：
+
+```text
+5badac7a9496a7ab2245721a830077cb6e9c3be1d0b569e6a8273ca3e3a4d12e  index.html
+8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959  engine.js
+a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed  worker.js
+```
 
 ---
 
@@ -523,6 +528,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 - `node self-play.mjs` 最新真实输出：10 局、621 plies / 581 次 search；
   `illegalMoves=0`、`fenMismatches=0`、`pvFailures=0`，页面注释抽样 89 条失败 0，总耗时 13.78s。
   18ms 时限会导致不同机器/负载下搜到的深度和胜负漂移；它只证明稳定性，不证明棋力。
-- **本轮 PV 版本尚待发布。** 线上 90/90 与三个运行文件 SHA-256 都必须在 push、Pages 生效后
-  按第 8 节真实复跑/核对再填写；当前不能沿用上一版数字或哈希。
-- 当前工作树含本轮改动，`main` / `origin/main` / GitHub Pages 尚未同步到这版。
+- 本轮最终线上输出：`node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`
+  **90/90**；三个运行文件 SHA-256 已按第 8 节确认与本地逐字节一致。
+- PV 运行版本提交 `c8212c1` 已推到 `main` 并由 GitHub Pages 发布；交接时还要确认最后一笔
+  文档状态提交也已推送，工作树保持干净。

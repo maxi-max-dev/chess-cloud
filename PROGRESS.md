@@ -2,7 +2,7 @@
 
 线上入口：https://maxi-max-dev.github.io/chess-cloud/ ｜ 当前本地版本已加入真实线条路径网、落子教练
 和搜索主变（PV）；固定验收为 `verify.mjs` 8 项、`live-check.mjs` 90 项。本地已全绿，
-本轮 PV 版本尚待发布，不能把上一版线上结果当成当前结果；详见文末与 `HANDOFF.md`。
+本轮 PV 版本也已发布并在线上全绿；详见文末与 `HANDOFF.md`。
 
 ## 我理解的目标（开工前写，≤10 行）
 1. 目标：网页版国际象棋，人执白落子后，把「这步之后所有可能未来」炸成三维星云；星色=局面评估（白优暖/黑优冷）；AI 执黑陪下。
@@ -225,9 +225,9 @@ Worker/星云生命周期和旧分叉隔离等关键路径，完整验收准确�
   `8902` 在页面代码里也无匹配。
   （README.md 里有「197,281」这种带千位逗号的说明文字，是文档不是代码，grep 裸数字不命中。）
 - 本地复验 ✅ `verify.mjs` 8/8、`live-check.mjs` 90/90。
-- 线上复验 ⏳ 本轮 PV 版尚待 push / Pages 生效后运行 90/90，并按 `HANDOFF.md` 第 8 节核对
-  `index.html` / `engine.js` / `worker.js` 三个哈希；这里不沿用上一版数字。
-- 发布状态 ⏳ 当前工作树含本轮改动，尚未同步到 GitHub Pages。
+- 线上复验 ✅ `live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/` 90/90；
+  `index.html` / `engine.js` / `worker.js` 三个 SHA-256 与本地逐字节一致。
+- 发布状态 ✅ PV 运行版本提交 `c8212c1` 已推到 `main`，GitHub Pages 已生效。
 - BLOCKED.md 保留 19 条设计记录；#13 已解决为历史，不再是待办。
 
 ## 期间为什么改过方向（如实记录）
