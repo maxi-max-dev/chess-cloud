@@ -468,7 +468,8 @@ xiangqi-worker.js
 | 中国 10 局自走 | 710 plies / 710 searches / 1,258 PV 节点；8 终局 / 2 capped；五类错误全 0 |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-本轮统一“棋局未来地图”运行源码已经冻结；以下本地 SHA-256 等待与 GitHub Pages 逐字节核对：
+本轮统一“棋局未来地图”运行源码冻结于 commit `247492f`。以下 SHA-256 已在 GitHub Pages
+逐文件下载并与本地逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
@@ -481,8 +482,13 @@ xiangqi-worker.js
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `06c9d33c946722bd2e6bfe0d4b13e304a89de61873a06eaace49a5a093459cd4` |
 
-发布 commit、线上逐字节结果与线上 **92/92 + 47/47** 仍必须在推送后填写；完成前不把本地版本
-写成已上线。
+线上行为复验：
+
+- `node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**92/92**；
+- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**47/47**；
+- 国际首屏云并发时 AI 外部可见应手 **1,423ms**；局中 L4 **475,842** 条，逐层与独立棋核一致；
+- 中国象棋提前选路竞态会从 1 层升级为合法 2 层预演；全景大拖动后仍 **44/44** 节点可见；
+- 页面 JS 错误均为 0。
 
 ---
 
@@ -569,4 +575,6 @@ git rev-list --left-right --count origin/main...main
   中国真机 **47/47**。
 - 两套固定 10 局已完成：国际 727 plies，中国 710 plies；非法着、FEN、PV、分叉、威胁和注释
   失败全部为 0。
-- 本轮发布 commit、八文件哈希和线上复验尚待最终发布步骤完成后填写；未完成前不写成已上线。
+- 运行源码 commit `247492f` 已推到 `main` 并发布；八个运行文件与 GitHub Pages 逐字节一致，
+  线上复验为国际象棋 **92/92**、中国象棋 **47/47**。本段的文档封印 commit 紧随其后，
+  运行文件哈希不变。

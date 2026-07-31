@@ -138,7 +138,7 @@ node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
-当前工作树正在完成统一“棋局未来地图”版本；最终发布 commit、八个运行文件哈希和线上
-国际象棋 **92/92**、中国象棋 **47/47** 结果，以本轮真实发布复验为准并记录在 `HANDOFF.md`。
+统一“棋局未来地图”运行源码 `247492f` 已发布；八个运行文件与 GitHub Pages 逐字节一致，
+线上复验为国际象棋 **92/92**、中国象棋 **47/47**。完整哈希见 `HANDOFF.md`。
 
 作者 Max
