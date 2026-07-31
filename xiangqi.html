@@ -7,17 +7,19 @@
 <title>中国象棋 · 可能性分叉</title>
 <style>
   :root {
-    --bg: #080b10;
-    --panel: rgba(15, 20, 29, .92);
-    --panel-2: #101722;
-    --edge: rgba(179, 202, 232, .16);
-    --text: #eef3f9;
-    --muted: #929dad;
-    --blue: #69bfff;
-    --blue-2: #183c59;
-    --gold: #f2bd63;
-    --red: #c7352e;
-    --danger: #ff716b;
+    --bg: #0c100f;
+    --panel: rgba(20, 25, 23, .94);
+    --panel-2: #151c19;
+    --edge: rgba(214, 196, 158, .16);
+    --text: #f2eee5;
+    --muted: #9ca39e;
+    --blue: #66c5ad;
+    --blue-2: #193f38;
+    --gold: #d6aa5c;
+    --red: #a92f2a;
+    --danger: #ef6259;
+    --ink: #27231e;
+    --wood: #d6b179;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
   }
@@ -28,8 +30,8 @@
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC",
       "Microsoft YaHei", sans-serif;
     background:
-      radial-gradient(circle at 18% 9%, rgba(31, 98, 146, .16), transparent 32rem),
-      radial-gradient(circle at 88% 88%, rgba(190, 126, 53, .10), transparent 30rem),
+      radial-gradient(circle at 16% 8%, rgba(66, 119, 103, .14), transparent 32rem),
+      radial-gradient(circle at 88% 88%, rgba(165, 112, 49, .10), transparent 30rem),
       var(--bg);
   }
   button, select { font: inherit; }
@@ -48,7 +50,7 @@
   .back {
     display: inline-grid; place-items: center; width: 44px; height: 44px;
     border: 1px solid var(--edge); border-radius: 12px;
-    color: #c8d4e1; text-decoration: none; background: rgba(19, 27, 39, .74);
+    color: #d9d1c2; text-decoration: none; background: rgba(24, 31, 28, .78);
   }
   .brand { min-width: 0; }
   .brand h1 { margin: 0; font-size: 18px; line-height: 1.2; letter-spacing: .03em; }
@@ -56,15 +58,15 @@
   .turn-pill {
     margin-left: auto; flex: 0 0 auto; padding: 7px 11px;
     border: 1px solid var(--edge); border-radius: 999px;
-    background: rgba(16, 23, 34, .86); color: #cfd9e5; font-size: 12px;
+    background: rgba(23, 30, 27, .88); color: #ddd6c9; font-size: 12px;
   }
   .turn-pill[data-side="red"]::before,
   .turn-pill[data-side="black"]::before {
     content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px;
     border-radius: 50%; vertical-align: 1px;
   }
-  .turn-pill[data-side="red"]::before { background: #ed5b52; }
-  .turn-pill[data-side="black"]::before { background: #d5dce4; }
+  .turn-pill[data-side="red"]::before { background: #d44b42; }
+  .turn-pill[data-side="black"]::before { background: #25231f; box-shadow: 0 0 0 1px #aaa394; }
 
   .layout {
     display: grid; grid-template-columns: minmax(480px, 650px) minmax(360px, 1fr);
@@ -72,30 +74,47 @@
   }
   .panel {
     min-width: 0; border: 1px solid var(--edge); border-radius: 18px;
-    background: var(--panel); box-shadow: 0 20px 64px rgba(0, 0, 0, .32);
+    background: var(--panel); box-shadow: 0 20px 64px rgba(0, 0, 0, .36);
   }
   .play-panel { padding: 15px; }
   .board-shell { width: min(100%, 590px); margin: 0 auto; }
   .board-frame {
     position: relative; width: 100%; aspect-ratio: 9 / 10;
-    border-radius: 14px; overflow: hidden;
-    background: linear-gradient(145deg, #d7ad70, #bd884e);
-    border: 1px solid rgba(255, 234, 197, .25);
-    box-shadow: inset 0 0 0 5px rgba(77, 43, 17, .35), 0 14px 34px rgba(0, 0, 0, .32);
+    isolation: isolate; border-radius: 13px; overflow: hidden;
+    background:
+      linear-gradient(91deg, transparent 0 19%, rgba(97, 52, 24, .045) 19.2% 19.5%, transparent 19.8% 58%, rgba(255, 247, 219, .055) 58.2% 58.6%, transparent 58.9%),
+      repeating-linear-gradient(3deg, rgba(78, 43, 20, .028) 0 1px, transparent 1px 8px),
+      linear-gradient(145deg, #e2c48e 0%, #d6ae72 52%, #c7975c 100%);
+    border: clamp(4px, .65vw, 7px) solid #5b3823;
+    box-shadow:
+      inset 0 0 0 2px rgba(247, 215, 157, .62),
+      inset 0 0 0 6px rgba(88, 49, 25, .16),
+      0 16px 38px rgba(0, 0, 0, .38);
     user-select: none; touch-action: manipulation;
   }
-  #boardLines { position: absolute; inset: 3.6%; width: 92.8%; height: 92.8%; }
+  .board-frame::after {
+    content: ""; position: absolute; z-index: 6; inset: 1.5%;
+    border: 1px solid rgba(255, 229, 180, .35); border-radius: 7px;
+    box-shadow: inset 0 0 0 1px rgba(83, 45, 23, .23);
+    pointer-events: none;
+  }
+  #boardLines, #threatOverlay, #board {
+    position: absolute; inset: 5.7%; width: 88.6%; height: 88.6%;
+  }
+  #boardLines { z-index: 1; }
+  #threatOverlay { z-index: 2; overflow: visible; pointer-events: none; }
+  #board { z-index: 3; }
   #boardLines line, #boardLines path, #boardLines rect {
-    stroke: rgba(69, 37, 17, .78); stroke-width: 1.25; fill: none; vector-effect: non-scaling-stroke;
+    stroke: rgba(58, 36, 23, .82); stroke-width: 1.15; fill: none; vector-effect: non-scaling-stroke;
   }
   #boardLines .outer { stroke-width: 2.1; }
+  #boardLines .mark { stroke-width: 1.35; }
   #boardLines text {
-    fill: rgba(75, 38, 16, .82); font: 700 7px "STKaiti", "KaiTi", serif;
-    letter-spacing: 2px;
+    fill: rgba(75, 44, 25, .66); font: 700 6.5px "STKaiti", "KaiTi", serif;
+    letter-spacing: 1.8px;
   }
-  #board { position: absolute; inset: 3.6%; }
   .square {
-    position: absolute; width: 10.5%; height: 9.35%; padding: 0;
+    position: absolute; width: 12.1%; height: 10.8%; padding: 0;
     transform: translate(-50%, -50%); border: 0; border-radius: 50%;
     background: transparent; cursor: pointer;
   }
@@ -103,12 +122,12 @@
     content: ""; position: absolute; left: 50%; top: 50%;
     width: 15%; aspect-ratio: 1; border-radius: 50%;
     transform: translate(-50%, -50%); opacity: 0;
-    background: rgba(39, 111, 153, .9); box-shadow: 0 0 0 5px rgba(53, 142, 196, .18);
+    background: rgba(30, 117, 99, .92); box-shadow: 0 0 0 5px rgba(46, 143, 121, .18);
   }
   .square.legal-empty::after { opacity: 1; }
   .square.legal-capture::after {
     width: 72%; background: transparent; opacity: 1;
-    box-shadow: 0 0 0 3px rgba(208, 53, 48, .86), inset 0 0 0 2px rgba(255, 225, 181, .52);
+    box-shadow: 0 0 0 3px rgba(180, 42, 37, .9), inset 0 0 0 2px rgba(255, 230, 188, .58);
   }
   .square.preview-you::before,
   .square.preview-reply::before {
@@ -123,34 +142,106 @@
   .square.preview-reply::before { content: "2"; background: var(--gold); }
   .piece {
     position: absolute; z-index: 2; left: 50%; top: 50%;
-    display: grid; place-items: center; width: 82%; aspect-ratio: 1;
+    display: grid; place-items: center; width: 87%; aspect-ratio: 1;
     transform: translate(-50%, -50%);
-    border-radius: 50%; border: clamp(1px, .32vw, 3px) solid #5b371d;
+    border-radius: 50%; border: clamp(2px, .27vw, 3px) solid #62452c;
     background:
-      radial-gradient(circle at 38% 29%, #fff5d5 0 19%, #e4c18b 54%, #ad7440 100%);
+      radial-gradient(circle at 38% 27%, #fffdf0 0 17%, #f1dfba 46%, #d3aa70 76%, #a66b36 100%);
     box-shadow:
-      inset 0 0 0 2px rgba(255, 246, 209, .58),
-      inset 0 -5px 8px rgba(92, 46, 18, .20),
-      0 3px 0 #724522, 0 6px 10px rgba(55, 30, 12, .36);
-    color: #24221e; font: 700 clamp(20px, 4.15vw, 36px)/1 "STKaiti", "KaiTi", serif;
+      inset 0 0 0 2px rgba(255, 249, 221, .72),
+      inset 0 -5px 8px rgba(88, 48, 23, .18),
+      0 3px 0 #714724,
+      0 6px 10px rgba(55, 30, 12, .34);
+    color: #24211c; font: 700 clamp(24px, 3.45vw, 34px)/1 "STKaiti", "KaiTi", serif;
     pointer-events: none;
   }
-  .piece.red { color: var(--red); border-color: #a2332d; }
+  .piece-glyph {
+    position: relative; z-index: 2; transform: translateY(-1%);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, .24);
+  }
+  .piece.red { color: #a52623; border-color: #993b2f; }
+  .piece.black { color: #23221f; border-color: #514331; }
+  .piece.red::before, .piece.black::before {
+    content: ""; position: absolute; inset: 10%; border: 1px solid currentColor;
+    border-radius: 50%; opacity: .42;
+  }
   .square.selected .piece {
-    outline: 3px solid rgba(73, 180, 245, .9); outline-offset: 3px;
-    box-shadow: inset 0 0 0 2px #fff1c7, 0 3px 0 #724522, 0 0 0 7px rgba(64, 166, 229, .20);
+    outline: 3px solid rgba(55, 166, 141, .98); outline-offset: 3px;
+    box-shadow: inset 0 0 0 2px #fff1c7, 0 3px 0 #724522, 0 0 0 7px rgba(55, 166, 141, .20);
   }
   .square.last-from .piece, .square.last-to .piece {
     box-shadow: inset 0 0 0 2px #fff1c7, 0 3px 0 #724522, 0 0 0 5px rgba(242, 189, 99, .36);
   }
-  .square.threatened .piece::after {
-    content: "!"; position: absolute; right: -7%; top: -9%;
-    display: grid; place-items: center; width: 26%; aspect-ratio: 1;
-    border-radius: 50%; color: #fff; background: #c53834;
-    border: 2px solid #f2d4aa; font: 800 11px/1 system-ui;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, .42);
+  .threat-ring {
+    position: absolute; z-index: 1; inset: -12%; border: 2px solid #c93934;
+    border-radius: 50%; box-shadow: 0 0 0 3px rgba(162, 32, 28, .17);
+  }
+  .threat-ring::after {
+    content: ""; position: absolute; inset: 4px; border: 1px dashed rgba(151, 32, 28, .84);
+    border-radius: 50%;
+  }
+  .square[data-threat-level="covered"] .threat-ring {
+    border-color: #bd6d25; box-shadow: 0 0 0 3px rgba(184, 101, 27, .15);
+  }
+  .square[data-threat-level="covered"] .threat-ring::after { border-color: rgba(146, 76, 18, .82); }
+  .square[data-threat-level="contested"] .threat-ring {
+    border-color: #d04b35; box-shadow: 0 0 0 3px rgba(192, 53, 39, .17);
+  }
+  .threat-badge {
+    position: absolute; z-index: 4; right: -15%; top: -13%;
+    display: grid; place-items: center; min-width: 39%; height: 30%; padding: 0 5%;
+    border-radius: 999px; color: #fff7e9; background: #a72c28;
+    border: 1px solid #f3d6a5; font: 800 clamp(9px, .95vw, 11px)/1 system-ui;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, .38);
+  }
+  .square[data-threat-level="covered"] .threat-badge { background: #a65c1f; }
+  .square.threat-new .threat-ring {
+    animation: threat-ring-pulse .48s ease-out 2;
+  }
+  .threat-path {
+    fill: none; stroke: #b92f2b; stroke-width: 2.2;
+    stroke-linecap: round; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke;
+    animation: threat-path-enter .68s ease-out 1 both;
+  }
+  .threat-target {
+    fill: rgba(183, 42, 38, .10); stroke: rgba(158, 37, 33, .74);
+    stroke-width: 1.2; vector-effect: non-scaling-stroke;
+  }
+  @keyframes threat-ring-pulse {
+    0% { opacity: .28; transform: scale(.76); }
+    58% { opacity: 1; transform: scale(1.08); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @keyframes threat-path-enter {
+    0% { opacity: 0; stroke-dashoffset: 30; }
+    100% { opacity: .94; stroke-dashoffset: 0; }
   }
   .square:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+  .threat-strip {
+    margin-top: 11px; padding: 9px 10px;
+    border: 1px solid rgba(195, 77, 55, .31); border-radius: 12px;
+    background: linear-gradient(100deg, rgba(90, 32, 25, .28), rgba(29, 31, 27, .9));
+  }
+  .threat-main {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; align-items: center;
+  }
+  .threat-seal {
+    display: grid; place-items: center; width: 38px; height: 38px;
+    border: 1px solid rgba(242, 190, 137, .45); border-radius: 50%;
+    color: #ffe8ca; background: #9f3029; font: 800 13px/1 "STKaiti", "KaiTi", serif;
+  }
+  .threat-copy { min-width: 0; }
+  .threat-copy strong { display: block; color: #ffd9c3; font-size: 12px; }
+  .threat-copy p { margin: 2px 0 0; color: #bcaea2; font-size: 10.5px; }
+  .threat-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .threat-chip {
+    min-height: 44px; padding: 5px 9px; border: 1px solid rgba(218, 174, 125, .18);
+    border-radius: 9px; color: #cfc5b6; background: rgba(24, 27, 24, .76);
+    text-align: left; cursor: pointer;
+  }
+  .threat-chip b { color: #f0d9bf; }
+  .threat-chip.active { border-color: rgba(214, 90, 67, .55); background: rgba(99, 38, 29, .42); }
 
   .board-info {
     display: grid; grid-template-columns: minmax(0, 1fr) auto;
@@ -158,17 +249,19 @@
   }
   .coach {
     min-height: 66px; padding: 10px 12px;
-    border: 1px solid rgba(105, 191, 255, .19); border-radius: 12px;
-    background: rgba(12, 21, 31, .88);
+    border: 1px solid rgba(102, 197, 173, .19); border-radius: 12px;
+    background: rgba(17, 25, 22, .88);
   }
-  .coach strong { display: block; margin-bottom: 4px; color: #dff3ff; font-size: 13px; }
-  .coach p { margin: 0; color: #9eacba; font-size: 12px; }
+  .coach strong { display: block; margin-bottom: 4px; color: #e3f5ee; font-size: 13px; }
+  .coach p { margin: 0; color: #a3ada7; font-size: 12px; }
+  .coach[data-tone="watch"] { border-color: rgba(213, 154, 69, .31); }
+  .coach[data-tone="watch"] strong { color: #f0cf95; }
   .coach[data-tone="danger"] { border-color: rgba(255, 113, 107, .35); }
   .coach[data-tone="danger"] strong { color: #ffada8; }
   .actions { display: flex; flex-direction: column; gap: 7px; }
   .actions button, .tree-toolbar button {
     min-height: 44px; padding: 7px 12px; border: 1px solid var(--edge);
-    border-radius: 10px; color: #dae5ef; background: #17202d; cursor: pointer;
+    border-radius: 10px; color: #e1ddd4; background: #1b2420; cursor: pointer;
   }
   .actions button:disabled { opacity: .36; cursor: default; }
   .facts {
@@ -176,8 +269,8 @@
     color: #8e9cad; font-size: 11px;
   }
   .fact {
-    padding: 5px 8px; border: 1px solid rgba(170, 192, 222, .11);
-    border-radius: 8px; background: rgba(12, 17, 25, .72);
+    padding: 5px 8px; border: 1px solid rgba(210, 196, 164, .11);
+    border-radius: 8px; background: rgba(15, 20, 18, .72);
   }
   .fact b { color: #dce7f3; font-variant-numeric: tabular-nums; }
   .rule-scope {
@@ -197,17 +290,17 @@
   .tree-viewport {
     position: relative; height: 646px; overflow: auto; overscroll-behavior: contain;
     background:
-      linear-gradient(rgba(135, 166, 201, .035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(135, 166, 201, .035) 1px, transparent 1px),
-      #0b111a;
+      linear-gradient(rgba(151, 180, 166, .035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(151, 180, 166, .035) 1px, transparent 1px),
+      #101713;
     background-size: 28px 28px;
-    scrollbar-color: rgba(105, 191, 255, .42) #0b111a;
+    scrollbar-color: rgba(102, 197, 173, .42) #101713;
   }
   .tree-canvas {
     min-width: 650px; width: max-content; min-height: 100%;
     padding: 20px 22px 42px; transform-origin: 0 0;
   }
-  .legend { display: flex; gap: 14px; margin-bottom: 16px; color: #8190a2; font-size: 10px; }
+  .legend { display: flex; gap: 14px; margin-bottom: 16px; color: #87928b; font-size: 10px; }
   .legend span::before {
     content: ""; display: inline-block; width: 18px; height: 2px; margin-right: 6px;
     vertical-align: 3px; background: currentColor;
@@ -216,7 +309,7 @@
   .legend .pv { color: var(--gold); }
   .path-lane, .pv-lane, .branch-block { position: relative; padding-left: 30px; }
   .lane-label {
-    position: absolute; left: 0; top: 6px; color: #738195;
+    position: absolute; left: 0; top: 6px; color: #78847d;
     font-size: 10px; writing-mode: vertical-rl; letter-spacing: .12em;
   }
   .node-row {
@@ -230,28 +323,28 @@
   .path-node, .pv-node, .branch-node, .root-node {
     position: relative; z-index: 1; display: flex; flex-direction: column;
     justify-content: center; width: 118px; min-height: 58px; padding: 8px 10px;
-    border: 1px solid rgba(105, 191, 255, .34); border-radius: 11px;
-    color: #e5f4ff; background: #102537; box-shadow: 0 8px 18px rgba(0, 0, 0, .2);
+    border: 1px solid rgba(102, 197, 173, .34); border-radius: 11px;
+    color: #e5f3ed; background: #163129; box-shadow: 0 8px 18px rgba(0, 0, 0, .2);
   }
   .path-node b, .pv-node b, .branch-node b, .root-node b {
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px;
   }
   .path-node small, .pv-node small, .branch-node small, .root-node small {
-    margin-top: 3px; color: #91a5b5; font-size: 9.5px; font-variant-numeric: tabular-nums;
+    margin-top: 3px; color: #96a49d; font-size: 9.5px; font-variant-numeric: tabular-nums;
   }
-  .root-node { border-color: rgba(122, 211, 166, .38); background: #10281f; }
-  .path-node.ai-move { border-color: rgba(242, 189, 99, .38); background: #2e2516; color: #ffe9ba; }
+  .root-node { border-color: rgba(122, 211, 166, .38); background: #173127; }
+  .path-node.ai-move { border-color: rgba(214, 170, 92, .38); background: #302719; color: #f9e6ba; }
   .empty-path {
     display: grid; place-items: center; width: 240px; min-height: 58px;
-    border: 1px dashed rgba(105, 191, 255, .24); border-radius: 11px;
-    color: #6f8092; font-size: 11px; background: rgba(13, 22, 32, .72);
+    border: 1px dashed rgba(102, 197, 173, .24); border-radius: 11px;
+    color: #75827b; font-size: 11px; background: rgba(16, 25, 21, .72);
   }
   .pv-lane { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(242, 189, 99, .12); }
   .pv-lane .node-row::before { background: var(--gold); }
   .pv-node { border-color: rgba(242, 189, 99, .42); color: #ffe9bd; background: #302616; }
   .pv-empty { color: #766c59; font-size: 11px; padding: 12px 0; }
   .branch-block { margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--edge); }
-  .branch-summary { margin: 0 0 12px; color: #cbd7e3; font-size: 12px; }
+  .branch-summary { margin: 0 0 12px; color: #d2d8d3; font-size: 12px; }
   .branch-summary b { color: var(--blue); font-size: 16px; }
   .branch-grid {
     position: relative; display: grid; grid-template-columns: repeat(4, 118px);
@@ -259,24 +352,24 @@
   }
   .branch-grid::before {
     content: ""; position: absolute; left: 58px; right: 58px; top: 0;
-    height: 1px; background: rgba(105, 191, 255, .33);
+    height: 1px; background: rgba(102, 197, 173, .33);
   }
   .branch-node {
     min-height: 54px; padding: 7px 9px; text-align: left; cursor: pointer;
-    border-color: rgba(151, 178, 207, .19); background: #131d29;
+    border-color: rgba(164, 186, 174, .19); background: #19231f;
   }
   button.branch-node::before {
     content: ""; position: absolute; left: 50%; top: -17px;
-    width: 1px; height: 16px; background: rgba(105, 191, 255, .32);
+    width: 1px; height: 16px; background: rgba(102, 197, 173, .32);
   }
-  button.branch-node:hover { border-color: rgba(105, 191, 255, .6); background: #172a3b; }
+  button.branch-node:hover { border-color: rgba(102, 197, 173, .6); background: #1c312b; }
   .branch-node.capture { border-color: rgba(255, 113, 107, .30); }
   .branch-node.suggested {
-    border-color: rgba(105, 191, 255, .72);
-    background: #17334a;
+    border-color: rgba(102, 197, 173, .72);
+    background: #1a3b32;
     box-shadow: inset 3px 0 0 var(--blue), 0 8px 18px rgba(0, 0, 0, .2);
   }
-  .branch-node.suggested small { color: #a9dbff; }
+  .branch-node.suggested small { color: #a9dfd0; }
   .thinking-row {
     width: 100%; margin-top: 18px; padding: 12px;
     border: 1px solid rgba(242, 189, 99, .20); border-radius: 10px;
@@ -310,7 +403,12 @@
     .panel { border-radius: 14px; }
     .play-panel { padding: 8px; }
     .board-shell { width: min(100%, 510px); }
-    .piece { font-size: clamp(20px, 8.7vw, 34px); }
+    .piece { font-size: clamp(21px, 6.45vw, 28px); }
+    .threat-strip { margin-top: 8px; padding: 7px 8px; }
+    .threat-seal { width: 34px; height: 34px; font-size: 12px; }
+    .threat-copy strong { font-size: 11px; }
+    .threat-copy p { font-size: 9.5px; }
+    .threat-chip { flex: 1 1 132px; font-size: 10px; }
     .board-info { grid-template-columns: minmax(0, 1fr); margin-top: 9px; }
     .coach { min-height: 58px; padding: 8px 10px; }
     .coach strong { font-size: 12px; }
@@ -329,6 +427,22 @@
     .branch-grid { grid-template-columns: repeat(4, 112px); }
     .path-node, .pv-node, .branch-node, .root-node { width: 112px; }
   }
+  @media (max-width: 760px) and (orientation: landscape) {
+    .app { padding: calc(5px + var(--safe-top)) 6px calc(7px + var(--safe-bottom)); }
+    .topbar { min-height: 44px; margin-bottom: 5px; }
+    .layout {
+      display: grid; grid-template-columns: minmax(0, 292px) minmax(0, 1fr);
+      gap: 8px; align-items: start;
+    }
+    .play-panel { padding: 6px; }
+    .board-shell { width: 100%; }
+    .piece { font-size: clamp(17px, 2.75vw, 21px); }
+    .threat-strip, .board-info, .facts, .rule-scope { margin-top: 7px; }
+    .tree-panel { margin-top: 0; }
+    .tree-head { padding: 7px 8px 5px; }
+    .tree-title p { display: none; }
+    .tree-viewport { height: calc(100vh - 104px); min-height: 260px; }
+  }
   @media (max-width: 390px) {
     .app { padding-inline: 6px; }
     .play-panel { padding: 6px; }
@@ -339,6 +453,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; }
+    .threat-ring, .threat-path { animation: none !important; }
   }
 </style>
 </head>
@@ -363,16 +478,48 @@
                      M10 50V90 M20 50V90 M30 50V90 M40 50V90 M50 50V90 M60 50V90 M70 50V90
                      M0 10H80 M0 20H80 M0 30H80 M0 40H80 M0 50H80 M0 60H80 M0 70H80 M0 80H80
                      M30 0L50 20 M50 0L30 20 M30 70L50 90 M50 70L30 90" />
+            <path class="mark" d="M7 19H9V17 M11 17V19H13 M7 21H9V23 M11 23V21H13
+                     M67 19H69V17 M71 17V19H73 M67 21H69V23 M71 23V21H73
+                     M7 69H9V67 M11 67V69H13 M7 71H9V73 M11 73V71H13
+                     M67 69H69V67 M71 67V69H73 M67 71H69V73 M71 73V71H73
+                     M1 27V29H3 M3 31H1V33 M17 29H19V27 M21 27V29H23 M17 31H19V33 M21 33V31H23
+                     M37 29H39V27 M41 27V29H43 M37 31H39V33 M41 33V31H43
+                     M57 29H59V27 M61 27V29H63 M57 31H59V33 M61 33V31H63
+                     M77 29H79V27 M79 33V31H77
+                     M1 57V59H3 M3 61H1V63 M17 59H19V57 M21 57V59H23 M17 61H19V63 M21 63V61H23
+                     M37 59H39V57 M41 57V59H43 M37 61H39V63 M41 63V61H43
+                     M57 59H59V57 M61 57V59H63 M57 61H59V63 M61 63V61H63
+                     M77 59H79V57 M79 63V61H77" />
             <text x="13" y="47.5">楚 河</text>
             <text x="54" y="47.5">汉 界</text>
+          </svg>
+          <svg id="threatOverlay" viewBox="0 0 80 90" aria-hidden="true">
+            <defs>
+              <marker id="threatArrowHead" viewBox="0 0 10 10" refX="8.4" refY="5"
+                markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#b92f2b" stroke="none"></path>
+              </marker>
+            </defs>
+            <g id="threatPaths"></g>
           </svg>
           <div id="board" data-xq-board role="grid" aria-label="九路十行中国象棋棋盘"></div>
         </div>
 
+        <section id="threatStrip" class="threat-strip" aria-label="当前攻击线" hidden>
+          <div class="threat-main">
+            <span class="threat-seal" aria-hidden="true">危</span>
+            <div class="threat-copy">
+              <strong id="threatHeadline"></strong>
+              <p id="threatDetail"></p>
+            </div>
+          </div>
+          <div id="threatChips" class="threat-chips" aria-label="选择受攻棋子"></div>
+        </section>
+
         <div class="board-info">
           <div id="coach" class="coach" aria-live="polite">
             <strong>先点一枚红棋</strong>
-            <p>蓝点是合法落点；感叹号表示棋子正被对方攻击线瞄准，并不等于下一手必丢。</p>
+            <p>绿点是合法落点；红色危险环和箭头来自当前真实攻击线。</p>
           </div>
           <div class="actions">
             <button id="undo" type="button" disabled>悔棋一回合</button>
@@ -443,6 +590,11 @@ const FILES = 'abcdefghi';
 
 const els = Object.freeze({
   board: document.getElementById('board'),
+  threatPaths: document.getElementById('threatPaths'),
+  threatStrip: document.getElementById('threatStrip'),
+  threatHeadline: document.getElementById('threatHeadline'),
+  threatDetail: document.getElementById('threatDetail'),
+  threatChips: document.getElementById('threatChips'),
   turn: document.getElementById('turnPill'),
   coach: document.getElementById('coach'),
   legalCount: document.getElementById('legalCount'),
@@ -586,7 +738,9 @@ let currentFen = api.initialFen();
 let position = api.parseFen(currentFen);
 let currentMoves = api.legalMoves(position);
 let selectedSquare = -1;
-let threatened = new Set();
+let threatened = new Map();
+let threatPulseSquares = new Set();
+let threatOverlayKey = '';
 let lastMove = null;
 let path = [];
 let snapshots = [{ fen: currentFen, pathLength: 0 }];
@@ -609,14 +763,30 @@ function refreshPosition(fen) {
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
   gameOver = currentMoves.length === 0;
-  threatened = computeThreatened(currentFen);
+  refreshThreatened(currentFen);
 }
 
 function computeThreatened(fen) {
   try {
     const direct = api.threats(api.parseFen(fen));
     if (Array.isArray(direct)) {
-      return new Set(direct.map((entry) => normalizeSquare(entry.square)).filter((square) => square >= 0));
+      const details = new Map();
+      for (const entry of direct) {
+        const square = normalizeSquare(entry.square);
+        if (square < 0) continue;
+        details.set(square, Object.freeze({
+          square,
+          piece: String(entry.piece || ''),
+          side: String(entry.side || ''),
+          value: Number(entry.value) || 0,
+          attackers: Object.freeze((entry.attackers || [])
+            .map(normalizeSquare).filter((source) => source >= 0)),
+          defenders: Object.freeze((entry.defenders || [])
+            .map(normalizeSquare).filter((source) => source >= 0)),
+          certainty: entry.certainty === 'geometric' ? 'geometric' : String(entry.certainty || 'geometric'),
+        }));
+      }
+      return details;
     }
   } catch {
     // 旧引擎没有威胁接口时，退到下一段的合法吃子推导。
@@ -628,15 +798,61 @@ function computeThreatened(fen) {
   try {
     attacks = api.legalMoves(api.parseFen(fenWithSide(fen, opponent)));
   } catch {
-    return new Set();
+    return new Map();
   }
-  const result = new Set();
+  const result = new Map();
   for (const move of attacks) {
+    const from = moveFrom(move);
     const to = moveTo(move);
     const target = board[to];
-    if (to >= 0 && target && sideOwns(target, side)) result.add(to);
+    if (to < 0 || from < 0 || !target || !sideOwns(target, side)) continue;
+    const previous = result.get(to);
+    const attackers = previous ? [...previous.attackers, from] : [from];
+    result.set(to, Object.freeze({
+      square: to,
+      piece: target,
+      side,
+      value: 0,
+      attackers: Object.freeze(attackers),
+      defenders: Object.freeze([]),
+      certainty: 'geometric',
+    }));
   }
   return result;
+}
+
+function threatSignature(detail) {
+  return `${detail.attackers.join(',')}|${detail.defenders.join(',')}|${detail.value}`;
+}
+
+function refreshThreatened(fen) {
+  const next = computeThreatened(fen);
+  threatPulseSquares = new Set([...next].flatMap(([square, detail]) =>
+    threatSignature(threatened.get(square) || { attackers: [], defenders: [], value: -1 })
+      === threatSignature(detail)
+      ? []
+      : [square]));
+  threatened = next;
+  threatOverlayKey = '';
+}
+
+function threatLevel(detail) {
+  if (!detail.defenders.length) return 'unguarded';
+  if (detail.attackers.length > detail.defenders.length) return 'contested';
+  return 'covered';
+}
+
+function prioritizedThreats() {
+  return [...threatened.values()].sort((left, right) => {
+    const levelRank = { unguarded: 0, contested: 1, covered: 2 };
+    return levelRank[threatLevel(left)] - levelRank[threatLevel(right)]
+      || right.value - left.value
+      || left.square - right.square;
+  });
+}
+
+function activeThreat() {
+  return threatened.get(selectedSquare) || prioritizedThreats()[0] || null;
 }
 
 function createBoardSquares() {
@@ -664,19 +880,31 @@ function renderBoard() {
   const board = boardFromFen(currentFen);
   const selectedMoves = legalForSelected();
   const legalTargets = new Map(selectedMoves.map((move) => [moveTo(move), move]));
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   for (const squareEl of els.board.children) {
     const square = Number(squareEl.dataset.square);
     const piece = board[square];
+    const threat = threatened.get(square);
     squareEl.className = 'square';
-    squareEl.replaceChildren();
+    delete squareEl.dataset.attackers;
+    delete squareEl.dataset.defenders;
+    delete squareEl.dataset.threatLevel;
     if (square === selectedSquare) squareEl.classList.add('selected');
     if (lastMove && square === moveFrom(lastMove)) squareEl.classList.add('last-from');
     if (lastMove && square === moveTo(lastMove)) squareEl.classList.add('last-to');
     if (previewLine && square === moveTo(previewLine.move)) squareEl.classList.add('preview-you');
     if (previewLine?.reply && square === moveTo(previewLine.reply)) squareEl.classList.add('preview-reply');
-    if (threatened.has(square)) {
+    if (threat) {
       squareEl.classList.add('threatened');
       squareEl.dataset.threatened = 'true';
+      squareEl.dataset.attackers = threat.attackers.map(coord).join(',');
+      squareEl.dataset.defenders = threat.defenders.map(coord).join(',');
+      squareEl.dataset.threatLevel = threatLevel(threat);
+      if (threatPulseSquares.has(square) && !reduceMotion) {
+        squareEl.classList.add('threat-new');
+      } else if (reduceMotion) {
+        threatPulseSquares.delete(square);
+      }
     } else {
       delete squareEl.dataset.threatened;
     }
@@ -686,13 +914,34 @@ function renderBoard() {
     } else {
       delete squareEl.dataset.target;
     }
-    if (piece) {
+    const renderKey = piece
+      ? `${piece}|${threat ? `${threatLevel(threat)}|${threatSignature(threat)}` : 'safe'}`
+      : '';
+    const existingDisk = squareEl.querySelector(':scope > .piece');
+    if (!piece) {
+      if (existingDisk || squareEl.childNodes.length) squareEl.replaceChildren();
+    } else if (!existingDisk || existingDisk.dataset.renderKey !== renderKey) {
+      squareEl.replaceChildren();
       const disk = document.createElement('span');
       disk.className = `piece ${pieceIsRed(piece) ? 'red' : 'black'}`;
-      disk.textContent = GLYPHS[piece] || piece;
+      disk.dataset.renderKey = renderKey;
       disk.dataset.square = coord(square);
       disk.dataset.side = pieceIsRed(piece) ? 'red' : 'black';
       disk.dataset.piece = piece.toLowerCase();
+      const glyph = document.createElement('span');
+      glyph.className = 'piece-glyph';
+      glyph.textContent = GLYPHS[piece] || piece;
+      disk.append(glyph);
+      if (threat) {
+        const ring = document.createElement('span');
+        ring.className = 'threat-ring';
+        ring.setAttribute('aria-hidden', 'true');
+        const badge = document.createElement('span');
+        badge.className = 'threat-badge';
+        badge.textContent = '危';
+        badge.setAttribute('aria-hidden', 'true');
+        disk.append(ring, badge);
+      }
       squareEl.append(disk);
     }
     const place = coord(square);
@@ -711,6 +960,81 @@ function renderBoard() {
   }
 }
 
+function renderThreatOverlay() {
+  const detail = selectedSquare >= 0 ? threatened.get(selectedSquare) : activeThreat();
+  const key = detail
+    ? `${currentFen}|${selectedSquare}|${detail.square}|${threatSignature(detail)}`
+    : `${currentFen}|none`;
+  if (key === threatOverlayKey) return;
+  threatOverlayKey = key;
+  els.threatPaths.replaceChildren();
+  if (!detail) return;
+
+  const namespace = 'http://www.w3.org/2000/svg';
+  const point = (square) => ({
+    x: (square % 9) * 10,
+    y: Math.floor(square / 9) * 10,
+  });
+  const target = point(detail.square);
+  const targetCircle = document.createElementNS(namespace, 'circle');
+  targetCircle.classList.add('threat-target');
+  targetCircle.setAttribute('cx', String(target.x));
+  targetCircle.setAttribute('cy', String(target.y));
+  targetCircle.setAttribute('r', '5.3');
+  els.threatPaths.append(targetCircle);
+
+  for (const attacker of detail.attackers) {
+    const source = point(attacker);
+    const dx = target.x - source.x;
+    const dy = target.y - source.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const xUnit = dx / distance;
+    const yUnit = dy / distance;
+    const line = document.createElementNS(namespace, 'line');
+    line.classList.add('threat-path');
+    line.setAttribute('x1', String(source.x + xUnit * 5.2));
+    line.setAttribute('y1', String(source.y + yUnit * 5.2));
+    line.setAttribute('x2', String(target.x - xUnit * 6.1));
+    line.setAttribute('y2', String(target.y - yUnit * 6.1));
+    line.setAttribute('marker-end', 'url(#threatArrowHead)');
+    line.dataset.threatArrow = 'true';
+    line.dataset.from = coord(attacker);
+    line.dataset.to = coord(detail.square);
+    els.threatPaths.append(line);
+  }
+}
+
+function renderThreatStrip() {
+  const detail = activeThreat();
+  els.threatStrip.hidden = !detail;
+  if (!detail) {
+    els.threatHeadline.textContent = '';
+    els.threatDetail.textContent = '';
+    els.threatChips.replaceChildren();
+    return;
+  }
+  const board = boardFromFen(currentFen);
+  const targetPiece = PIECE_NAMES[board[detail.square]] || '棋子';
+  const attackerCoords = detail.attackers.map(coord);
+  const attackerNames = detail.attackers.map((square) =>
+    `${PIECE_NAMES[board[square]] || '对方棋子'} ${coord(square)}`);
+  const defenderNames = detail.defenders.map((square) =>
+    `${PIECE_NAMES[board[square]] || '己方棋子'} ${coord(square)}`);
+  const defenseCopy = defenderNames.length
+    ? `${defenderNames.join('、')}保护`
+    : '当前没有己方棋子保护';
+  els.threatHeadline.textContent =
+    `攻击线 ${attackerCoords.join('、')} → ${coord(detail.square)}`;
+  els.threatDetail.textContent =
+    `${attackerNames.join('、')}瞄准${targetPiece} · ${detail.attackers.length} 攻 / ${detail.defenders.length} 守 · ${defenseCopy}；只表示当前几何攻击线。`;
+  els.threatChips.innerHTML = prioritizedThreats().map((item) => {
+    const piece = PIECE_NAMES[board[item.square]] || '棋子';
+    return `<button class="threat-chip ${item.square === detail.square ? 'active' : ''}" type="button"`
+      + ` data-threat-square="${item.square}" aria-label="查看 ${coord(item.square)} ${escapeHtml(piece)} 的攻击线">`
+      + `<b>${coord(item.square)} ${escapeHtml(piece)}</b> · ${item.attackers.length}攻${item.defenders.length}守</button>`;
+  }).join('');
+}
+
 function renderStatus() {
   const side = fenSide(currentFen);
   els.turn.dataset.side = side;
@@ -725,7 +1049,9 @@ function renderStatus() {
   const board = boardFromFen(currentFen);
   const status = api.status(position);
   const checked = status ? !!status.inCheck : api.isCheck(position);
-  els.coach.dataset.tone = checked ? 'danger' : threatened.size ? 'danger' : 'normal';
+  const selectedThreat = threatened.get(selectedSquare);
+  const hasUnguardedThreat = [...threatened.values()].some((detail) => !detail.defenders.length);
+  els.coach.dataset.tone = checked || hasUnguardedThreat ? 'danger' : threatened.size ? 'watch' : 'normal';
   if (gameOver) {
     els.coach.innerHTML = `<strong>${checked ? '将军且无合法应手' : '当前一方无合法着法'}</strong>`
       + '<p>这盘棋已经结束，可以悔棋或重新开局。</p>';
@@ -739,12 +1065,19 @@ function renderStatus() {
       + '<p>蓝色 1 → 金色 2；这是含一步合法回吃的局面排序，不是概率。点蓝色落点才会真正走棋。</p>';
   } else if (selectedSquare >= 0) {
     const piece = board[selectedSquare];
-    const danger = threatened.has(selectedSquare) ? '；它正被攻击线瞄准' : '';
-    els.coach.innerHTML = `<strong>${PIECE_NAMES[piece] || '棋子'}有 ${selectedMoves.length} 个合法去处${danger}</strong>`
-      + '<p>点蓝点落子；带红圈的目标是可以立即吃到的对方棋子。</p>';
+    if (selectedThreat) {
+      const attackers = selectedThreat.attackers.map(coord).join('、');
+      const defenders = selectedThreat.defenders.map(coord).join('、') || '无';
+      els.coach.innerHTML = `<strong>${PIECE_NAMES[piece] || '棋子'}被瞄准：${selectedThreat.attackers.length} 攻 / ${selectedThreat.defenders.length} 守</strong>`
+        + `<p>${escapeHtml(attackers)} → ${coord(selectedSquare)}；保护者 ${escapeHtml(defenders)}。箭头表示当前攻击线，不代表必然丢子。</p>`;
+    } else {
+      els.coach.innerHTML = `<strong>${PIECE_NAMES[piece] || '棋子'}有 ${selectedMoves.length} 个合法去处</strong>`
+        + '<p>点绿点落子；带红圈的目标是可以立即吃到的对方棋子。</p>';
+    }
   } else if (threatened.size) {
-    els.coach.innerHTML = `<strong>有 ${threatened.size} 枚红棋被攻击线瞄准</strong>`
-      + '<p>“!”来自当前几何攻击线，只提示风险，不代表对方下一手一定能吃。</p>';
+    const uncovered = [...threatened.values()].filter((detail) => !detail.defenders.length).length;
+    els.coach.innerHTML = `<strong>${threatened.size} 枚棋子在对方攻击线上${uncovered ? `，其中 ${uncovered} 枚无人保护` : ''}</strong>`
+      + '<p>红环是受攻位置；下方列出攻击者与保护者，点一项可切换箭头。</p>';
   } else if (rankedBranches.length) {
     els.coach.innerHTML = `<strong>可以先看 ${escapeHtml(moveLabel(rankedBranches[0]))}</strong>`
       + '<p>这是浅层局面排序的第一候选，不是“唯一正确答案”；蓝色合法落点仍由棋核决定。</p>';
@@ -829,6 +1162,8 @@ function renderTree() {
 
 function render() {
   renderBoard();
+  renderThreatOverlay();
+  renderThreatStrip();
   renderStatus();
   renderTree();
 }
@@ -893,7 +1228,7 @@ function play(move, actor) {
   lastMove = result.move;
   pv = [];
   rankedBranches = [];
-  threatened = computeThreatened(currentFen);
+  refreshThreatened(currentFen);
   gameOver = currentMoves.length === 0;
   render();
   if (!gameOver && fenSide(currentFen) === 'black') requestAiMove();
@@ -1041,7 +1376,7 @@ function resetGame() {
   position = api.parseFen(currentFen);
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
-  threatened = computeThreatened(currentFen);
+  refreshThreatened(currentFen);
   gameOver = currentMoves.length === 0;
   snapshots = [{ fen: currentFen, pathLength: 0, legalCount: currentMoves.length }];
   rankedBranches = [];
@@ -1064,7 +1399,7 @@ function undoRound() {
   position = api.parseFen(currentFen);
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
-  threatened = computeThreatened(currentFen);
+  refreshThreatened(currentFen);
   selectedSquare = -1;
   previewLine = null;
   lastMove = path.at(-1)?.move || null;
@@ -1087,6 +1422,25 @@ els.reset.addEventListener('click', resetGame);
 els.zoomOut.addEventListener('click', () => setZoom(zoom - .12));
 els.zoomIn.addEventListener('click', () => setZoom(zoom + .12));
 els.zoomReset.addEventListener('click', () => setZoom(1));
+els.threatChips.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-threat-square]');
+  if (!button || thinking || gameOver) return;
+  const square = Number(button.dataset.threatSquare);
+  if (!threatened.has(square)) return;
+  selectedSquare = square;
+  previewLine = null;
+  render();
+  els.board.querySelector(`[data-square="${square}"]`)?.focus({ preventScroll: true });
+});
+els.board.addEventListener('animationend', (event) => {
+  if (!(event.target instanceof Element)
+    || !event.target.classList.contains('threat-ring')
+    || event.animationName !== 'threat-ring-pulse') return;
+  const squareEl = event.target.closest('.square');
+  const square = Number(squareEl?.dataset.square);
+  if (Number.isInteger(square)) threatPulseSquares.delete(square);
+  squareEl?.classList.remove('threat-new');
+});
 
 createBoardSquares();
 resetGame();
@@ -1104,7 +1458,7 @@ function loadFenForTest(fen) {
   position = api.parseFen(fen);
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
-  threatened = computeThreatened(currentFen);
+  refreshThreatened(currentFen);
   gameOver = currentMoves.length === 0;
   snapshots = [{ fen: currentFen, pathLength: 0, legalCount: currentMoves.length }];
   els.searchFact.textContent = '测试局面';
@@ -1180,7 +1534,7 @@ Object.defineProperties(testHook, {
   },
   threats: {
     enumerable: true,
-    get: () => Object.freeze([...threatened].map(coord)),
+    get: () => Object.freeze([...threatened.keys()].map(coord)),
   },
   performance: {
     enumerable: true,

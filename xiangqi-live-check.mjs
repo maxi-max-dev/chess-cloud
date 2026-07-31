@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 31;
+const EXPECTED_RESULTS = 37;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -673,6 +673,174 @@ async function threatAndZoomAudit() {
     `DOM=${threat.count}｜棋核=${expected.length}｜${threat.coach.replace(/\n/g, ' ')}`,
   );
 
+  await evaluate(`document.querySelector('#board .piece[data-square="e4"]').closest('.square').click()`);
+  await waitFor(
+    `document.querySelectorAll('#threatOverlay [data-threat-arrow]').length > 0`,
+    3000,
+    '威胁攻击线渲染',
+  );
+  await sleep(120);
+  const expectedLines = expected.flatMap((entry) =>
+    entry.attackers.map((from) => `${from}-${entry.square}`)).sort();
+  const visual = await evaluate(`(() => {
+    const target = document.querySelector('#board .piece[data-square="e4"]').closest('.square');
+    return {
+      attackers: (target.dataset.attackers || '').split(',').filter(Boolean).sort(),
+      defenders: (target.dataset.defenders || '').split(',').filter(Boolean).sort(),
+      badge: target.querySelector('.threat-badge')?.textContent || '',
+      lines: [...document.querySelectorAll('#threatOverlay [data-threat-arrow]')]
+        .map((line) => {
+          const style = getComputedStyle(line);
+          return {
+            from: line.dataset.from,
+            to: line.dataset.to,
+            x1: Number(line.getAttribute('x1')),
+            y1: Number(line.getAttribute('y1')),
+            x2: Number(line.getAttribute('x2')),
+            y2: Number(line.getAttribute('y2')),
+            marker: line.getAttribute('marker-end') || '',
+            display: style.display,
+            visibility: style.visibility,
+            opacity: Number(style.opacity),
+            stroke: style.stroke,
+          };
+        }).sort((left, right) => (left.from + left.to).localeCompare(right.from + right.to)),
+      strip: document.getElementById('threatStrip')?.innerText || '',
+    };
+  })()`);
+  const expectedTarget = expected.find((entry) => entry.square === 'e4');
+  const visualLineKeys = visual.lines.map((line) => `${line.from}-${line.to}`);
+  const point = (square) => ({
+    x: 'abcdefghi'.indexOf(square[0]) * 10,
+    y: (9 - Number(square[1])) * 10,
+  });
+  const lineGeometryOk = visual.lines.every((line) => {
+    const source = point(line.from);
+    const target = point(line.to);
+    const startDistance = Math.hypot(line.x1 - source.x, line.y1 - source.y);
+    const endDistance = Math.hypot(line.x2 - target.x, line.y2 - target.y);
+    const length = Math.hypot(line.x2 - line.x1, line.y2 - line.y1);
+    const expectedDx = target.x - source.x;
+    const expectedDy = target.y - source.y;
+    const actualDx = line.x2 - line.x1;
+    const actualDy = line.y2 - line.y1;
+    const direction = (expectedDx * actualDx + expectedDy * actualDy)
+      / ((Math.hypot(expectedDx, expectedDy) || 1) * (Math.hypot(actualDx, actualDy) || 1));
+    return startDistance <= 8
+      && endDistance <= 8
+      && length >= 10
+      && direction >= .98
+      && line.marker.includes('threatArrowHead')
+      && line.display !== 'none'
+      && line.visibility !== 'hidden'
+      && line.opacity > 0
+      && line.stroke !== 'none';
+  });
+  record(
+    JSON.stringify(visualLineKeys) === JSON.stringify(expectedLines)
+      && lineGeometryOk
+      && JSON.stringify(visual.attackers) === JSON.stringify(expectedTarget?.attackers.slice().sort() || [])
+      && JSON.stringify(visual.defenders) === JSON.stringify(expectedTarget?.defenders.slice().sort() || [])
+      && visual.badge === '危'
+      && /攻击线/.test(visual.strip)
+      && /e9/.test(visual.strip)
+      && /e4/.test(visual.strip)
+      && !/(必丢|必吃|概率|一定会被吃|下一手会吃)/.test(visual.strip),
+    '点受攻棋后，真实攻击者、保护者、箭头和文字逐项同源',
+    `线=${visualLineKeys.join(',')}｜几何可见=${lineGeometryOk}｜攻=${visual.attackers.join(',')}｜守=${visual.defenders.join(',')}｜徽标=${visual.badge}`,
+  );
+
+  const finiteMotion = await evaluate(`(() => {
+    const arrows = [...document.querySelectorAll('#threatOverlay [data-threat-arrow]')];
+    const rings = [...document.querySelectorAll('.threat-new .threat-ring')];
+    const animated = [...arrows, ...rings];
+    return {
+      count: animated.length,
+      arrowCount: arrows.length,
+      ringCount: rings.length,
+      names: animated.map((element) => getComputedStyle(element).animationName),
+      iterations: animated.map((element) => getComputedStyle(element).animationIterationCount),
+      animationObjects: animated.reduce((total, element) => total + element.getAnimations().length, 0),
+    };
+  })()`);
+  await sleep(2600);
+  const runningMotion = await evaluate(
+    `[...document.querySelectorAll('.board-frame *')]
+      .flatMap((element) => element.getAnimations())
+      .filter((animation) => animation.playState === 'running').length`,
+  );
+  record(
+    finiteMotion.arrowCount === expectedLines.length
+      && finiteMotion.ringCount === 1
+      && finiteMotion.names.includes('threat-path-enter')
+      && finiteMotion.names.includes('threat-ring-pulse')
+      && finiteMotion.animationObjects >= 2
+      && finiteMotion.iterations.every((value) => value !== 'infinite')
+      && runningMotion === 0,
+    '威胁动效有限次播放并自动停为静态',
+    `箭头/环=${finiteMotion.arrowCount}/${finiteMotion.ringCount}｜animation=${finiteMotion.names.join(',')}`
+      + `｜对象=${finiteMotion.animationObjects}｜迭代=${finiteMotion.iterations.join(',')}｜运行中=${runningMotion}`,
+  );
+
+  await send('Emulation.setEmulatedMedia', {
+    media: '',
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  const reducedMotion = await evaluate(`(() => {
+    const elements = [...document.querySelectorAll('#threatOverlay [data-threat-arrow], .threat-ring')];
+    return {
+      count: elements.length,
+      names: elements.map((element) => getComputedStyle(element).animationName),
+      ringVisible: elements.some((element) =>
+        element.classList.contains('threat-ring') && getComputedStyle(element).display !== 'none'),
+      strip: document.getElementById('threatStrip')?.innerText || '',
+    };
+  })()`);
+  record(
+    reducedMotion.count > 0
+      && reducedMotion.names.every((name) => name === 'none')
+      && reducedMotion.ringVisible
+      && /攻击线/.test(reducedMotion.strip),
+    '减少动态时关闭威胁动画但保留静态环、攻击线与文字',
+    `元素=${reducedMotion.count}｜animation=${reducedMotion.names.join(',')}｜静态环=${reducedMotion.ringVisible}`,
+  );
+  await send('Emulation.setEmulatedMedia', {
+    media: '',
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
+
+  await evaluate(`window.__xiangqiTest.reset()`);
+  const initialThreats = getThreats(START_FEN);
+  await waitFor(
+    `document.querySelectorAll('#threatChips [data-threat-square]').length === ${initialThreats.length}`,
+    3000,
+    '多目标威胁条',
+  );
+  const switchedLines = [];
+  for (const detail of initialThreats) {
+    const targetIndex = (() => {
+      const match = /^([a-i])([0-9])$/.exec(detail.square);
+      return match ? (9 - Number(match[2])) * 9 + 'abcdefghi'.indexOf(match[1]) : -1;
+    })();
+    await evaluate(`document.querySelector('#threatChips [data-threat-square="${targetIndex}"]').click()`);
+    await waitFor(
+      `document.querySelectorAll('#threatOverlay [data-to="${detail.square}"]').length === ${detail.attackers.length}`,
+      3000,
+      `切换威胁 ${detail.square}`,
+    );
+    switchedLines.push(await evaluate(
+      `[...document.querySelectorAll('#threatOverlay [data-threat-arrow]')]
+        .map((line) => line.dataset.from + '-' + line.dataset.to).sort()`,
+    ));
+  }
+  const expectedSwitchedLines = initialThreats.map((detail) =>
+    detail.attackers.map((from) => `${from}-${detail.square}`).sort());
+  record(
+    JSON.stringify(switchedLines) === JSON.stringify(expectedSwitchedLines),
+    '多枚受攻棋可逐项切换，各自只画自己的真实攻击线',
+    switchedLines.map((lines) => lines.join(',')).join('｜'),
+  );
+
   const before = await evaluate(`(() => {
     const rect = document.getElementById('treeCanvas').getBoundingClientRect();
     return { zoom: window.__xiangqiTest.zoom, width: rect.width, style: document.getElementById('treeCanvas').style.zoom };
@@ -696,6 +864,81 @@ async function threatAndZoomAudit() {
     `${before.zoom}→${after.zoom}｜宽 ${before.width.toFixed(1)}→${after.width.toFixed(1)}`,
   );
   await evaluate(`document.getElementById('zoomReset').click()`);
+}
+
+async function boardReadabilityAudit() {
+  await setViewport(390, 844);
+  await evaluate(`window.__xiangqiTest.reset()`);
+  await sleep(120);
+  const portrait = await evaluate(`(() => {
+    const frame = document.querySelector('.board-frame').getBoundingClientRect();
+    const pieces = [...document.querySelectorAll('#board .piece')].map((piece) => {
+      const rect = piece.getBoundingClientRect();
+      return {
+        left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+        width: rect.width, fontSize: parseFloat(getComputedStyle(piece).fontSize),
+      };
+    });
+    const decorations = [...document.querySelectorAll('#board .threat-ring, #board .threat-badge')]
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+          visible: getComputedStyle(element).display !== 'none'
+            && getComputedStyle(element).visibility !== 'hidden',
+        };
+      });
+    return {
+      frame: { left: frame.left, top: frame.top, right: frame.right, bottom: frame.bottom, width: frame.width },
+      pieces,
+      decorations,
+    };
+  })()`);
+  const portraitInside = portrait.pieces.every((piece) =>
+    piece.left >= portrait.frame.left - 1
+      && piece.top >= portrait.frame.top - 1
+      && piece.right <= portrait.frame.right + 1
+      && piece.bottom <= portrait.frame.bottom + 1);
+  const portraitReadable = portrait.pieces.every((piece) =>
+    piece.width >= portrait.frame.width / 11
+      && piece.fontSize >= piece.width * .5
+      && piece.fontSize <= piece.width * .8);
+  const decorationsInside = portrait.decorations.length >= 4
+    && portrait.decorations.every((item) =>
+      item.visible
+        && item.left >= portrait.frame.left - 1
+        && item.top >= portrait.frame.top - 1
+        && item.right <= portrait.frame.right + 1
+        && item.bottom <= portrait.frame.bottom + 1);
+  record(
+    portrait.pieces.length === 32 && portraitInside && portraitReadable && decorationsInside,
+    '390px 手机棋子、危险环与徽标不裁切，字盘比例可读',
+    `棋盘=${portrait.frame.width.toFixed(0)}｜最小棋子=${Math.min(...portrait.pieces.map((piece) => piece.width)).toFixed(1)}`
+      + `｜字盘比=${Math.min(...portrait.pieces.map((piece) => piece.fontSize / piece.width)).toFixed(2)}`
+      + `..${Math.max(...portrait.pieces.map((piece) => piece.fontSize / piece.width)).toFixed(2)}`
+      + `｜威胁装饰=${portrait.decorations.length}/${decorationsInside}`,
+  );
+
+  await setViewport(667, 375);
+  await sleep(120);
+  const landscape = await evaluate(`(() => {
+    const frame = document.querySelector('.board-frame').getBoundingClientRect();
+    return {
+      width: frame.width,
+      height: frame.height,
+      visibleHeight: Math.max(0, Math.min(innerHeight, frame.bottom) - Math.max(0, frame.top)),
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    };
+  })()`);
+  record(
+    landscape.width >= 270
+      && landscape.width <= 300
+      && landscape.visibleHeight >= landscape.height - 1
+      && landscape.scrollWidth <= landscape.clientWidth + 1,
+    '667×375 横屏棋盘完整进入首屏且可操作',
+    `${landscape.width.toFixed(0)}×${landscape.height.toFixed(0)}｜首屏高=${landscape.visibleHeight.toFixed(0)}`,
+  );
 }
 
 async function workerIsolationAudit() {
@@ -810,8 +1053,8 @@ async function viewportAudit(width, height) {
       : `${layout.controls.length} 个控件`,
   );
   record(
-    layout.board.width >= Math.min(300, width - 20)
-      && layout.board.visibleWidth >= Math.min(280, width - 30)
+    layout.board.width >= (width > height && width <= 760 ? 270 : Math.min(300, width - 20))
+      && layout.board.visibleWidth >= (width > height && width <= 760 ? 265 : Math.min(280, width - 30))
       && layout.board.visibleHeight >= Math.min(220, height - 90),
     `${width}×${height} 棋盘首屏可见`,
     `${layout.board.width.toFixed(0)}×${layout.board.height.toFixed(0)}，首屏可见 ${layout.board.visibleWidth.toFixed(0)}×${layout.board.visibleHeight.toFixed(0)}`,
@@ -877,6 +1120,7 @@ async function main() {
   const roundOneFen = await playOneRound(beforeMove);
   await playSecondRound(roundOneFen);
   await threatAndZoomAudit();
+  await boardReadabilityAudit();
   await workerIsolationAudit();
   for (const [width, height] of [[1440, 900], [390, 844], [667, 375]]) {
     await viewportAudit(width, height);
