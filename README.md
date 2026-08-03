@@ -141,8 +141,8 @@ node xiangqi-self-play.mjs
 - `npm test`：国际象棋 **8/8**、中国象棋 **20/20**、统一门户 **27/27**；
 - `node live-check.mjs`：**101/101**；
 - `node xiangqi-live-check.mjs`：**63/63**；
-- `node self-play.mjs`：10 局、727 plies、687 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
-- `node xiangqi-self-play.mjs`：10 局、841 plies、841 次搜索、1,476 个 PV 节点；
+- `node self-play.mjs`：10 局、750 plies、710 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
+- `node xiangqi-self-play.mjs`：10 局、782 plies、782 次搜索、1,355 个 PV 节点；
   `illegalMoves / fenMismatches / pvFailures / branchFailures / threatFailures` 全为 0。
 
 自对弈固定的是局数、种子、单局上限和零错误断言；搜索采用墙钟预算，精确 plies / searches / PV

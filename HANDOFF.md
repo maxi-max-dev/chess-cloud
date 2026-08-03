@@ -95,19 +95,19 @@ node self-play.mjs
 node xiangqi-self-play.mjs
 ```
 
-这两条是正确性 / 稳定性冒烟，**不是棋力基准**。最新国际象棋真实输出为 10 局 / 727 plies /
-687 次搜索，`abnormalGames / illegalMoves / fenMismatches / pvFailures / annotationFailures`
+这两条是正确性 / 稳定性冒烟，**不是棋力基准**。最新国际象棋真实输出为 10 局 / 750 plies /
+710 次搜索，`abnormalGames / illegalMoves / fenMismatches / pvFailures / annotationFailures`
 全为 0。
 最新中国象棋真实输出：
 
-- 10 局、841 plies、841 次搜索、1,476 个 PV 节点；
-- 4 局到真实终局，6 局达到 100 plies 测试上限并如实记作 `capped`；
+- 10 局、782 plies、782 次搜索、1,355 个 PV 节点；
+- 6 局到真实终局，4 局达到 100 plies 测试上限并如实记作 `capped`；
 - `illegalMoves=0`
 - `fenMismatches=0`
 - `pvFailures=0`
 - `branchFailures=0`
 - `threatFailures=0`
-- 单次搜索最大 111.4ms
+- 单次搜索最大 57.1ms
 
 > `npm test` 不包含两套真 Chrome 和两套自对弈。发布前不能只跑 `npm test`。
 
@@ -551,34 +551,34 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 中国威胁 | 全部真实攻击线保留；单条主强调、“攻→危”端点与手动攻击者切换；仍只是几何攻击线 |
 | 中国有限动效 | 棋子位移 / 落点 / 攻击流有限次后停止；减少动态保留静态语义，切回普通不补播；持续 rAF 为 0 |
 | 中国棋子视觉 | 象牙漆面三层渐变 + 双刻线 + 四层静态纵深；选中 / 上一步走内圈，威胁走外圈，不互相压扁 |
-| 国际 10 局自走（本次实测） | 727 plies / 687 searches；五类错误汇总全 0；最大搜索 194.97ms |
-| 中国 10 局自走（本次实测） | 841 plies / 841 searches / 1,476 PV 节点；4 终局 / 6 capped；五类错误全 0 |
+| 国际 10 局自走（本次实测） | 750 plies / 710 searches；五类错误汇总全 0；最大搜索 53.64ms |
+| 中国 10 局自走（本次实测） | 782 plies / 782 searches / 1,355 PV 节点；6 终局 / 4 capped；五类错误全 0；最大搜索 57.1ms |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-当前“棋局未来地图”运行源码冻结于 commit `8a45f30`。以下 SHA-256 已在 GitHub Pages
+当前“棋局未来地图”运行源码冻结于 commit `87463a4`。以下 SHA-256 已在 GitHub Pages
 逐文件下载并与本地逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
 | `index.html` | `5909c17a139c2e2eb2e6a3859710e0b4e44821fec9eaf76da848f12ef07735ed` |
-| `future-map.css` | `9fce672f8f97e2e56f093a8ec9fa8f064379e31661c02ac493d9a3885c43a152` |
+| `future-map.css` | `29eaab29b216c8259316dc3407168cb17c36848738779718c2817c3ee6fb5525` |
 | `chess.html` | `aa949efb0f07d4da887e29c4dc3adc2abfa29bb75c3a44d8c5a5dc84ad20e42b` |
 | `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
 | `worker.js` | `a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed` |
-| `xiangqi.html` | `8d1cc3faaa706df376c635863cb2363cf158f811ebcdd20bcb5ec2a6657b63d8` |
+| `xiangqi.html` | `6dd34dc2692d1e40e3b964ee444691da7bae0d5759eed66c74555b7a5ad1f22e` |
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `06c9d33c946722bd2e6bfe0d4b13e304a89de61873a06eaace49a5a093459cd4` |
 
 线上行为复验：
 
-- `node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**101/101**；
-- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**58/58**；
-- 本轮线上国际首个 AI 外部可见应手 **1,351ms**，中国象棋 **1,161ms**，都低于 3 秒硬上限；
-- 国际局中 L4 **474,457** 条，逐层与独立棋核一致；
-- 中国象棋分叉 Worker 晚到只补建议与全部回应，仍停在 1 层等待用户选择；全景大拖动后仍
-  **44/44** 节点可见；
-- 两页未知回应、显式条件第二拍、快速切路、预演期只读、回到现在焦点和减少动态均在线上真 Chrome
-  通过；
+- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**63/63**；
+- 线上零点击云演 **1,793ms** 完成 2 ply，真实 AI 应手 **1,185ms**，分别低于 8 秒 / 3 秒硬线；
+- `positionKey / positionId / requestId / runId`、两拍提交→脉冲→威胁顺序、暂停继续、reset 旧 run
+  拒绝与 reduced-motion 均在线上真 Chrome 通过；
+- 中国象棋全景大拖动后仍 **44/44** 节点可见，三种视口无根横向溢出；
+- 国际象棋运行文件与上一发布逐字节未变；本次串行本地复验仍为 **101/101**，首个 AI 应手
+  **1,157ms**；
+- 8 个运行文件均已从 Pages 下载并与本地 SHA-256 逐字节对账；页面 JS 错误为 0。
 - 页面 JS 错误均为 0。
 
 ---
@@ -670,6 +670,6 @@ git rev-list --left-right --count origin/main...main
 - 新增第八个运行文件 `future-map.css`。
 - 当前源码基线：`npm test` 为 **8/8 + 20/20 + 27/27**，国际真机 **101/101**，
   中国真机 **63/63**。
-- 两套 10 局本次实测已完成：国际 727 plies，中国 841 plies；非法着、FEN、PV、分叉、威胁和注释
+- 两套 10 局本次实测已完成：国际 750 plies，中国 782 plies；非法着、FEN、PV、分叉、威胁和注释
   失败全部为 0。
 - 当前运行源码 commit、八个文件 SHA-256 与线上复验结果以第 6 节发布封印为准。
