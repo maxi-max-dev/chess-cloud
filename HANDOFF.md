@@ -567,29 +567,30 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 中国 10 局自走（本次实测） | 794 plies / 794 searches / 1,493 PV 节点；6 终局 / 4 capped；五类错误全 0；最大搜索 33.9ms |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-当前“棋局未来地图”运行源码冻结于 commit `827a0e5`。以下 SHA-256 已在 GitHub Pages
+当前“棋局未来地图”运行源码冻结于 commit `060220e`。以下 SHA-256 已在 GitHub Pages
 逐文件下载并与本地逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
 | `index.html` | `5909c17a139c2e2eb2e6a3859710e0b4e44821fec9eaf76da848f12ef07735ed` |
 | `future-map.css` | `29eaab29b216c8259316dc3407168cb17c36848738779718c2817c3ee6fb5525` |
-| `chess.html` | `aa949efb0f07d4da887e29c4dc3adc2abfa29bb75c3a44d8c5a5dc84ad20e42b` |
+| `chess.html` | `6bdb6120fffa5bdae99920322aa1578c06a0b97a770cd0220600d922650b04c1` |
 | `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
 | `worker.js` | `a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed` |
-| `xiangqi.html` | `1caa5cff6cec3acc47cce2c70d2a8b8d1c6cee5fe6d8e9dbafc098d028634be4` |
+| `xiangqi.html` | `e8f38649eab9568119c1cce7aa5d1224278f17b3cebeabc8b28f4d0a133fd7aa` |
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
-| `xiangqi-worker.js` | `6c2bb3770c6b7801d6c4f974f87d6f6398a7c4bd380b5aa5a23b1cca0f760c65` |
+| `xiangqi-worker.js` | `7110025786591dd8739ba51e48e9387948c609f0c161a179d14fc702196aac07` |
 
 线上行为复验：
 
-- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**63/63**；
-- 线上零点击云演 **3,531ms** 完成 4 ply，真实 AI 应手 **1,159ms**，分别低于 8 秒 / 3 秒硬线；
+- `node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**102/102**；
+- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**64/64**；
+- 线上中国象棋零点击云演 **3,917ms** 完成 4 ply，国际象棋真实 AI 应手 **1,064ms**，分别低于
+  8 秒 / 3 秒硬线；
 - `positionKey / positionId / requestId / runId`、四拍提交→脉冲→威胁顺序、暂停继续、reset 旧 run
   拒绝与 reduced-motion 均在线上真 Chrome 通过；
-- 中国象棋全景大拖动后仍 **44/44** 节点可见，三种视口无根横向溢出；
-- 国际象棋运行文件与上一发布逐字节未变；本次串行本地复验仍为 **101/101**，首个 AI 应手
-  **1,157ms**；
+- 两种棋的鼠标悬停与键盘聚焦都在线上安装合法 4 ply，`selectedPath` 保持为空，实战局面不变；
+- 中国象棋全景大拖动后仍 **44/44** 节点可见，两页桌面、手机竖屏与短横屏均无根横向溢出；
 - 8 个运行文件均已从 Pages 下载并与本地 SHA-256 逐字节对账；页面 JS 错误为 0。
 
 ---
