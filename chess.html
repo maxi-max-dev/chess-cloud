@@ -1348,7 +1348,7 @@
     <g id="boardOverlay"></g>
   </svg>
   <div id="futureBoardBadge" class="future-board-badge" aria-live="polite" hidden>
-    <b>路线连演</b><span>悬停候选即可连续看 4 步，不会替你落子</span>
+    <b>路线连演</b><span>悬停候选即可连续看推荐主线，不会替你落子</span>
   </div>
   <div id="chessPlayBridge" class="chess-play-bridge" hidden aria-live="polite">
     <div class="chess-play-bridge-copy">
@@ -1372,7 +1372,7 @@
   <div id="stageHead">
     <span class="future-kicker">Future map · Analysis</span>
     <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
-    <div class="sub">鼠标停在任一候选上会自动连演 4 步；移到另一条路线即可换线，点击仍用于明确选择。</div>
+    <div class="sub">鼠标停在候选上会按所选深度连演；每一步都从新局面重新排序，移到另一条路线即可换线。</div>
     <div class="future-map-legend" aria-label="未来地图图例">
       <span class="future-legend-key" data-kind="option">其他合法路线</span>
       <span class="future-legend-key" data-kind="selected">正在预演</span>
@@ -1380,11 +1380,22 @@
       <span class="future-legend-key" data-kind="engine">引擎分析建议</span>
       <span class="future-legend-key" data-kind="effect">吃子 / 威胁</span>
     </div>
+    <label class="preview-depth-control" for="chessPreviewDepth">
+      <span>预演步数</span>
+      <select id="chessPreviewDepth" aria-label="国际象棋预演步数">
+        <option value="1">1 步</option><option value="2">2 步</option>
+        <option value="3">3 步</option><option value="4" selected>4 步</option>
+        <option value="5">5 步</option><option value="6">6 步</option>
+        <option value="7">7 步</option><option value="8">8 步</option>
+        <option value="9">9 步</option><option value="10">10 步</option>
+      </select>
+      <small>每步重算 · 引擎推荐主线，非概率</small>
+    </label>
     <div id="coachPanel" data-state="idle" aria-live="polite">
       <div id="coachLead">
         <span class="coach-kicker">路线影响</span>
         <b id="coachTitle">把鼠标移到任一候选，直接看后续</b>
-        <span id="coachExplain">自动连演我方→对方→我方→对方 4 步；点击才算明确选择</span>
+        <span id="coachExplain">默认连演 4 步，可选 1–10 步；点击才算明确选择</span>
       </div>
       <div id="coachThreatStrip" aria-label="一步威胁提示"></div>
       <div id="coachMoves"></div>
@@ -2353,6 +2364,8 @@ let futurePreviewTimer = 0;
 let hoverPreviewTimer = 0;
 let hoverPreviewKey = '';
 let hoverPreviewState = null;
+let previewWorker = null;
+let hoverPreviewRequestId = 0;
 let hoverFocusSuppressedUntil = 0;
 let hoverKeyboardIntentUntil = 0;
 
@@ -2363,7 +2376,11 @@ document.addEventListener('keydown', (event) => {
 }, { capture: true });
 const FUTURE_PREVIEW_STEP_MS = 660;
 const HOVER_PREVIEW_DWELL_MS = 140;
-const HOVER_PREVIEW_PLY = 4;
+const PREVIEW_PLY_MIN = 1;
+const PREVIEW_PLY_MAX = 10;
+const PREVIEW_PLY_DEFAULT = 4;
+let previewPly = PREVIEW_PLY_DEFAULT;
+const previewDepthEl = document.getElementById('chessPreviewDepth');
 const coachPanelEl = document.getElementById('coachPanel');
 const coachTitleEl = document.getElementById('coachTitle');
 const coachExplainEl = document.getElementById('coachExplain');
@@ -2446,11 +2463,11 @@ function cancelFutureBoardPreview(render = true, sync = true) {
   return hadPreview;
 }
 
-function replayFuturePreview(rootFen, moves) {
+function replayFuturePreview(rootFen, moves, maxPly = previewPly) {
   let replay;
   try { replay = new Chess(rootFen); } catch { return []; }
   const frames = [];
-  for (const [index, requested] of moves.slice(0, HOVER_PREVIEW_PLY).entries()) {
+  for (const [index, requested] of moves.slice(0, maxPly).entries()) {
     const legal = replay.moves({ verbose: true }).find((candidate) =>
       candidate.from === requested.from
       && candidate.to === requested.to
@@ -2933,36 +2950,83 @@ function futureMoveKey(move) {
     : '';
 }
 
-function buildHoverPreviewLine(seedMoves, maxPly = HOVER_PREVIEW_PLY) {
+function buildHoverPreviewLine(seedMoves, maxPly = previewPly) {
   const seed = (Array.isArray(seedMoves) ? seedMoves : [seedMoves]).filter(Boolean);
   if (!seed.length || !seed.at(-1)?.after) return [];
   const cacheKey = `${game.fen()}|${seed.map(futureMoveKey).join('|')}|${maxPly}`;
-  const cached = hoverPreviewLineCache.get(cacheKey);
-  if (cached) return cached;
-  const line = seed.slice(0, maxPly);
-  let fen = line.at(-1).after;
-  while (line.length < maxPly) {
-    const next = rankMoves(fen, { depth: RANK_DEPTH })[0] || null;
-    if (!next) break;
-    line.push(next);
-    fen = next.after;
-  }
-  hoverPreviewLineCache.set(cacheKey, line);
-  return line;
+  return hoverPreviewLineCache.get(cacheKey) || [];
+}
+
+function stopHoverPreviewWorker(worker = previewWorker) {
+  if (!worker) return;
+  worker.terminate();
+  if (previewWorker === worker) previewWorker = null;
+}
+
+function makeHoverPreviewWorker({ requestId, rootFen, key, seed, maxPly, cacheKey }) {
+  stopHoverPreviewWorker();
+  const worker = new Worker('./worker.js?v=p0.5.0', { type: 'module' });
+  previewWorker = worker;
+  worker.addEventListener('message', (event) => {
+    const message = event.data || {};
+    if (message.type === 'previewLineError') {
+      if (Number(message.id) === hoverPreviewRequestId) {
+        hoverPreviewState = { key, rootFen, line: [], status: 'error' };
+      }
+      stopHoverPreviewWorker(worker);
+      return;
+    }
+    if (message.type !== 'previewLineDone') return;
+    const line = Array.isArray(message.result?.line)
+      ? message.result.line.slice(0, maxPly)
+      : [];
+    const current = Number(message.id) === hoverPreviewRequestId
+      && message.rootFen === rootFen
+      && message.moveKey === key
+      && hoverPreviewKey === key
+      && game.fen() === rootFen
+      && !thinking
+      && !forkStale;
+    stopHoverPreviewWorker(worker);
+    if (!current || !line.length) return;
+    hoverPreviewLineCache.set(cacheKey, line);
+    hoverPreviewState = { key, rootFen, line, status: 'playing' };
+    startFutureBoardPreview(line, { fromBeginning: true, kind: 'hover' });
+  });
+  worker.addEventListener('error', () => {
+    if (requestId === hoverPreviewRequestId) {
+      hoverPreviewState = { key, rootFen, line: [], status: 'error' };
+    }
+    stopHoverPreviewWorker(worker);
+  });
+  worker.postMessage({
+    type: 'previewLine',
+    id: requestId,
+    fen: rootFen,
+    moveKey: key,
+    moves: seed.map((move) => ({
+      from: move.from,
+      to: move.to,
+      promotion: move.promotion || '',
+    })),
+    maxPly,
+  });
 }
 
 function renderHoverFutureContext(frames = futurePreviewPlayback?.frames || []) {
   const moves = frames.map((frame) => frame.move);
   writeFutureContext({
-    label: '悬停连演',
-    title: `自动连演 ${moves.length} 步：${moves.map((move) => move.san).join(' → ')}`,
-    detail: '第一步是你正在看的候选；后续由现有浅层分析逐段接续，只展示一种可能路线。移到另一候选即可换线。',
+    label: '引擎推荐主线 · 非概率',
+    title: `连续预演 ${moves.length} 步：${moves.map((move) => move.san).join(' → ')}`,
+    detail: '第一步是你正在看的候选；后续每一步都从当时的新局面重新排序，代表值得优先检查的应对，不是真人落子概率。',
     canCommit: moves.length > 0,
     canClear: moves.length > 0,
   });
 }
 
 function cancelHoverPreview({ restoreExplicit = true } = {}) {
+  hoverPreviewRequestId += 1;
+  stopHoverPreviewWorker();
   if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
   hoverPreviewTimer = 0;
   hoverPreviewKey = '';
@@ -2979,23 +3043,61 @@ function cancelHoverPreview({ restoreExplicit = true } = {}) {
 
 function scheduleHoverPreview(move, sourceKey = futureMoveKey(move), prefix = []) {
   if (!move || thinking || forkStale || game.turn() !== 'w' || game.isGameOver()) return false;
-  const key = `${sourceKey}|${futureMoveKey(move)}`;
+  const key = `${sourceKey}|${futureMoveKey(move)}|depth:${previewPly}`;
   if (key === hoverPreviewKey && (hoverPreviewTimer || futurePreviewPlayback?.kind === 'hover')) return false;
   if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
   hoverPreviewTimer = 0;
   hoverPreviewKey = key;
+  const requestId = ++hoverPreviewRequestId;
   const expectedFen = game.fen();
   if (futurePreviewPlayback?.kind === 'hover') cancelFutureBoardPreview();
   hoverPreviewTimer = window.setTimeout(() => {
     hoverPreviewTimer = 0;
-    if (hoverPreviewKey !== key || game.fen() !== expectedFen || thinking || forkStale) return;
-    const line = buildHoverPreviewLine([...prefix, move]);
-    if (!line.length || game.fen() !== expectedFen) return;
-    hoverPreviewState = { key, rootFen: expectedFen, line };
-    startFutureBoardPreview(line, { fromBeginning: true, kind: 'hover' });
+    if (requestId !== hoverPreviewRequestId
+      || hoverPreviewKey !== key
+      || game.fen() !== expectedFen
+      || thinking
+      || forkStale) return;
+    const seed = [...prefix, move];
+    const cacheKey = `${expectedFen}|${seed.map(futureMoveKey).join('|')}|${previewPly}`;
+    const cached = buildHoverPreviewLine(seed, previewPly);
+    if (cached.length) {
+      hoverPreviewState = { key, rootFen: expectedFen, line: cached, status: 'playing' };
+      startFutureBoardPreview(cached, { fromBeginning: true, kind: 'hover' });
+      return;
+    }
+    hoverPreviewState = { key, rootFen: expectedFen, line: [], status: 'calculating' };
+    makeHoverPreviewWorker({
+      requestId,
+      rootFen: expectedFen,
+      key,
+      seed,
+      maxPly: previewPly,
+      cacheKey,
+    });
   }, HOVER_PREVIEW_DWELL_MS);
   return true;
 }
+
+function setPreviewDepth(value) {
+  const next = Math.max(PREVIEW_PLY_MIN, Math.min(PREVIEW_PLY_MAX, Number(value) || PREVIEW_PLY_DEFAULT));
+  if (next === previewPly) return previewPly;
+  previewPly = next;
+  previewDepthEl.value = String(next);
+  futureMapEl.dataset.previewDepth = String(next);
+  hoverPreviewLineCache.clear();
+  cancelHoverPreview({ restoreExplicit: false });
+  cancelFutureBoardPreview();
+  renderFutureContextIdle();
+  coachExplainEl.textContent = `将按所选候选连续预演 ${next} 步；每一步从新局面重新排序`;
+  setStatusText(`预演深度已改为 ${next} 步。把鼠标移到候选上即可播放推荐主线。`);
+  return previewPly;
+}
+
+previewDepthEl.addEventListener('change', (event) => {
+  setPreviewDepth(event.currentTarget.value);
+});
+futureMapEl.dataset.previewDepth = String(previewPly);
 
 function futureEffectHtml(effect) {
   return `<span class="future-effect" data-future-effect data-kind="${esc(effect.kind)}"`
@@ -3086,7 +3188,7 @@ function renderFutureReplyOptions() {
       + ` data-engine-suggested="${suggested}" data-selected="${selectedReply}"`
       + ` aria-pressed="${selectedReply}"`
       + ` aria-label="假设对手回应 ${esc(move.san)}，${optionState}，走后 ${futureBranchCount(move.after)} 个分支">`
-      + `<b>${esc(move.san)}</b><small>${selectedReply ? '已选假设回应' : suggested ? '建议优先检查' : `可能回应 ${rank + 1}/${frontier.replies.length}`}</small>`
+      + `<b>${esc(move.san)}</b><small>${selectedReply ? '已选假设回应' : suggested ? '推荐主线下一步' : `可能回应 ${rank + 1}/${frontier.replies.length}`}</small>`
       + `</button>`;
   }).join('');
   syncFutureReplyInteractivity();
@@ -6353,7 +6455,7 @@ function resetGame(fen = null) {
   renderCoachIdle();
   setStatusText(fen
     ? `${game.turn() === 'w' ? '白方' : '黑方'}行棋。`
-    : '你执白。鼠标停在候选上会自动连演 4 步；点击棋盘仍可直接下棋。');
+    : `你执白。鼠标停在候选上会自动连演 ${previewPly} 步；点击棋盘仍可直接下棋。`);
   return true;
 }
 
@@ -6416,6 +6518,7 @@ function futureSnapshot() {
     suggestedPath: suggestedMoves.map((move, index) =>
       futureMoveSnapshot(move, routeSelectionDepth + index + 1, 'suggested')),
     preview: {
+      configuredDepth: previewPly,
       source: hoverPreviewMoves.length ? 'hover' : selectedMoves.length ? 'manual' : 'suggested',
       fen: previewMoves.at(-1)?.after || game.fen(),
       depth: previewMoves.length,
@@ -6479,6 +6582,14 @@ window.__futureTest = Object.freeze({
   setMode: (mode) => setCloudViewMode(
     mode === 'tree-2d' || mode === '2d' ? '2d' : '3d',
   ),
+  setPreviewDepth,
+  previewDepth: () => previewPly,
+  hoverState: () => Object.freeze({
+    key: hoverPreviewKey,
+    requestId: hoverPreviewRequestId,
+    timerPending: !!hoverPreviewTimer,
+    status: hoverPreviewState?.status || 'idle',
+  }),
   commitSelected: () => commitFirstFutureMove(true),
 });
 

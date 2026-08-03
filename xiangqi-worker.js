@@ -25,25 +25,13 @@ function sameMove(left, right) {
 }
 
 function buildAutoplayLine(fen, rootBranches, maxPly = 4) {
-  let position = parseFen(fen);
-  let ranked = rootBranches;
-  const line = [];
-  while (line.length < maxPly && ranked.length) {
-    const candidate = ranked[0];
-    const legalMove = generateLegalMoves(position).find((move) => sameMove(move, candidate));
-    if (!legalMove) break;
-    position = applyMove(position, legalMove, { validate: false });
-    line.push({ ...candidate, after: toFen(position) });
-    if (line.length >= maxPly || !candidate.reply) break;
-
-    const legalReply = generateLegalMoves(position).find((move) => sameMove(move, candidate.reply));
-    if (!legalReply) break;
-    position = applyMove(position, legalReply, { validate: false });
-    line.push({ ...candidate.reply, after: toFen(position) });
-    if (line.length >= maxPly) break;
-    ranked = rankMoves(toFen(position));
-  }
-  return line;
+  const lead = rootBranches[0] || null;
+  if (!lead) return [];
+  return buildPreviewLine(
+    fen,
+    [lead, lead.reply, lead.continuation].filter(Boolean),
+    maxPly,
+  );
 }
 
 function buildPreviewLine(fen, requestedMoves, maxPly = 4) {
@@ -129,7 +117,7 @@ self.onmessage = (event) => {
       const line = buildPreviewLine(
         message.fen || START_FEN,
         message.moves || message.move,
-        Math.max(1, Math.min(4, Number(message.maxPly) || 4)),
+        Math.max(1, Math.min(10, Number(message.maxPly) || 4)),
       );
       self.postMessage({
         type: 'previewLineDone',
@@ -157,7 +145,8 @@ self.onmessage = (event) => {
   if (message.type === 'branches') {
     try {
       const branches = rankMoves(message.fen || START_FEN);
-      const autoplayLine = buildAutoplayLine(message.fen || START_FEN, branches);
+      const maxPly = Math.max(1, Math.min(10, Number(message.maxPly) || 4));
+      const autoplayLine = buildAutoplayLine(message.fen || START_FEN, branches, maxPly);
       self.postMessage({
         type: 'branchesDone',
         id: message.id,

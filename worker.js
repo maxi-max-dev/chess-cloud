@@ -1,10 +1,51 @@
-// worker.js —— 真 Worker。两件活：AI 应手（search）和整张路径网（cloud）。
-// 页面开两个实例，一个专管 AI，一个专管路径网，互不排队。
+// worker.js —— 真 Worker。负责 AI 应手、整张路径网，以及可取消的悬停推荐主线。
+// 页面为不同任务开独立实例，互不排队。
 //
 // 这里没有任何「主线程算完假装分批送」的把戏：第 1～4 层全在这个 Worker
 // 里展开。主线程只把真实结果做成 Three.js geometry，不再被棋局枚举堵住。
 
 import { Chess, expand, search } from './engine.js';
+
+function sameMove(left, right) {
+  return !!left && !!right
+    && left.from === right.from
+    && left.to === right.to
+    && (left.promotion || '') === (right.promotion || '');
+}
+
+function buildPreviewLine(fen, requestedMoves, maxPly = 4) {
+  const game = new Chess(fen);
+  const seed = (Array.isArray(requestedMoves) ? requestedMoves : [requestedMoves]).filter(Boolean);
+  const line = [];
+  let seedIndex = 0;
+  let requested = seed[0] || null;
+  while (requested && line.length < maxPly) {
+    const legal = game.moves({ verbose: true }).find((candidate) => sameMove(candidate, requested));
+    if (!legal) break;
+    game.move({
+      from: legal.from,
+      to: legal.to,
+      ...(legal.promotion ? { promotion: legal.promotion } : {}),
+    });
+    line.push({
+      san: legal.san,
+      from: legal.from,
+      to: legal.to,
+      promotion: legal.promotion || '',
+      piece: legal.piece,
+      captured: legal.captured || '',
+      flags: legal.flags,
+      after: game.fen(),
+    });
+    if (line.length >= maxPly || game.isGameOver()) break;
+    seedIndex += 1;
+    requested = seed[seedIndex] || search(game.fen(), {
+      timeBudgetMs: 70,
+      maxDepth: 2,
+    })?.move || null;
+  }
+  return line;
+}
 
 self.onmessage = (ev) => {
   const msg = ev.data;
@@ -22,6 +63,30 @@ self.onmessage = (ev) => {
       self.postMessage({ type: 'searchDone', id: msg.id, result: r });
     } catch (e) {
       self.postMessage({ type: 'searchError', id: msg.id, message: String(e && e.message || e) });
+    }
+    return;
+  }
+
+  if (msg.type === 'previewLine') {
+    try {
+      const maxPly = Math.max(1, Math.min(10, Number(msg.maxPly) || 4));
+      const line = buildPreviewLine(msg.fen, msg.moves || msg.move, maxPly);
+      self.postMessage({
+        type: 'previewLineDone',
+        id: msg.id,
+        rootFen: msg.fen,
+        moveKey: msg.moveKey,
+        depth: maxPly,
+        result: { line },
+      });
+    } catch (e) {
+      self.postMessage({
+        type: 'previewLineError',
+        id: msg.id,
+        rootFen: msg.fen,
+        moveKey: msg.moveKey,
+        message: String(e && e.message || e),
+      });
     }
     return;
   }

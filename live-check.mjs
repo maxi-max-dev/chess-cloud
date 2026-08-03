@@ -3973,7 +3973,29 @@ async function main() {
     const keyboard = window.__futureTest.snapshot();
     keyboardCard?.blur();
     await new Promise((resolve) => setTimeout(resolve, 40));
-    return { liveBefore, first, mouse, cleared, keyboard };
+
+    const configured = window.__futureTest.setPreviewDepth(10);
+    const depthControl = document.getElementById('chessPreviewDepth');
+    card?.dispatchEvent(new PointerEvent('pointerover', {
+      bubbles: true,
+      pointerType: 'mouse',
+    }));
+    const deepStarted = performance.now();
+    while (performance.now() - deepStarted < 6000) {
+      const current = window.__futureTest.snapshot();
+      if (current.preview.source === 'hover' && current.preview.depth === 10) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const deep = {
+      future: window.__futureTest.snapshot(),
+      selected: depthControl?.value || '',
+      options: [...(depthControl?.options || [])].map((option) => Number(option.value)),
+      height: depthControl?.getBoundingClientRect().height || 0,
+      configured,
+    };
+    fork.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+    window.__futureTest.setPreviewDepth(4);
+    return { liveBefore, first, mouse, cleared, keyboard, deep };
   })()`, true);
   let hoverReplayOk = hoverAuto.mouse.future.preview.path.length === 4;
   try {
@@ -3991,6 +4013,23 @@ async function main() {
     }
   } catch {
     hoverReplayOk = false;
+  }
+  let deepReplayOk = hoverAuto.deep.future.preview.path.length === 10;
+  try {
+    const replay = new Chess(hoverAuto.deep.future.root.fen);
+    for (const step of hoverAuto.deep.future.preview.path) {
+      const played = replay.move({
+        from: step.from,
+        to: step.to,
+        ...(step.promotion ? { promotion: step.promotion } : {}),
+      });
+      if (!played || replay.fen() !== step.afterFen) {
+        deepReplayOk = false;
+        break;
+      }
+    }
+  } catch {
+    deepReplayOk = false;
   }
   const hoverChecks = {
     candidate: !!hoverAuto.first,
@@ -4012,15 +4051,24 @@ async function main() {
     keyboardSource: hoverAuto.keyboard.preview.source === 'hover',
     keyboardDepth: hoverAuto.keyboard.preview.depth === 4,
     keyboardNoSelection: hoverAuto.keyboard.selectedPath.length === 0,
+    deepConfigured: hoverAuto.deep.configured === 10,
+    deepSelected: hoverAuto.deep.selected === '10',
+    deepOptions: JSON.stringify(hoverAuto.deep.options) === JSON.stringify([1,2,3,4,5,6,7,8,9,10]),
+    deepTouchTarget: hoverAuto.deep.height >= 44,
+    deepSource: hoverAuto.deep.future.preview.source === 'hover',
+    deepDepth: hoverAuto.deep.future.preview.depth === 10,
+    deepNoSelection: hoverAuto.deep.future.selectedPath.length === 0,
+    deepLegal: deepReplayOk,
   };
   record(
     Object.values(hoverChecks).every(Boolean),
-    '鼠标悬停或键盘聚焦候选会自动连续演 4 ply，路线合法且不冒充实战选择',
+    '鼠标或键盘按 1–10 ply 设置连演，默认 4、深线合法且不冒充实战选择',
     `首着=${hoverAuto.first?.san || '无'}｜鼠标=${hoverAuto.mouse.future.preview.source}`
       + `/${hoverAuto.mouse.future.preview.depth} ply`
       + `｜键盘=${hoverAuto.keyboard.preview.source}/${hoverAuto.keyboard.preview.depth} ply`
+      + `｜深线=${hoverAuto.deep.future.preview.source}/${hoverAuto.deep.future.preview.depth} ply`
       + `｜selected=${hoverAuto.mouse.future.selectedPath.length}`
-      + `｜合法=${hoverReplayOk}｜实战未变=${hoverAuto.mouse.state.fen === hoverAuto.liveBefore.fen}`
+      + `｜合法=${hoverReplayOk}/${deepReplayOk}｜实战未变=${hoverAuto.mouse.state.fen === hoverAuto.liveBefore.fen}`
       + `｜fail=${Object.entries(hoverChecks).filter(([, ok]) => !ok).map(([key]) => key).join('/') || '无'}`,
   );
 
@@ -4311,7 +4359,7 @@ async function main() {
       && suggestedOption?.to === suggestedStep.to
       && (suggestedOption?.promotion || '') === (suggestedStep.promotion || '')
       && suggestedOption?.afterFen === suggestedStep.afterFen
-      && /建议/.test(suggestedOption?.text || '')
+      && /建议|推荐主线/.test(suggestedOption?.text || '')
       && /建议/.test(suggestedOption?.aria || '')
       && uncertainAwait.options
         .filter((option) => !option.suggested)

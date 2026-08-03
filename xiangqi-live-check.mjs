@@ -690,6 +690,38 @@ async function autoplayAudit() {
       liveFen: window.__xiangqiTest.fen,
     };
   })()`);
+  await evaluate(`(() => {
+    window.__futureTest.setPreviewDepth(10);
+    window.__futureTest.setAutoplay(true);
+    window.__xiangqiTest.reset();
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().autoplay.phase === 'complete'`,
+    12000,
+    '十步零点击云演完成',
+  );
+  const deepAutoplay = await evaluate(`(() => {
+    const snapshot = window.__futureTest.snapshot();
+    const runEvents = snapshot.autoplay.history.filter(
+      (event) => event.positionId === snapshot.identity.positionId
+        && event.runId === snapshot.identity.runId
+    );
+    return {
+      configuredDepth: snapshot.preview.configuredDepth,
+      depth: snapshot.selectedPath.length,
+      stepCount: Number(document.getElementById('board').dataset.previewStepCount),
+      elapsedMs: snapshot.autoplay.elapsedMs,
+      stage: snapshot.preview.stage,
+      liveFen: window.__xiangqiTest.fen,
+      ordered: Array.from({ length: 10 }, (_, index) => index + 1).every((ply) => {
+        const commit = runEvents.findIndex((event) => event.type === 'motion_committed' && event.ply === ply);
+        const impact = runEvents.findIndex((event) => event.type === 'landing_impact' && event.ply === ply);
+        const threat = runEvents.findIndex((event) => event.type === 'threats_revealed' && event.ply === ply);
+        return commit >= 0 && impact > commit && threat > impact;
+      }),
+    };
+  })()`);
+  await evaluate('window.__futureTest.setPreviewDepth(4)');
   record(
     sameFen(completed.liveFen, START_FEN)
       && completed.pathLength === 0
@@ -699,8 +731,8 @@ async function autoplayAudit() {
       && ['conditional-settled', 'conditional-static'].includes(completed.board.phase)
       && sameFen(completed.board.committedFen, completed.selectedPath[3].afterFen)
       && sameFen(completed.board.displayFen, completed.selectedPath[3].afterFen)
-      && completed.copy.title.includes('云演 4 步')
-      && completed.copy.detail.includes('自动接续')
+      && completed.copy.title.includes('引擎推荐主线 · 4 步')
+      && completed.copy.detail.includes('每一步')
       && completed.copy.coach.includes('自动选入')
       && !completed.copy.detail.includes('你明确选择')
       && !completed.playBridge.hidden
@@ -714,11 +746,19 @@ async function autoplayAudit() {
       && returnedToPlay.playableSquares === 16
       && returnedToPlay.boardFocused
       && sameFen(returnedToPlay.liveFen, START_FEN)
-      && completed.autoplay.elapsedMs <= 8000,
-    '首次加载/重置后零点击自动演 4 ply，并明确提供采纳首步或返回棋盘的下棋入口',
+      && completed.autoplay.elapsedMs <= 8000
+      && deepAutoplay.configuredDepth === 10
+      && deepAutoplay.depth === 10
+      && deepAutoplay.stepCount === 10
+      && deepAutoplay.stage === 'settled'
+      && deepAutoplay.elapsedMs <= 8000
+      && deepAutoplay.ordered
+      && sameFen(deepAutoplay.liveFen, START_FEN),
+    '零点击云演默认 4 ply、可选 10 ply，均守住 8 秒并保留下棋入口',
     `phase=${completed.board.phase}/${completed.board.stage}`
       + `｜ply=${completed.selectedPath.length}`
       + `｜elapsed=${completed.autoplay.elapsedMs}ms`
+      + `｜10ply=${deepAutoplay.depth}/${deepAutoplay.elapsedMs}ms/order:${deepAutoplay.ordered}`
       + `｜文案=${completed.copy.title}`
       + `｜实战未变=${sameFen(completed.liveFen, START_FEN)}`,
   );
@@ -981,6 +1021,45 @@ async function hoverAutoplayAudit() {
     '键盘连演清理',
   );
 
+  const depthControl = await evaluate(`(() => {
+    const configured = window.__futureTest.setPreviewDepth(10);
+    const control = document.getElementById('xqPreviewDepth');
+    const card = document.querySelector('#branchGrid button[data-from][data-to]');
+    card?.dispatchEvent(new PointerEvent('pointerover', {
+      bubbles: true,
+      pointerType: 'mouse',
+    }));
+    return {
+      configured,
+      selected: control?.value || '',
+      options: [...(control?.options || [])].map((option) => Number(option.value)),
+      height: control?.getBoundingClientRect().height || 0,
+    };
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().preview.source === 'hover'
+      && window.__futureTest.snapshot().preview.depth === 10`,
+    8000,
+    '十步悬停路线',
+  );
+  const deep = await evaluate('window.__futureTest.snapshot()');
+  const deepReplayProblems = [];
+  let deepFen = deep.root.fen;
+  for (const [index, step] of deep.preview.path.entries()) {
+    const matches = legalTransition(deepFen, step.afterFen);
+    if (matches.length !== 1) {
+      deepReplayProblems.push(`第 ${index + 1} 手匹配 ${matches.length}`);
+      break;
+    }
+    deepFen = toFen(matches[0].next);
+  }
+  await evaluate(`(() => {
+    document.getElementById('branchGrid').dispatchEvent(
+      new PointerEvent('pointerleave', { pointerType: 'mouse' })
+    );
+    window.__futureTest.setPreviewDepth(4);
+  })()`);
+
   record(
     !!mouseStart.first
       && mouse.snapshot.preview.source === 'hover'
@@ -1001,13 +1080,23 @@ async function hoverAutoplayAudit() {
       && cleared.preview.depth === 0
       && keyboard.preview.source === 'hover'
       && keyboard.preview.depth === 4
-      && keyboard.selectedPath.length === 0,
-    '鼠标悬停或键盘聚焦候选会自动连续演 4 ply，路线合法且不冒充实战选择',
+      && keyboard.selectedPath.length === 0
+      && depthControl.configured === 10
+      && depthControl.selected === '10'
+      && JSON.stringify(depthControl.options) === JSON.stringify([1,2,3,4,5,6,7,8,9,10])
+      && depthControl.height >= 44
+      && deep.preview.source === 'hover'
+      && deep.preview.depth === 10
+      && deep.preview.configuredDepth === 10
+      && deep.selectedPath.length === 0
+      && deepReplayProblems.length === 0,
+    '鼠标或键盘按 1–10 ply 设置连演，默认 4、深线合法且不冒充实战选择',
     `首着=${mouseStart.first?.label || '无'}｜鼠标=${mouse.snapshot.preview.source}`
       + `/${mouse.snapshot.preview.depth} ply`
       + `｜键盘=${keyboard.preview.source}/${keyboard.preview.depth} ply`
+      + `｜深线=${deep.preview.source}/${deep.preview.depth} ply`
       + `｜selected=${mouse.snapshot.selectedPath.length}`
-      + `｜合法=${replayProblems.length === 0}`
+      + `｜合法=${replayProblems.length === 0}/${deepReplayProblems.length === 0}`
       + `｜positionId=${mouse.snapshot.identity.positionId}`
       + `｜实战未变=${sameFen(mouse.liveFen, mouseStart.liveFen)}`,
   );
@@ -1338,8 +1427,8 @@ async function uncertainReplyAudit() {
       && options.length === optionAudit.legalCount
       && options.every((option) => option.tag === 'BUTTON' && !option.disabled)
       && suggested.length === 1
-      && /建议/.test(suggested[0]?.text || '')
-      && /建议/.test(suggested[0]?.aria || '')
+      && /建议|推荐主线/.test(suggested[0]?.text || '')
+      && /建议|推荐主线/.test(suggested[0]?.aria || '')
       && options.filter((option) => !option.suggested).every((option) => /可能|假设/.test(option.aria))
       && /(?:可能|假设)回应/.test(awaited.replyText)
       && !/(?:确定|必然)回应/.test(awaited.replyText)

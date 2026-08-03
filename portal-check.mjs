@@ -57,7 +57,7 @@ record(
 );
 record(
   (xiangqi.includes("from './xiangqi-engine.js'") || xiangqi.includes("import('./xiangqi-engine.js')"))
-    && xiangqi.includes("new Worker('./xiangqi-worker.js?v=p0.4.1'"),
+    && xiangqi.includes("new Worker('./xiangqi-worker.js?v=p0.5.0'"),
   '中国象棋独立页面接自己的棋核与 Worker',
 );
 record(
@@ -149,10 +149,18 @@ record(
 
 record(
   xiangqi.includes('AUTOPLAY_BUDGET_MS = 8000')
-    && xiangqi.includes('AUTOPLAY_PLY = 4')
+    && [chess, xiangqi].every((source) =>
+      source.includes('PREVIEW_PLY_MIN = 1')
+        && source.includes('PREVIEW_PLY_MAX = 10')
+        && source.includes('PREVIEW_PLY_DEFAULT = 4')
+        && source.includes('let previewPly = PREVIEW_PLY_DEFAULT')
+        && source.includes('setPreviewDepth')
+        && /<select id="(?:chess|xq)PreviewDepth"/.test(source)
+        && (source.match(/<option value="(?:[1-9]|10)"/g) || []).length === 10)
     && xiangqi.includes("recordAutoplayEvent('motion_committed'")
     && xiangqi.includes("recordAutoplayEvent('landing_impact'")
     && xiangqi.includes("recordAutoplayEvent('threats_revealed'")
+    && xiangqi.includes('previewTiming(frames.length)')
     && xiangqi.includes("document.addEventListener('visibilitychange'")
     && xiangqi.includes('IntersectionObserver')
     && xiangqi.includes("event.key === ' '")
@@ -161,14 +169,13 @@ record(
     && xiangqi.includes('id="xqReturnToPlay"')
     && xiangqi.includes('id="xqAdoptPreview"')
     && [chess, xiangqi].every((source) =>
-      source.includes('HOVER_PREVIEW_PLY = 4')
-        && source.includes("addEventListener('pointerover'")
+      source.includes("addEventListener('pointerover'")
         && source.includes("addEventListener('focusin'"))
     && chess.includes('id="chessReturnToPlay"')
     && chess.includes('id="chessAdoptPreview"')
     && [portal, chess, xiangqi].every((source) =>
       source.includes('rel="icon" href="data:image/svg+xml')),
-  '两棋种包含 4 ply 悬停连演、零点击云演、原子时序、下棋入口、键盘与移动端保护',
+  '两棋种包含 1–10 ply 悬停连演、默认 4 ply、零点击云演、原子时序、键盘与移动端保护',
 );
 
 const forbidden = ['8902', '197281'];

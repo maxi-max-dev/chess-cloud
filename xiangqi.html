@@ -1035,7 +1035,7 @@
         <div class="tree-title">
           <span class="future-kicker">Future map · Xiangqi</span>
           <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
-          <p>鼠标停在任一候选上会自动连演 4 步；移到另一条路线即可换线，点击仍用于明确选择。</p>
+          <p>鼠标停在候选上会按所选深度连演；每一步都从新局面重新排序，移到另一条路线即可换线。</p>
           <div class="future-map-legend" aria-label="未来地图图例">
             <span class="future-legend-key" data-kind="option">其他合法路线</span>
             <span class="future-legend-key" data-kind="selected">正在预演</span>
@@ -1043,6 +1043,17 @@
             <span class="future-legend-key" data-kind="engine">引擎建议</span>
             <span class="future-legend-key" data-kind="effect">吃子 / 威胁</span>
           </div>
+          <label class="preview-depth-control" for="xqPreviewDepth">
+            <span>预演步数</span>
+            <select id="xqPreviewDepth" aria-label="中国象棋预演步数">
+              <option value="1">1 步</option><option value="2">2 步</option>
+              <option value="3">3 步</option><option value="4" selected>4 步</option>
+              <option value="5">5 步</option><option value="6">6 步</option>
+              <option value="7">7 步</option><option value="8">8 步</option>
+              <option value="9">9 步</option><option value="10">10 步</option>
+            </select>
+            <small>每步重算 · 引擎推荐主线，非概率</small>
+          </label>
         </div>
         <div class="tree-toolbar" aria-label="路径图缩放">
           <button id="xqOverviewMode" class="view-mode" type="button"
@@ -1087,7 +1098,7 @@
         <div class="future-context-copy">
           <span class="future-context-label">路线语境</span>
           <span id="xqFutureTitle" class="future-context-title">尚未选择路线</span>
-          <span id="xqFutureDetail" class="future-context-detail">悬停候选即可连续看我方→对方→我方→对方 4 步；不会替你落子。</span>
+          <span id="xqFutureDetail" class="future-context-detail">默认连演 4 步，可选 1–10 步；每一步都从当时的新局面重算。</span>
           <span id="xqFutureEffects" class="future-effects" aria-label="这条路线的直接后果"></span>
         </div>
         <div class="future-context-actions">
@@ -1161,6 +1172,7 @@ const els = Object.freeze({
   autoplayToggle: document.getElementById('xqAutoplayToggle'),
   futureCommit: document.getElementById('xqCommit'),
   futureClear: document.getElementById('xqClearPreview'),
+  previewDepth: document.getElementById('xqPreviewDepth'),
   overviewMode: document.getElementById('xqOverviewMode'),
   treeMode: document.getElementById('xqTreeMode'),
   overview: document.getElementById('xqOverview'),
@@ -1361,8 +1373,10 @@ const autoplayHistory = [];
 const AUTOPLAY_IDLE_MS = 600;
 const AUTOPLAY_REVEAL_MS = 420;
 const AUTOPLAY_BUDGET_MS = 8000;
-const AUTOPLAY_PLY = 4;
-const HOVER_PREVIEW_PLY = 4;
+const PREVIEW_PLY_MIN = 1;
+const PREVIEW_PLY_MAX = 10;
+const PREVIEW_PLY_DEFAULT = 4;
+let previewPly = PREVIEW_PLY_DEFAULT;
 const HOVER_PREVIEW_DWELL_MS = 140;
 let futureMode = 'tree-2d';
 let overviewYaw = -.18;
@@ -1499,9 +1513,9 @@ function cancelPreviewPlayback(nextPhase = null) {
 function buildPreviewFrames(line) {
   if (!line?.move || line.node?.parentFen && line.node.parentFen !== currentFen) return [];
   try {
-    const route = Array.isArray(line.autoplayMoves) && line.autoplayMoves.length
-      ? line.autoplayMoves.slice(0, AUTOPLAY_PLY)
-      : [line.move, line.reply].filter(Boolean);
+    const route = (Array.isArray(line.autoplayMoves) && line.autoplayMoves.length
+      ? line.autoplayMoves
+      : [line.move, line.reply].filter(Boolean)).slice(0, previewPly);
     const frames = [];
     let cursor = position;
     for (let index = 0; index < route.length; index++) {
@@ -1525,8 +1539,11 @@ function previewRouteKey(line) {
 }
 
 function settledPreviewPhase(line, reduceMotion = false) {
-  if (!line?.reply && !(line?.replies?.length > 0)) return 'terminal';
-  if (line.reply) return reduceMotion ? 'conditional-static' : 'conditional-settled';
+  const routeLength = (Array.isArray(line?.autoplayMoves) && line.autoplayMoves.length
+    ? line.autoplayMoves
+    : [line?.move, line?.reply].filter(Boolean)).slice(0, previewPly).length;
+  if (routeLength < 2) return line?.replies?.length > 0 ? 'await-reply' : 'terminal';
+  if (line?.reply) return reduceMotion ? 'conditional-static' : 'conditional-settled';
   return 'await-reply';
 }
 
@@ -1553,6 +1570,19 @@ function schedulePreviewTask(playback, task, delay) {
   ), delay);
 }
 
+function previewTiming(frameCount) {
+  const count = Math.max(1, Number(frameCount) || 1);
+  const base = Object.freeze({ motion: 680, impact: 210, threats: 280 });
+  const totalPerPly = base.motion + base.impact + base.threats;
+  const animationWindow = AUTOPLAY_BUDGET_MS - 800;
+  const scale = Math.min(1, animationWindow / (count * totalPerPly));
+  return Object.freeze({
+    motion: Math.max(390, Math.round(base.motion * scale)),
+    impact: Math.max(105, Math.round(base.impact * scale)),
+    threats: Math.max(140, Math.round(base.threats * scale)),
+  });
+}
+
 function startPreviewPlayback(line, { autoplay = false, fromBeginning = false } = {}) {
   cancelPreviewPlayback();
   const frames = buildPreviewFrames(line);
@@ -1564,7 +1594,7 @@ function startPreviewPlayback(line, { autoplay = false, fromBeginning = false } 
   pendingMoveAnimation = null;
   threatPulseSquares.clear();
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const conditional = !!line.reply;
+  const conditional = frames.length > 1;
   const activeRunId = runId;
   const token = `xq-preview-${positionId}-${activeRunId}-${futureMoveKey(line.move)}-${futureMoveKey(line.reply)}`;
   const startIndex = fromBeginning ? 0 : conditional ? frames.length - 1 : 0;
@@ -1588,6 +1618,7 @@ function startPreviewPlayback(line, { autoplay = false, fromBeginning = false } 
     paused: false,
     pauseReason: '',
     pendingTask: null,
+    timing: previewTiming(frames.length),
   };
   document.body.classList.add('xq-preview-active');
   render();
@@ -1602,7 +1633,7 @@ function startPreviewPlayback(line, { autoplay = false, fromBeginning = false } 
       });
     }
   } else {
-    schedulePreviewTask(previewPlayback, 'motion', 680);
+    schedulePreviewTask(previewPlayback, 'motion', previewPlayback.timing.motion);
   }
   return true;
 }
@@ -1620,7 +1651,7 @@ function commitPreviewMotion(token, expectedPositionId, expectedRunId) {
   recordAutoplayEvent('motion_committed', playback, { fen: frame.fen, role: frame.role });
   recordAutoplayEvent('landing_impact', playback, { square: coord(moveTo(frame.move)) });
   render();
-  schedulePreviewTask(playback, 'impact', 210);
+  schedulePreviewTask(playback, 'impact', playback.timing.impact);
   return true;
 }
 
@@ -1635,7 +1666,7 @@ function revealPreviewThreats(token, expectedPositionId, expectedRunId) {
     effectCount: futureEffectsForPreview(previewLine).length,
   });
   render();
-  schedulePreviewTask(playback, 'threats', 280);
+  schedulePreviewTask(playback, 'threats', playback.timing.threats);
   return true;
 }
 
@@ -1651,7 +1682,7 @@ function finishPreviewStep(token, expectedPositionId, expectedRunId) {
       ? 'conditional-playing'
       : 'playing';
     render();
-    schedulePreviewTask(playback, 'motion', 680);
+    schedulePreviewTask(playback, 'motion', playback.timing.motion);
   } else {
     playback.stage = 'settled';
     playback.phase = settledPreviewPhase(previewLine);
@@ -1967,10 +1998,10 @@ function renderFutureContext() {
       : '尚未选择路线';
     els.futureDetail.textContent = suggested
       ? autoplayEnabled
-        ? '金色只表示浅层排序靠前；悬停任一候选都会自动连演 4 步，但不会替你落子。'
+        ? `金色是引擎推荐主线，不是概率；悬停候选会自动连演 ${previewPly} 步，但不会替你落子。`
         : '金色只表示浅层排序靠前；点任一节点后才会出现蓝色预演路线。'
       : autoplayEnabled
-        ? '候选就绪后会自动演主线；也可悬停任一候选立即换线连演 4 步。'
+        ? `候选就绪后会自动演 ${previewPly} 步主线；也可悬停任一候选立即换线。`
         : '先选你的一步；对方实际会怎么走未知，再点一条可能回应继续分析。';
     els.futureEffects.replaceChildren();
     els.futureEffects.dataset.revealState = 'hidden';
@@ -1984,10 +2015,10 @@ function renderFutureContext() {
     const hoverRoute = line.source === 'hover';
     const autoMoves = Array.isArray(line.autoplayMoves) ? line.autoplayMoves : [];
     els.futureTitle.textContent = autoRoute || hoverRoute
-      ? `${hoverRoute ? '悬停连演' : '云演'} ${autoMoves.length} 步：${autoMoves.map((move) => moveLabel(move)).join(' → ')}`
+      ? `引擎推荐主线 · ${autoMoves.length} 步：${autoMoves.map((move) => moveLabel(move)).join(' → ')}`
       : `条件分析：${line.node.label} → 假设 ${moveLabel(line.reply)}`;
     els.futureDetail.textContent = autoRoute || hoverRoute
-      ? `整段由现有浅层分析逐段自动接续，只展示一种可能结果；${hoverRoute ? '移到另一候选即可换线，' : ''}不会替你落子。`
+      ? `每一步都从当时的新局面重新排序，代表值得优先检查的应对，不是真人落子概率；${hoverRoute ? '移到另一候选即可换线，' : ''}不会替你落子。`
       : `第二步是你明确选择的可能回应；它不是对真人或 AI 下一步的预测。`
         + (sameMove(line.reply, line.suggestedReply) ? ' 这条同时也是引擎建议优先检查的应对。' : '');
   } else if (replyCount) {
@@ -2932,7 +2963,7 @@ function renderFutureReplyList() {
     const selected = key === selectedKey;
     const optionState = selected
       ? activePreviewPlayback()?.autoplay ? '主线自动选入' : '已选假设回应'
-      : suggested ? '建议先检查' : '可能回应';
+      : suggested ? '推荐主线下一步' : '可能回应';
     const effects = [
       reply.captured ? 'capture' : '',
       reply.givesCheck ? 'check' : '',
@@ -2951,7 +2982,7 @@ function renderFutureReplyList() {
       + `<small>${optionState} · 走后 ${reply.branchCount} 个分支</small></button>`;
   }).join('');
   els.futureReplyList.innerHTML = `<div class="future-reply-heading"><b>对方有 ${replies.length} 种可能回应</b>`
-    + `<span>金色只是引擎建议，不代表真人或 AI 必然这样走</span></div>`
+    + `<span>金色是引擎推荐主线，不是真人或 AI 的落子概率</span></div>`
     + `<div class="future-reply-options">${options}</div>`;
   const nextOptions = els.futureReplyList.querySelector('.future-reply-options');
   if (nextOptions) {
@@ -3006,7 +3037,9 @@ function renderTree() {
   els.branchSummary.innerHTML = thinking
     ? '当前由黑方计算，分叉将在真实应手落盘后刷新。'
     : `这个局面共有 <b>${currentMoves.length}</b> 条合法分叉。`
-      + (autoplayEnabled ? '主线会自动演 4 步；悬停任一候选即可直接换线连演。' : '悬停候选连演 4 步，点击用于明确选线。');
+      + (autoplayEnabled
+        ? `推荐主线会自动演 ${previewPly} 步；悬停任一候选即可直接换线。`
+        : `悬停候选连演 ${previewPly} 步，点击用于明确选线。`);
   if (thinking) {
     els.branchGrid.replaceChildren();
   } else {
@@ -3099,9 +3132,9 @@ function mainAutoplayLine() {
   return {
     move: ranked,
     reply: suggestedReply || replies[0] || null,
-    autoplayMoves: autoplayPrincipalLine.length >= 2
-      ? autoplayPrincipalLine.slice(0, AUTOPLAY_PLY)
-      : [ranked, suggestedReply || replies[0]].filter(Boolean),
+    autoplayMoves: autoplayPrincipalLine.length >= 1
+      ? autoplayPrincipalLine.slice(0, previewPly)
+      : [ranked, suggestedReply || replies[0]].filter(Boolean).slice(0, previewPly),
     suggestedReply,
     replies,
     node,
@@ -3193,6 +3226,25 @@ function setAutoplayEnabled(enabled) {
   return true;
 }
 
+function setPreviewDepth(value) {
+  const next = Math.max(PREVIEW_PLY_MIN, Math.min(PREVIEW_PLY_MAX, Number(value) || PREVIEW_PLY_DEFAULT));
+  if (next === previewPly) return previewPly;
+  previewPly = next;
+  els.previewDepth.value = String(next);
+  els.futureMap.dataset.previewDepth = String(next);
+  noteUserInteraction();
+  cancelHoverPreviewIntent();
+  cancelPreviewPlayback(autoplayEnabled ? 'waiting' : 'idle');
+  previewLine = null;
+  autoplayPrincipalLine = [];
+  autoplayEligiblePositionId = autoplayEnabled && !thinking && !gameOver
+    ? positionId
+    : 0;
+  render();
+  requestBranches();
+  return previewPly;
+}
+
 function cancelHoverPreviewIntent({ clearPlayback = false } = {}) {
   hoverPreviewRequestId += 1;
   if (previewWorker) previewWorker.terminate();
@@ -3253,7 +3305,7 @@ function scheduleHoverPreview(move, ranked = null, { seedMoves = null, sourceKey
       moveKey: key,
       rootMoveKey,
       moves: requestedMoves,
-      maxPly: HOVER_PREVIEW_PLY,
+      maxPly: previewPly,
     });
     hoverPreviewStatus = 'requested';
   }, HOVER_PREVIEW_DWELL_MS);
@@ -3369,7 +3421,7 @@ function play(move, actor) {
 
 function makeSearchWorker() {
   if (searchWorker) searchWorker.terminate();
-  const worker = new Worker('./xiangqi-worker.js?v=p0.4.1', { type: 'module' });
+  const worker = new Worker('./xiangqi-worker.js?v=p0.5.0', { type: 'module' });
   searchWorker = worker;
   worker.addEventListener('message', onWorkerMessage);
   worker.addEventListener('error', () => fallbackAi('Worker 载入失败'));
@@ -3380,7 +3432,7 @@ function makeSearchWorker() {
 
 function makeBranchWorker() {
   if (branchWorker) branchWorker.terminate();
-  const worker = new Worker('./xiangqi-worker.js?v=p0.4.1', { type: 'module' });
+  const worker = new Worker('./xiangqi-worker.js?v=p0.5.0', { type: 'module' });
   branchWorker = worker;
   worker.addEventListener('message', onWorkerMessage);
   worker.addEventListener('error', () => {
@@ -3399,7 +3451,7 @@ function makeBranchWorker() {
 
 function makePreviewWorker() {
   if (previewWorker) previewWorker.terminate();
-  const worker = new Worker('./xiangqi-worker.js?v=p0.4.1', { type: 'module' });
+  const worker = new Worker('./xiangqi-worker.js?v=p0.5.0', { type: 'module' });
   previewWorker = worker;
   worker.addEventListener('message', onWorkerMessage);
   worker.addEventListener('error', () => {
@@ -3432,7 +3484,7 @@ function requestBranches() {
   branchRequestFen = currentFen;
   requestPositionId = positionId;
   requestPositionKey = positionKey;
-  branchWorker.postMessage({ type: 'branches', id, fen: currentFen });
+  branchWorker.postMessage({ type: 'branches', id, fen: currentFen, maxPly: previewPly });
 }
 
 function resultMove(result) {
@@ -3446,7 +3498,7 @@ function onWorkerMessage(event) {
   if (message.type === 'pong') return;
   if (message.type === 'previewLineDone') {
     const line = Array.isArray(message.result?.line)
-      ? message.result.line.slice(0, HOVER_PREVIEW_PLY)
+      ? message.result.line.slice(0, previewPly)
       : [];
     if (Number(message.id) !== hoverPreviewRequestId
       || Number(message.positionId) !== positionId
@@ -3498,9 +3550,9 @@ function onWorkerMessage(event) {
       || thinking) return;
     rankedBranches = Array.isArray(message.result?.branches) ? message.result.branches : [];
     autoplayPrincipalLine = Array.isArray(message.result?.autoplayLine)
-      ? message.result.autoplayLine.slice(0, AUTOPLAY_PLY)
+      ? message.result.autoplayLine.slice(0, previewPly)
       : [];
-    // 手动接管中的 Worker 晚到只补建议；零点击路径则在候选稳定后单独启动四拍 run。
+    // 手动接管中的 Worker 晚到只补建议；零点击路径则在候选稳定后按所选深度启动新 run。
     const selectedMove = previewLine?.move
       ? currentMoves.find((candidate) => sameMove(candidate, previewLine.move))
       : null;
@@ -3670,6 +3722,10 @@ els.zoomIn.addEventListener('click', () => setZoom(zoom + .12));
 els.zoomReset.addEventListener('click', () => setZoom(1));
 els.overviewMode.addEventListener('click', () => setFutureMode('overview-3d'));
 els.treeMode.addEventListener('click', () => setFutureMode('tree-2d'));
+els.previewDepth.addEventListener('change', (event) => {
+  setPreviewDepth(event.currentTarget.value);
+});
+els.futureMap.dataset.previewDepth = String(previewPly);
 const reducedMotionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 reducedMotionPreference.addEventListener?.('change', (event) => {
   const playback = activePreviewPlayback();
@@ -4181,6 +4237,7 @@ function futureSnapshot() {
       candidates: replyOptions,
     },
     preview: {
+      configuredDepth: previewPly,
       source: previewLine
         ? previewLine.source || (activePreviewPlayback()?.autoplay ? 'autoplay' : 'manual')
         : 'none',
@@ -4244,6 +4301,8 @@ window.__futureTest = Object.freeze({
   },
   setMode: setFutureMode,
   setAutoplay: setAutoplayEnabled,
+  setPreviewDepth,
+  previewDepth: () => previewPly,
   hoverState: () => Object.freeze({
     key: hoverPreviewKey,
     requestId: hoverPreviewRequestId,
