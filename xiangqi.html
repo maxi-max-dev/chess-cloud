@@ -243,6 +243,21 @@
   .square.selected.last-to .piece {
     --piece-state-ring: inset 0 0 0 2.5px rgba(55, 166, 141, .98);
   }
+  .square.selected .piece::after,
+  .square.selected.last-to .piece::after {
+    animation: detail-selection-breathe 2s ease-in-out 1 both;
+  }
+  .detail-landing-ripple {
+    fill: none; stroke: rgba(121,230,219,.96); stroke-width: .72;
+    vector-effect: non-scaling-stroke; transform-box: fill-box; transform-origin: center;
+    filter: drop-shadow(0 0 1.2px rgba(121,230,219,.7));
+    animation: detail-landing-ripple 400ms ease-out 1 both;
+  }
+  .detail-capture-particle {
+    fill: #f1c66b; transform-box: fill-box; transform-origin: center;
+    filter: drop-shadow(0 0 .7px rgba(241,198,107,.82));
+    animation: detail-capture-shatter 500ms cubic-bezier(.12,.7,.2,1) 1 both;
+  }
   .square.last-from {
     background: radial-gradient(circle, transparent 0 27%, rgba(255, 225, 154, .88) 29% 34%, transparent 36%);
   }
@@ -275,6 +290,35 @@
     }
     76% { opacity: 1; transform: translate(-50%, -50%) scale(1.025); }
     100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  @keyframes detail-selection-breathe {
+    0%, 100% { opacity: .62; transform: scale(.94); }
+    50% { opacity: 1; transform: scale(1.045); box-shadow: var(--piece-state-ring), 0 0 14px rgba(55,166,141,.28); }
+  }
+  @keyframes detail-landing-ripple {
+    0% { opacity: .95; transform: scale(.45); stroke-width: .9; }
+    100% { opacity: 0; transform: scale(1.75); stroke-width: .2; }
+  }
+  @keyframes detail-capture-shatter {
+    0% { opacity: .96; transform: translate(0, 0) scale(1); }
+    100% { opacity: 0; transform: translate(var(--detail-dx), var(--detail-dy)) scale(.16); }
+  }
+  .future-preview-path[data-propagation-state="current"] {
+    stroke-dasharray: 1; stroke-dashoffset: 1;
+    animation: detail-path-conduct 300ms ease-out 1 both;
+  }
+  @keyframes detail-path-conduct {
+    0% { opacity: .14; stroke-dashoffset: 1; }
+    100% { opacity: 1; stroke-dashoffset: 0; }
+  }
+  .detail-scan-enter {
+    transform-origin: 0 50%;
+    animation: detail-panel-scan 200ms cubic-bezier(.18,.72,.2,1) 1 both;
+  }
+  @keyframes detail-panel-scan {
+    0% { opacity: .18; clip-path: inset(0 100% 0 0); filter: brightness(1.5); }
+    68% { opacity: 1; filter: brightness(1.16); }
+    100% { opacity: 1; clip-path: inset(0 0 0 0); filter: brightness(1); }
   }
   .preview-status {
     position: absolute; z-index: 8; left: 50%; bottom: 2.2%;
@@ -796,6 +840,13 @@
       animation: none !important;
     }
     .future-count-converge { animation: none !important; }
+    .square.selected .piece::after,
+    .square.selected.last-to .piece::after,
+    .detail-landing-ripple,
+    .detail-capture-particle,
+    .future-preview-path[data-propagation-state="current"],
+    .detail-scan-enter { animation: none !important; }
+    .detail-landing-ripple, .detail-capture-particle { display: none; }
     .piece.just-moved, .piece.future-preview-piece { will-change: auto; }
     .threat-flow { opacity: .42; stroke-dasharray: .12 .88; }
   }
@@ -993,6 +1044,7 @@
                 </marker>
               </defs>
               <g id="previewPaths"></g>
+              <g id="previewDetailFx"></g>
             </svg>
           </div>
           <div id="previewStatus" class="preview-status" hidden aria-live="polite"></div>
@@ -1146,6 +1198,8 @@ const els = Object.freeze({
   board: document.getElementById('board'),
   previewStatus: document.getElementById('previewStatus'),
   previewPaths: document.getElementById('previewPaths'),
+  detailFx: document.getElementById('previewDetailFx'),
+  futureMap: document.querySelector('[data-future-map]'),
   threatPaths: document.getElementById('threatPaths'),
   lastMoveMarks: document.getElementById('lastMoveMarks'),
   threatStrip: document.getElementById('threatStrip'),
@@ -1342,6 +1396,7 @@ let activeThreatAttacker = -1;
 let lastMove = null;
 let lastMoveOverlayKey = '';
 let pendingMoveAnimation = null;
+let deferredAiWorkerMessage = null;
 let path = [];
 let snapshots = [{ fen: currentFen, pathLength: 0 }];
 let pv = [];
@@ -1398,6 +1453,116 @@ let overviewPitch = .06;
 let overviewDrag = null;
 let overviewCountRevealPending = false;
 const futureNodeCache = new Map();
+let detailScanGeneration = 0;
+const detailScanKeys = new Set();
+const phaseThreeEvents = [];
+
+function recordPhaseThreeEvent(type, detail = {}) {
+  phaseThreeEvents.push({ type, at: performance.now(), ...detail });
+  if (phaseThreeEvents.length > 64) phaseThreeEvents.shift();
+}
+
+function beginDetailScan() {
+  detailScanGeneration += 1;
+  detailScanKeys.clear();
+}
+
+function armDetailScan(elements, prefix) {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
+  let armed = 0;
+  [...elements].forEach((element, index) => {
+    const key = `${detailScanGeneration}:${prefix}:${index}`;
+    if (detailScanKeys.has(key)) return;
+    detailScanKeys.add(key);
+    element.classList.add('detail-scan-enter');
+    element.dataset.detailScanKey = key;
+    recordPhaseThreeEvent('panel_scan_started', { key });
+    armed++;
+  });
+  return armed;
+}
+
+function clearDetailFx() {
+  els.detailFx.replaceChildren();
+}
+
+function emitXqMoveFx(move, source, motionId = '') {
+  if (!move || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+  const target = boardPoint(moveTo(move));
+  const namespace = 'http://www.w3.org/2000/svg';
+  const ripple = document.createElementNS(namespace, 'circle');
+  ripple.classList.add('detail-landing-ripple');
+  ripple.setAttribute('cx', String(target.x));
+  ripple.setAttribute('cy', String(target.y));
+  ripple.setAttribute('r', '2.8');
+  ripple.dataset.detailFx = 'landing-ripple';
+  ripple.dataset.source = source;
+  ripple.dataset.motionId = String(motionId);
+  els.detailFx.append(ripple);
+  window.setTimeout(() => ripple.remove(), 440);
+  recordPhaseThreeEvent('landing_ripple_started', {
+    source, square: coord(moveTo(move)), motionId,
+  });
+  if (move.captured) {
+    const batch = `${source}-${motionId}-${performance.now().toFixed(1)}`;
+    for (let index = 0; index < 10; index++) {
+      const angle = index * Math.PI * 2 / 10 + (index % 2 ? .16 : -.1);
+      const distance = 3 + (index % 3) * 1.1;
+      const particle = document.createElementNS(namespace, 'circle');
+      particle.classList.add('detail-capture-particle');
+      particle.setAttribute('cx', String(target.x));
+      particle.setAttribute('cy', String(target.y));
+      particle.setAttribute('r', String(.34 + (index % 3) * .08));
+      particle.dataset.detailFx = 'capture-particle';
+      particle.dataset.batch = batch;
+      particle.dataset.index = String(index);
+      particle.dataset.source = source;
+      particle.style.setProperty('--detail-dx', `${(Math.cos(angle) * distance).toFixed(2)}px`);
+      particle.style.setProperty('--detail-dy', `${(Math.sin(angle) * distance).toFixed(2)}px`);
+      els.detailFx.append(particle);
+      window.setTimeout(() => particle.remove(), 540);
+    }
+    recordPhaseThreeEvent('capture_shatter_started', {
+      source, square: coord(moveTo(move)), motionId, particles: 10,
+    });
+  }
+  return true;
+}
+
+function releaseDeferredXqAi() {
+  const deferred = deferredAiWorkerMessage;
+  deferredAiWorkerMessage = null;
+  if (!deferred
+    || deferred.fen !== currentFen
+    || deferred.positionId !== positionId
+    || deferred.requestId !== searchRequestId) return false;
+  thinking = true;
+  queueMicrotask(() => onWorkerMessage({ data: deferred.message }));
+  return true;
+}
+
+function completePendingXqMotion(key, { emit = true } = {}) {
+  const motion = pendingMoveAnimation;
+  if (!motion || motion.key !== key || motion.fen !== currentFen) return false;
+  recordPhaseThreeEvent('piece_motion_completed', {
+    source: 'real', square: coord(moveTo(motion.move)), motionId: motion.key,
+  });
+  if (emit) emitXqMoveFx(motion.move, 'real', motion.key);
+  pendingMoveAnimation = null;
+  releaseDeferredXqAi();
+  return true;
+}
+
+document.addEventListener('animationend', (event) => {
+  if (!(event.target instanceof Element)) return;
+  if (event.target.classList.contains('detail-scan-enter')
+    && event.animationName === 'detail-panel-scan') {
+    event.target.classList.remove('detail-scan-enter');
+    recordPhaseThreeEvent('panel_scan_completed', {
+      key: event.target.dataset.detailScanKey || '',
+    });
+  }
+}, true);
 
 function positionKeyFor(fen) {
   const [board = '', side = ''] = String(fen || '').trim().split(/\s+/);
@@ -1406,6 +1571,7 @@ function positionKeyFor(fen) {
 
 function renewPositionIdentity(reason, { autoplay = false } = {}) {
   positionId += 1;
+  beginDetailScan();
   positionKey = positionKeyFor(currentFen);
   autoplayEligiblePositionId = autoplay ? positionId : 0;
   autoplayPhase = autoplay && autoplayEnabled ? 'waiting' : 'idle';
@@ -1515,11 +1681,13 @@ function cancelPreviewMotionAnimations() {
 }
 
 function cancelPreviewPlayback(nextPhase = null) {
+  const hadPreview = !!previewPlayback;
   runId += 1;
   clearPreviewTimer();
   if (autoplayBudgetTimer) clearTimeout(autoplayBudgetTimer);
   autoplayBudgetTimer = 0;
   cancelPreviewMotionAnimations();
+  if (hadPreview) clearDetailFx();
   previewPlayback = null;
   document.body.classList.remove('xq-preview-active');
   if (nextPhase) setAutoplayPhase(nextPhase);
@@ -1608,6 +1776,7 @@ function startPreviewPlayback(line, { autoplay = false, fromBeginning = false } 
   }
   pendingMoveAnimation = null;
   threatPulseSquares.clear();
+  clearDetailFx();
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const conditional = frames.length > 1;
   const activeRunId = runId;
@@ -1665,7 +1834,12 @@ function commitPreviewMotion(token, expectedPositionId, expectedRunId) {
   playback.phase = 'impact';
   recordAutoplayEvent('motion_committed', playback, { fen: frame.fen, role: frame.role });
   recordAutoplayEvent('landing_impact', playback, { square: coord(moveTo(frame.move)) });
+  recordPhaseThreeEvent('piece_motion_completed', {
+    source: 'preview', square: coord(moveTo(frame.move)),
+    motionId: `${playback.positionId}:${playback.runId}:${playback.index + 1}`,
+  });
   render();
+  emitXqMoveFx(frame.move, 'preview', `${playback.positionId}:${playback.runId}:${playback.index + 1}`);
   schedulePreviewTask(playback, 'impact', playback.timing.impact);
   return true;
 }
@@ -2392,6 +2566,11 @@ function renderPreviewOverlay() {
     line.dataset.previewFrom = coord(from);
     line.dataset.previewTo = coord(to);
     line.dataset.previewStepIndex = String(index + 1);
+    line.setAttribute('pathLength', '1');
+    line.dataset.previewOrder = String(index + 1);
+    line.dataset.propagationState = previewLine?.source === 'hover' && index === playback.index
+      ? 'current'
+      : 'past';
     const label = document.createElementNS(namespace, 'text');
     label.classList.add('future-preview-path-label', frame.role);
     label.setAttribute('x', String((source.x + target.x) / 2 - yUnit * 3.2));
@@ -2922,6 +3101,8 @@ function renderOverview() {
     + `<tspan> 个真实下一步</tspan></text></g>`
     + nodes.join('')
     + replyMarkup;
+  armDetailScan([els.futureMap], 'future-panel');
+  armDetailScan(els.overviewSvg.querySelectorAll('.overview-choice'), 'overview-card');
   if (activeOverviewKey) {
     const replacement = [...els.overviewSvg.querySelectorAll('[data-overview-key]')]
       .find((node) => node.dataset.overviewKey === activeOverviewKey);
@@ -3122,6 +3303,8 @@ function renderTree() {
       focusMove(move, ranked);
     });
   });
+  armDetailScan([els.futureMap], 'future-panel');
+  armDetailScan(els.branchGrid.querySelectorAll('.branch-node'), 'future-card');
   renderFutureReplyList();
   if (activeBranchKey) {
     const replacement = [...els.branchGrid.querySelectorAll('button[data-from][data-to]')]
@@ -3398,10 +3581,15 @@ function applyOn(positionBefore, move) {
 
 function applyKnownLegal(positionBefore, legalMove) {
   const fenBefore = api.toFen(positionBefore);
+  const captured = boardFromFen(fenBefore)[moveTo(legalMove)] || '';
   const next = api.applyMove(positionBefore, legalMove, { validate: false });
   const afterFen = api.toFen(next);
   if (!afterFen || afterFen === fenBefore) throw new Error('applyMove 没有产生新局面');
-  return { position: next, move: legalMove, fen: afterFen };
+  return {
+    position: next,
+    move: captured ? Object.freeze({ ...legalMove, captured }) : legalMove,
+    fen: afterFen,
+  };
 }
 
 function play(move, actor) {
@@ -3432,6 +3620,7 @@ function play(move, actor) {
   pendingMoveAnimation = Object.freeze({
     move: result.move,
     fen: currentFen,
+    source: actor,
     key: `${path.length}|${currentFen}|${moveFrom(result.move)}|${moveTo(result.move)}`,
   });
   pv = [];
@@ -3440,6 +3629,9 @@ function play(move, actor) {
   refreshThreatened(currentFen);
   gameOver = currentMoves.length === 0;
   render();
+  const motionKey = pendingMoveAnimation?.key || '';
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.setTimeout(() => completePendingXqMotion(motionKey, { emit: !reduceMotion }), reduceMotion ? 0 : 560);
   if (!gameOver && fenSide(currentFen) === 'black') requestAiMove();
   else if (!gameOver && actor === 'black') requestBranches();
 }
@@ -3621,6 +3813,16 @@ function onWorkerMessage(event) {
     fallbackAi('搜索返回了非当前局面的着法');
     return;
   }
+  if (pendingMoveAnimation?.source === 'red') {
+    thinking = false;
+    deferredAiWorkerMessage = {
+      message,
+      fen: currentFen,
+      positionId,
+      requestId: searchRequestId,
+    };
+    return;
+  }
   pv = validatePv(currentFen, resultPv(payload));
   thinking = false;
   lastSearchMs = Number(payload.ms) || 0;
@@ -3673,6 +3875,8 @@ function fallbackAi(reason) {
 
 function resetGame() {
   cancelPreviewPlayback();
+  phaseThreeEvents.length = 0;
+  clearDetailFx();
   cancelHoverPreviewIntent();
   clearAutoplayTimers();
   searchRequestId++;
@@ -3682,6 +3886,7 @@ function resetGame() {
   lastMove = null;
   activeThreatAttacker = -1;
   pendingMoveAnimation = null;
+  deferredAiWorkerMessage = null;
   lastMoveOverlayKey = '';
   path = [];
   pv = [];
@@ -4071,6 +4276,16 @@ els.board.addEventListener('click', (event) => {
 
 els.board.addEventListener('animationend', (event) => {
   if (!(event.target instanceof Element)) return;
+  if (event.target.classList.contains('detail-landing-ripple')
+    && event.animationName === 'detail-landing-ripple') {
+    event.target.remove();
+    return;
+  }
+  if (event.target.classList.contains('detail-capture-particle')
+    && event.animationName === 'detail-capture-shatter') {
+    event.target.remove();
+    return;
+  }
   if (event.target.classList.contains('future-preview-piece')
     && event.animationName === 'future-preview-piece-arrive') {
     const token = event.target.dataset.previewLineId || '';
@@ -4083,11 +4298,14 @@ els.board.addEventListener('animationend', (event) => {
     return;
   }
   if (event.target.classList.contains('just-moved') && event.animationName === 'piece-arrive') {
+    const motion = pendingMoveAnimation;
+    if (motion) {
+      completePendingXqMotion(motion.key);
+    }
     event.target.classList.remove('just-moved');
     delete event.target.dataset.motionRole;
     event.target.style.removeProperty('--move-dx');
     event.target.style.removeProperty('--move-dy');
-    pendingMoveAnimation = null;
     return;
   }
   if (!event.target.classList.contains('threat-ring')
@@ -4362,6 +4580,68 @@ function overviewVisualSnapshot() {
   });
 }
 
+function phaseThreeVisualSnapshot() {
+  const selectedPiece = els.board.querySelector('.square.selected .piece');
+  const selectionStyle = selectedPiece ? getComputedStyle(selectedPiece, '::after') : null;
+  const ripple = els.detailFx.querySelector('.detail-landing-ripple');
+  const particles = [...els.detailFx.querySelectorAll('.detail-capture-particle')];
+  const rippleStyle = ripple ? getComputedStyle(ripple) : null;
+  const particleStyle = particles[0] ? getComputedStyle(particles[0]) : null;
+  const scanPrefix = `${detailScanGeneration}:`;
+  const scanTargets = [...document.querySelectorAll('[data-detail-scan-key]')]
+    .filter((target) => target.dataset.detailScanKey.startsWith(scanPrefix));
+  const activeScan = scanTargets.find((target) => target.classList.contains('detail-scan-enter'));
+  const paths = [...els.previewPaths.querySelectorAll('.future-preview-path')].map((path) => {
+    const style = getComputedStyle(path);
+    return {
+      order: Number(path.dataset.previewOrder),
+      state: path.dataset.propagationState || '',
+      pathLength: Number(path.getAttribute('pathLength')),
+      animationName: style.animationName,
+      animationDuration: style.animationDuration,
+    };
+  });
+  return Object.freeze({
+    reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+    selection: Object.freeze({
+      rings: selectedPiece ? 1 : 0,
+      square: selectedPiece?.dataset.square || '',
+      animationName: selectionStyle?.animationName || 'none',
+      duration: selectionStyle?.animationDuration || '0s',
+      iterations: selectionStyle?.animationIterationCount || '0',
+    }),
+    landing: Object.freeze({
+      objects: ripple ? 1 : 0,
+      duration: rippleStyle?.animationDuration || '0s',
+      iterations: rippleStyle?.animationIterationCount || '0',
+    }),
+    capture: Object.freeze({
+      particles: particles.length,
+      batches: new Set(particles.map((particle) => particle.dataset.batch)).size,
+      duration: particleStyle?.animationDuration || '0s',
+      iterations: particleStyle?.animationIterationCount || '0',
+      renderedPieces: els.board.querySelectorAll('.piece').length,
+    }),
+    panels: Object.freeze({
+      configuredMs: 200,
+      generation: detailScanGeneration,
+      keys: detailScanKeys.size,
+      active: scanTargets.filter((target) => target.classList.contains('detail-scan-enter')).length,
+      activeAnimation: activeScan ? getComputedStyle(activeScan).animationName : 'none',
+      started: phaseThreeEvents.filter((event) =>
+        event.type === 'panel_scan_started' && event.key?.startsWith(scanPrefix)).length,
+      completed: phaseThreeEvents.filter((event) =>
+        event.type === 'panel_scan_completed' && event.key?.startsWith(scanPrefix)).length,
+    }),
+    propagation: Object.freeze({
+      kind: previewLine?.source || 'none',
+      paths: Object.freeze(paths.map(Object.freeze)),
+      selectedPathLength: futureSnapshot().selectedPath.length,
+    }),
+    events: Object.freeze(phaseThreeEvents.map((event) => Object.freeze({ ...event }))),
+  });
+}
+
 window.__futureTest = Object.freeze({
   schema: 1,
   game: 'xiangqi',
@@ -4391,6 +4671,11 @@ window.__futureTest = Object.freeze({
   pause: pausePreviewPlayback,
   resume: resumePreviewPlayback,
   visualFx: overviewVisualSnapshot,
+  phaseThreeVisual: phaseThreeVisualSnapshot,
+  rerenderFuture: () => {
+    render();
+    return true;
+  },
   attemptMotionCommit: ({ token, positionId: callbackPositionId, runId: callbackRunId }) =>
     commitPreviewMotion(token, callbackPositionId, callbackRunId),
   commitSelected: () => {

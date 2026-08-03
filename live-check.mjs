@@ -1,5 +1,5 @@
 // live-check.mjs —— 无头 Chrome + CDP 真机验收（本地或线上都能跑）
-// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333] [--headed] [--phase-one-only|--phase-two-only]
+// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333] [--headed] [--phase-one-only|--phase-two-only|--phase-three-only]
 // 默认自动选空闲 CDP/静态服务端口；只有需要并行复现某次运行时才显式传 --port。
 // 不给 --url 就自己起一个静态服务器伺候 chess.html；线上可传站点根目录或 chess.html。
 // --headed 使用本机 Chrome/GPU 做视觉复核；默认仍是 CI 同口径的 headless + SwiftShader。
@@ -23,6 +23,7 @@ const SHOT = arg('--shot', path.join(os.tmpdir(), 'chess-cloud-shot.png'));
 const HEADED = argv.includes('--headed');
 const PHASE_ONE_ONLY = argv.includes('--phase-one-only');
 const PHASE_TWO_ONLY = argv.includes('--phase-two-only');
+const PHASE_THREE_ONLY = argv.includes('--phase-three-only');
 let URL_ = arg('--url', null);
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
@@ -958,7 +959,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 110;
+const EXPECTED_RESULTS = 115;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -3799,6 +3800,170 @@ async function runPhaseTwoNarrativeChecks() {
   await evalJs('window.scrollTo({ top: 0, behavior: "instant" })');
 }
 
+async function runPhaseThreeDetailChecks() {
+  await send('Emulation.clearDeviceMetricsOverride');
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await evalJs('window.__test.reset()');
+  await sleep(40);
+  const visual = await evalJs(`typeof window.__test.phaseThreeVisual === 'function'
+    ? window.__test.phaseThreeVisual()
+    : null`);
+  if (!visual) {
+    record(false, 'Phase 3 国象选中棋子使用 2 秒呼吸光环且减少动态只留静态环', '旧实现没有 Phase 3 细节真值钩子');
+    record(false, 'Phase 3 国象落点涟漪为 400ms 单次并在运动提交后出现', '旧实现没有落点涟漪');
+    record(false, 'Phase 3 国象吃子碎裂为 8–12 粒、500ms 单次且不改棋子真值', '旧实现没有吃子碎裂');
+    record(false, 'Phase 3 国象推演面板只在建立时播放约 200ms 扫描线', '旧实现没有面板扫描线');
+    record(false, 'Phase 3 国象悬停连演路径按 ply 依次点亮且不改选路语义', '旧实现没有逐拍路径传导');
+    return;
+  }
+  const panelEarly = visual.panels;
+  await evalJs(`document.querySelector('#boardSquares [data-sq="e2"]')
+    .dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+  await sleep(30);
+  const selected = await evalJs('window.__test.phaseThreeVisual()');
+  await send('Emulation.setEmulatedMedia', {
+    media: 'screen', features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  await sleep(100);
+  await evalJs(`(() => {
+    window.__test.reset();
+    document.querySelector('#boardSquares [data-sq="e2"]')
+      .dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  })()`);
+  const reducedSelected = await evalJs('window.__test.phaseThreeVisual()');
+  record(
+    selected.selection.rings === 1
+      && selected.selection.square === 'e2'
+      && selected.selection.animationName === 'detail-selection-breathe'
+      && selected.selection.duration === '2s'
+      && selected.selection.iterations === '1'
+      && reducedSelected.reducedMotion === true
+      && reducedSelected.selection.rings === 1
+      && reducedSelected.selection.animationName === 'none',
+    'Phase 3 国象选中棋子使用 2 秒呼吸光环且减少动态只留静态环',
+    `normal=${JSON.stringify(selected.selection)}｜reduced=${JSON.stringify(reducedSelected.selection)}`,
+  );
+  await send('Emulation.setEmulatedMedia', {
+    media: 'screen', features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
+  await sleep(100);
+  await evalJs('window.__test.reset()');
+
+  let panelBefore = null;
+  for (let index = 0; index < 60; index++) {
+    const first = await evalJs('window.__test.phaseThreeVisual().panels');
+    await sleep(60);
+    const second = await evalJs('window.__test.phaseThreeVisual().panels');
+    panelBefore = second;
+    if (second.active === 0 && second.started === first.started) break;
+  }
+  const panelSettled = await evalJs(`(() => {
+    const before = window.__test.phaseThreeVisual();
+    window.__test.rerenderFuture();
+    const after = window.__test.phaseThreeVisual();
+    return { before, after };
+  })()`);
+  record(
+    panelEarly.configuredMs === 200
+      && panelEarly.started > 0
+      && panelSettled.before.panels.active === 0
+      && panelSettled.after.panels.started === panelSettled.before.panels.started,
+    'Phase 3 国象推演面板只在建立时播放约 200ms 扫描线',
+    `early=${panelEarly.started}/${panelEarly.active}｜stable=${panelBefore?.started}/${panelBefore?.active}`
+      + `｜settled=${panelSettled.before.panels.completed}/${panelSettled.before.panels.started}`
+      + `｜rerender=${panelSettled.after.panels.started}`,
+  );
+
+  const captureStarted = await evalJs(`(() => {
+    window.__test.loadFen('4k3/8/8/8/8/3p4/4P3/4K3 w - - 0 1');
+    return window.__test.tryMove('e2', 'd3');
+  })()`);
+  let captureVisual = null;
+  for (let index = 0; index < 30; index++) {
+    captureVisual = await evalJs('window.__test.phaseThreeVisual()');
+    if (captureVisual.capture.particles >= 8 && captureVisual.landing.objects === 1) break;
+    await sleep(30);
+  }
+  const captureEvents = captureVisual.events.filter((event) =>
+    ['piece_motion_completed', 'landing_ripple_started', 'capture_shatter_started'].includes(event.type)
+      && event.source === 'player');
+  const capturePieceTruth = await evalJs('window.__test.board().pieces.length');
+  const impactShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-phase3-impact.png'),
+    Buffer.from(impactShot.data, 'base64'),
+  );
+  record(
+    captureStarted
+      && captureVisual.landing.objects === 1
+      && captureVisual.landing.duration === '0.4s'
+      && captureVisual.landing.iterations === '1'
+      && captureEvents.map((event) => event.type).join(',')
+        === 'piece_motion_completed,landing_ripple_started,capture_shatter_started',
+    'Phase 3 国象落点涟漪为 400ms 单次并在运动提交后出现',
+    `objects=${captureVisual.landing.objects}｜duration=${captureVisual.landing.duration}`
+      + `｜events=${captureEvents.map((event) => event.type).join('→')}`
+      + `｜all=${captureVisual.events.map((event) => `${event.source || ''}:${event.type}`).join('/')}`,
+  );
+  await sleep(560);
+  const captureCleared = await evalJs('window.__test.phaseThreeVisual()');
+  record(
+    captureVisual.capture.particles >= 8
+      && captureVisual.capture.particles <= 12
+      && captureVisual.capture.batches === 1
+      && captureVisual.capture.duration === '0.5s'
+      && captureVisual.capture.iterations === '1'
+      && captureVisual.capture.renderedPieces === capturePieceTruth
+      && capturePieceTruth === 3
+      && captureCleared.capture.particles === 0,
+    'Phase 3 国象吃子碎裂为 8–12 粒、500ms 单次且不改棋子真值',
+    `particles=${captureVisual.capture.particles}→${captureCleared.capture.particles}`
+      + `｜duration=${captureVisual.capture.duration}｜pieces=${captureVisual.capture.renderedPieces}/${capturePieceTruth}`,
+  );
+
+  await evalJs('window.__test.reset()');
+  for (let index = 0; index < 100; index++) {
+    const ready = await evalJs('!!document.querySelector("#fork g.card[data-col=\\"0\\"]")');
+    if (ready) break;
+    await sleep(40);
+  }
+  await evalJs(`(() => {
+    const card = document.querySelector('#fork g.card[data-col="0"]');
+    card.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+  })()`);
+  let propagation = null;
+  for (let index = 0; index < 80; index++) {
+    propagation = await evalJs('window.__test.phaseThreeVisual()');
+    if (propagation.propagation.kind === 'hover' && propagation.propagation.paths.length >= 4) break;
+    await sleep(50);
+  }
+  const pathOrders = propagation.propagation.paths.map((path) => path.order);
+  const propagationShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-phase3-hover.png'),
+    Buffer.from(propagationShot.data, 'base64'),
+  );
+  record(
+    propagation.propagation.kind === 'hover'
+      && propagation.propagation.paths.length >= 4
+      && pathOrders.every((order, index) => order === index + 1)
+      && propagation.propagation.paths.every((path) => path.pathLength === 1)
+      && propagation.propagation.paths.filter((path) => path.state === 'current').length === 1
+      && propagation.propagation.paths.some((path) =>
+        path.state === 'current'
+        && path.animationName === 'detail-path-conduct'
+        && path.animationDuration === '0.3s')
+      && propagation.propagation.selectedPathLength === 0,
+    'Phase 3 国象悬停连演路径按 ply 依次点亮且不改选路语义',
+    `kind=${propagation.propagation.kind}｜orders=${pathOrders.join('/')}`
+      + `｜states=${propagation.propagation.paths.map((path) => path.state).join('/')}`
+      + `｜selected=${propagation.propagation.selectedPathLength}`,
+  );
+  await evalJs(`document.querySelector('#fork').dispatchEvent(new PointerEvent('pointerleave', {
+    bubbles: true, pointerType: 'mouse'
+  }))`);
+}
+
 async function runPhaseOneVisualChecks() {
   await send('Emulation.setDeviceMetricsOverride', {
     width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
@@ -4024,6 +4189,12 @@ async function main() {
     await runPhaseTwoNarrativeChecks();
     record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
     await finishRun(5);
+    return;
+  }
+  if (PHASE_THREE_ONLY) {
+    await runPhaseThreeDetailChecks();
+    record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
+    await finishRun(6);
     return;
   }
 
@@ -5900,6 +6071,11 @@ async function main() {
   } catch (e) { replayOk = false; replayErr = e.message; }
   record(replayOk, 'AI 那步经 node 端 chess.js 独立重放合法',
     `棋谱 ${JSON.stringify(st.history)}｜重放后 FEN ${replayOk ? '一致' : '不一致 ' + replayErr}`);
+  for (let index = 0; index < 24; index++) {
+    const pendingMotion = await evalJs('window.__test.phaseThreeVisual().pendingMotion');
+    if (!pendingMotion) break;
+    await sleep(50);
+  }
   const board2 = await evalJs('window.__test.board()');
   const boardAudit2 = auditBoardDom(board2);
   record(
@@ -6079,6 +6255,7 @@ async function main() {
   await runMobileChecks();
   await runPvGuideChecks();
   await runPhaseTwoNarrativeChecks();
+  await runPhaseThreeDetailChecks();
   await runPhaseOneVisualChecks();
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');

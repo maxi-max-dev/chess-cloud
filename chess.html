@@ -598,6 +598,29 @@
   #board .piece3d[data-future-motion-piece="true"][data-preview-step="reply"] > g {
     animation: future-piece-reply 560ms cubic-bezier(.22,.78,.28,1) both;
   }
+  #board .piece3d.board-piece-arrive > g {
+    animation: detail-piece-arrive 420ms cubic-bezier(.2,.76,.26,1) 1 both;
+    will-change: transform, opacity;
+  }
+  #board .piece-selection-ring {
+    fill: none; stroke: rgba(255,218,116,.92); stroke-width: 2.4;
+    vector-effect: non-scaling-stroke; pointer-events: none;
+    transform-box: fill-box; transform-origin: center;
+    filter: drop-shadow(0 0 4px rgba(255,207,92,.48));
+    animation: detail-selection-breathe 2s ease-in-out 1 both;
+  }
+  #board .board-landing-ripple {
+    fill: none; stroke: rgba(121,230,219,.96); stroke-width: 3;
+    vector-effect: non-scaling-stroke; pointer-events: none;
+    transform-box: fill-box; transform-origin: center;
+    animation: detail-landing-ripple 400ms ease-out 1 both;
+  }
+  #board .board-capture-particle {
+    fill: #f1c66b; pointer-events: none;
+    transform-box: fill-box; transform-origin: center;
+    filter: drop-shadow(0 0 3px rgba(241,198,107,.78));
+    animation: detail-capture-shatter 500ms cubic-bezier(.12,.7,.2,1) 1 both;
+  }
   #board .future-preview-path {
     fill: none; stroke-linecap: round; pointer-events: none;
     vector-effect: non-scaling-stroke;
@@ -610,6 +633,11 @@
     stroke: #9abfff; stroke-width: 4; opacity: .84;
     stroke-dasharray: 7 5;
     filter: drop-shadow(0 0 4px rgba(114,158,255,.5));
+  }
+  #board .future-preview-path[data-propagation-state="future"] { opacity: .12; }
+  #board .future-preview-path[data-propagation-state="current"] {
+    stroke-dasharray: 1; stroke-dashoffset: 1;
+    animation: detail-path-conduct 300ms ease-out 1 both;
   }
   #board .future-preview-target {
     fill: rgba(5,10,15,.62); pointer-events: none;
@@ -640,6 +668,36 @@
     }
     72% { transform: translate(0, 0) scale(1.05); opacity: 1; }
     100% { transform: translate(0, 0) scale(1); opacity: 1; }
+  }
+  @keyframes detail-piece-arrive {
+    0% { transform: translate(var(--detail-move-x), var(--detail-move-y)) scale(.94); opacity: .64; }
+    74% { transform: translate(0, 0) scale(1.04); opacity: 1; }
+    100% { transform: translate(0, 0) scale(1); opacity: 1; }
+  }
+  @keyframes detail-selection-breathe {
+    0%, 100% { opacity: .48; transform: scale(.91); }
+    50% { opacity: 1; transform: scale(1.07); }
+  }
+  @keyframes detail-landing-ripple {
+    0% { opacity: .95; transform: scale(.42); stroke-width: 3.4; }
+    100% { opacity: 0; transform: scale(1.65); stroke-width: .8; }
+  }
+  @keyframes detail-capture-shatter {
+    0% { opacity: .96; transform: translate(0, 0) scale(1); }
+    100% { opacity: 0; transform: translate(var(--detail-dx), var(--detail-dy)) scale(.18); }
+  }
+  @keyframes detail-path-conduct {
+    0% { opacity: .12; stroke-dashoffset: 1; }
+    100% { opacity: .88; stroke-dashoffset: 0; }
+  }
+  .detail-scan-enter {
+    transform-origin: 0 50%;
+    animation: detail-panel-scan 200ms cubic-bezier(.18,.72,.2,1) 1 both;
+  }
+  @keyframes detail-panel-scan {
+    0% { opacity: .18; clip-path: inset(0 100% 0 0); filter: brightness(1.5); }
+    68% { opacity: 1; filter: brightness(1.16); }
+    100% { opacity: 1; clip-path: inset(0 0 0 0); filter: brightness(1); }
   }
   #board .coach-path {
     fill: none; pointer-events: none; stroke-linecap: round;
@@ -1065,6 +1123,15 @@
     #board .coach-path, #board .coach-target { animation: none !important; opacity: .82; stroke-dashoffset: 0; }
     .cloud-label { transition: none; }
     .cloud-count-reveal.is-converging { animation: none !important; }
+    #board .piece-selection-ring,
+    #board .piece3d.board-piece-arrive > g,
+    #board .board-landing-ripple,
+    #board .board-capture-particle,
+    #board .future-preview-path[data-propagation-state="current"],
+    .detail-scan-enter { animation: none !important; }
+    #board .piece-selection-ring { opacity: .76; transform: none; }
+    #board .board-landing-ripple,
+    #board .board-capture-particle { display: none; }
   }
 
   #productBar {
@@ -1387,6 +1454,7 @@
     <g id="boardSquares"></g>
     <g id="boardPieces"></g>
     <g id="boardOverlay"></g>
+    <g id="boardFx" aria-hidden="true"></g>
   </svg>
   <div id="futureBoardBadge" class="future-board-badge" aria-live="polite" hidden>
     <b>路线连演</b><span>悬停候选即可连续看推荐主线，不会替你落子</span>
@@ -1490,7 +1558,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
   Chess, rankMoves, MATE,
-  currentAttacks, analyzeCandidateThreat,
+  currentAttacks, analyzeCandidateThreat, captureSquare,
 } from './engine.js';
 
 // ─────────────────────────────────────────────── 常量
@@ -2399,6 +2467,16 @@ function finishAiPresentation(ai, fen, cloudGen) {
 }
 
 function onAiMove(result) {
+  if (pendingBoardMotion?.source === 'player') {
+    clearAiWatchdog();
+    deferredAiResult = {
+      result,
+      fen: game.fen(),
+      motionId: pendingBoardMotion.id,
+      requestId: aiPending?.id ?? -1,
+    };
+    return;
+  }
   const pending = aiPending;
   clearAiWatchdog();
   aiPending = null;
@@ -2469,6 +2547,8 @@ function onAiMove(result) {
   routeSelectionDepth = 0;
   resetForkTransient();
   installPvGuide(fullPv, pending?.fen || '', pending?.id ?? -1, result.depth);
+  beginDetailScan();
+  setPendingBoardMotion(mv, 'ai');
   renderBoard();
   const cloudGen = prepareCloud();
   startCloudRebirth();
@@ -2515,6 +2595,7 @@ function tryMove(from, to, promotion) {
   lastAi = null;
   presentationGen++;
   resetForkTransient();
+  setPendingBoardMotion(mv, 'player');
   renderBoard();
   requestAi();       // 先派活给 AI 的 Worker，让它和主线程并行
   if (!thinking) {
@@ -2547,6 +2628,7 @@ const boardEl = document.getElementById('board');
 const boardSquaresEl = document.getElementById('boardSquares');
 const boardPiecesEl = document.getElementById('boardPieces');
 const boardOverlayEl = document.getElementById('boardOverlay');
+const boardFxEl = document.getElementById('boardFx');
 const futureBoardBadgeEl = document.getElementById('futureBoardBadge');
 const chessPlayBridgeEl = document.getElementById('chessPlayBridge');
 const chessPlayBridgeTitleEl = document.getElementById('chessPlayBridgeTitle');
@@ -2565,6 +2647,132 @@ let hoverPreviewTimer = 0;
 let hoverPreviewKey = '';
 let hoverPreviewState = null;
 let previewWorker = null;
+let pendingBoardMotion = null;
+let deferredAiResult = null;
+let boardMotionRunId = 0;
+let detailScanGeneration = 0;
+const detailScanKeys = new Set();
+const phaseThreeEvents = [];
+
+function recordPhaseThreeEvent(type, detail = {}) {
+  phaseThreeEvents.push({ type, at: performance.now(), ...detail });
+  if (phaseThreeEvents.length > 48) phaseThreeEvents.shift();
+}
+
+function beginDetailScan() {
+  detailScanGeneration += 1;
+  detailScanKeys.clear();
+}
+
+function armDetailScan(elements, prefix) {
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) return 0;
+  let armed = 0;
+  [...elements].forEach((element, index) => {
+    const key = `${detailScanGeneration}:${prefix}:${index}`;
+    if (detailScanKeys.has(key)) return;
+    detailScanKeys.add(key);
+    element.classList.add('detail-scan-enter');
+    element.dataset.detailScanKey = key;
+    armed++;
+    recordPhaseThreeEvent('panel_scan_started', { key });
+  });
+  return armed;
+}
+
+function clearBoardDetailFx() {
+  boardFxEl.replaceChildren();
+}
+
+function setPendingBoardMotion(move, source) {
+  if (!move) return null;
+  pendingBoardMotion = {
+    id: ++boardMotionRunId,
+    fen: game.fen(),
+    source,
+    from: move.from,
+    to: move.to,
+    captured: move.captured || '',
+    captureSquare: captureSquare(move),
+  };
+  const motionId = pendingBoardMotion.id;
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  setTimeout(() => completePendingBoardMotion(motionId, { emit: !reduceMotion }), reduceMotion ? 0 : 560);
+  return pendingBoardMotion;
+}
+
+function releaseDeferredAiResult() {
+  const deferred = deferredAiResult;
+  deferredAiResult = null;
+  if (!deferred
+    || deferred.fen !== game.fen()
+    || deferred.requestId !== (aiPending?.id ?? -1)) return false;
+  queueMicrotask(() => onAiMove(deferred.result));
+  return true;
+}
+
+function completePendingBoardMotion(motionId, { emit = true } = {}) {
+  const motion = pendingBoardMotion;
+  if (!motion || Number(motionId) !== motion.id || motion.fen !== game.fen()) return false;
+  recordPhaseThreeEvent('piece_motion_completed', {
+    source: motion.source, square: motion.to, motionId: motion.id,
+  });
+  if (emit) emitBoardMoveFx(motion, motion.source, motion.id);
+  pendingBoardMotion = null;
+  releaseDeferredAiResult();
+  return true;
+}
+
+function emitBoardMoveFx(move, source, motionId = 0) {
+  if (!move?.to || matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+  const [landingX, landingY] = squareXY(move.to);
+  const ripple = svgElement('circle', {
+    cx: landingX, cy: landingY, r: 15,
+    class: 'board-landing-ripple',
+    'data-detail-fx': 'landing-ripple',
+    'data-source': source,
+    'data-motion-id': motionId,
+  });
+  boardFxEl.appendChild(ripple);
+  setTimeout(() => ripple.remove(), 440);
+  recordPhaseThreeEvent('landing_ripple_started', { source, square: move.to, motionId });
+
+  if (move.captured) {
+    const square = move.captureSquare || move.to;
+    const [captureX, captureY] = squareXY(square);
+    const batch = `${source}-${motionId}-${performance.now().toFixed(1)}`;
+    for (let index = 0; index < 10; index++) {
+      const angle = index * Math.PI * 2 / 10 + (index % 2 ? .18 : -.12);
+      const distance = 15 + (index % 3) * 4;
+      const particle = svgElement('circle', {
+        cx: captureX, cy: captureY, r: 1.7 + (index % 3) * .35,
+        class: 'board-capture-particle',
+        'data-detail-fx': 'capture-particle',
+        'data-batch': batch,
+        'data-index': index,
+        'data-source': source,
+      });
+      particle.style.setProperty('--detail-dx', `${(Math.cos(angle) * distance).toFixed(2)}px`);
+      particle.style.setProperty('--detail-dy', `${(Math.sin(angle) * distance).toFixed(2)}px`);
+      boardFxEl.appendChild(particle);
+      setTimeout(() => particle.remove(), 540);
+    }
+    recordPhaseThreeEvent('capture_shatter_started', {
+      source, square, motionId, particles: 10,
+    });
+  }
+  return true;
+}
+
+document.addEventListener('animationend', (event) => {
+  if (!(event.target instanceof Element)) return;
+  if (event.target.classList.contains('detail-scan-enter')
+    && event.animationName === 'detail-panel-scan') {
+    event.target.classList.remove('detail-scan-enter');
+    recordPhaseThreeEvent('panel_scan_completed', {
+      key: event.target.dataset.detailScanKey || '',
+    });
+  }
+}, true);
 let hoverPreviewRequestId = 0;
 let hoverFocusSuppressedUntil = 0;
 let hoverKeyboardIntentUntil = 0;
@@ -2658,6 +2866,7 @@ function cancelFutureBoardPreview(render = true, sync = true) {
   futurePreviewTimer = 0;
   const hadPreview = !!futurePreviewPlayback;
   futurePreviewPlayback = null;
+  if (hadPreview) clearBoardDetailFx();
   if (sync) syncFuturePreviewDataset();
   if (render && hadPreview) renderBoard();
   return hadPreview;
@@ -2686,6 +2895,8 @@ function replayFuturePreview(rootFen, moves, maxPly = previewPly) {
         from: legal.from,
         to: legal.to,
         promotion: legal.promotion || '',
+        captured: legal.captured || '',
+        captureSquare: captureSquare(legal),
       },
     });
   }
@@ -2741,6 +2952,7 @@ function startFutureBoardPreview(moves, { fromBeginning = false, kind = 'explici
     steps: frames.map((frame) => ({ ...frame.move, role: frame.role })),
     frames,
     kind,
+    propagationStartedAt: performance.now(),
     replyCount,
     finalPhase,
     index: reduced
@@ -2777,6 +2989,11 @@ function appendFuturePreviewPaths() {
       'data-preview-line-id': futurePreviewPlayback.id,
       'data-preview-from': move.from,
       'data-preview-to': move.to,
+      'data-preview-order': index + 1,
+      'data-propagation-state': index < futurePreviewPlayback.index
+        ? 'past'
+        : index === futurePreviewPlayback.index ? 'current' : 'future',
+      pathLength: 1,
       'aria-hidden': 'true',
     });
     boardOverlayEl.appendChild(path);
@@ -2902,6 +3119,16 @@ function renderBoardOverlay(board = game.board()) {
     });
     boardOverlayEl.appendChild(ring);
   }
+  if (selected) {
+    const [cx, cy] = squareXY(selected);
+    boardOverlayEl.appendChild(svgElement('circle', {
+      cx, cy, r: 22,
+      class: 'piece-selection-ring',
+      'data-detail-fx': 'selection-ring',
+      'data-square': selected,
+      'aria-hidden': 'true',
+    }));
+  }
   const legal = selected ? game.moves({ square: selected, verbose: true }).map((move) => move.to) : [];
   for (let r = 0; r < 8; r++) {
     for (let f = 0; f < 8; f++) {
@@ -2988,8 +3215,26 @@ function renderBoard() {
         piece.dataset.previewStep = previewFrame.role;
         piece.dataset.previewFrom = previewFrame.move.from;
         piece.dataset.previewTo = previewFrame.move.to;
+        piece.dataset.detailMotionId = `${futurePreviewPlayback.token}-${futurePreviewPlayback.index}`;
+        piece.dataset.detailCaptured = previewFrame.move.captured || '';
+        piece.dataset.detailCaptureSquare = previewFrame.move.captureSquare || '';
         piece.style.setProperty('--future-motion-x', `${fromX - toX}px`);
         piece.style.setProperty('--future-motion-y', `${fromY - toY}px`);
+      } else if (
+        !previewActive
+        && pendingBoardMotion
+        && pendingBoardMotion.fen === game.fen()
+        && sq === pendingBoardMotion.to
+      ) {
+        const [fromX, fromY] = squareXY(pendingBoardMotion.from);
+        const [toX, toY] = squareXY(pendingBoardMotion.to);
+        piece.classList.add('board-piece-arrive');
+        piece.dataset.detailMotionId = String(pendingBoardMotion.id);
+        piece.dataset.detailMotionSource = pendingBoardMotion.source;
+        piece.dataset.detailCaptured = pendingBoardMotion.captured;
+        piece.dataset.detailCaptureSquare = pendingBoardMotion.captureSquare;
+        piece.style.setProperty('--detail-move-x', `${fromX - toX}px`);
+        piece.style.setProperty('--detail-move-y', `${fromY - toY}px`);
       }
     }
   }
@@ -3049,6 +3294,44 @@ boardEl.addEventListener('keydown', (ev) => {
   if (ev.key !== 'Enter' && ev.key !== ' ') return;
   const sq = ev.target && ev.target.dataset ? ev.target.dataset.sq : null;
   if (activateBoardSquare(sq)) ev.preventDefault();
+});
+boardEl.addEventListener('animationend', (event) => {
+  if (!(event.target instanceof Element)) return;
+  if (event.target.classList.contains('board-landing-ripple')
+    && event.animationName === 'detail-landing-ripple') {
+    event.target.remove();
+    return;
+  }
+  if (event.target.classList.contains('board-capture-particle')
+    && event.animationName === 'detail-capture-shatter') {
+    event.target.remove();
+    return;
+  }
+  if (!['future-piece-you', 'future-piece-reply', 'detail-piece-arrive'].includes(event.animationName)) return;
+  const piece = event.target.closest('.piece3d');
+  if (!piece) return;
+  const motionId = piece.dataset.detailMotionId || '';
+  const preview = event.animationName.startsWith('future-piece-');
+  const source = preview ? 'preview' : piece.dataset.detailMotionSource || 'real';
+  const move = {
+    from: preview ? piece.dataset.previewFrom : pendingBoardMotion?.from,
+    to: preview ? piece.dataset.previewTo : pendingBoardMotion?.to,
+    captured: piece.dataset.detailCaptured || '',
+    captureSquare: piece.dataset.detailCaptureSquare || '',
+  };
+  if (!move.from || !move.to) return;
+  if (!preview && Number(motionId) !== pendingBoardMotion?.id) return;
+  if (preview) {
+    recordPhaseThreeEvent('piece_motion_completed', { source, square: move.to, motionId });
+    emitBoardMoveFx(move, source, motionId);
+  } else {
+    completePendingBoardMotion(motionId);
+  }
+  if (!preview) {
+    piece.classList.remove('board-piece-arrive');
+    piece.style.removeProperty('--detail-move-x');
+    piece.style.removeProperty('--detail-move-y');
+  }
 });
 
 function setStatus(html) { document.getElementById('status').innerHTML = html; }
@@ -3891,6 +4174,7 @@ function renderCoachCandidate(candidate, { rerenderBoard = true } = {}) {
   coachMovesEl.innerHTML = coachModel.candidates
     .map((move) => coachCardHtml(move, move.rank === candidate.rank))
     .join('');
+  armDetailScan(coachMovesEl.querySelectorAll('.coach-card'), 'coach-card');
   const chips = candidate.replies.map((reply, index) =>
     `<span class="coach-reply-chip" data-rank="${index}" data-san="${esc(reply.san)}"`
       + ` data-from="${reply.from}" data-to="${reply.to}" data-piece="${reply.piece}"`
@@ -4307,6 +4591,8 @@ function renderFork(force = false, rebuild = true) {
   forkEl.setAttribute('height', H);
   forkEl.setAttribute('viewBox', `0 0 ${W} ${H}`);
   forkEl.innerHTML = svg;
+  armDetailScan([futureMapEl], 'future-panel');
+  armDetailScan(forkEl.querySelectorAll('g.card'), 'future-card');
   renderPvGuide();
 
   // 已经走过的棋谱
@@ -7002,6 +7288,70 @@ function phaseTwoVisualSnapshot() {
   };
 }
 
+function phaseThreeVisualSnapshot() {
+  const ring = boardOverlayEl.querySelector('.piece-selection-ring');
+  const ripple = boardFxEl.querySelector('.board-landing-ripple');
+  const particles = [...boardFxEl.querySelectorAll('.board-capture-particle')];
+  const particleBatches = new Set(particles.map((particle) => particle.dataset.batch));
+  const scanPrefix = `${detailScanGeneration}:`;
+  const scanTargets = [...document.querySelectorAll('[data-detail-scan-key]')]
+    .filter((target) => target.dataset.detailScanKey.startsWith(scanPrefix));
+  const paths = [...boardOverlayEl.querySelectorAll('.future-preview-path')].map((path) => {
+    const style = getComputedStyle(path);
+    return {
+      order: Number(path.dataset.previewOrder),
+      state: path.dataset.propagationState || '',
+      pathLength: Number(path.getAttribute('pathLength')),
+      animationName: style.animationName,
+      animationDuration: style.animationDuration,
+    };
+  });
+  const ringStyle = ring ? getComputedStyle(ring) : null;
+  const rippleStyle = ripple ? getComputedStyle(ripple) : null;
+  const particleStyle = particles[0] ? getComputedStyle(particles[0]) : null;
+  const scanStyle = scanTargets.find((target) => target.classList.contains('detail-scan-enter'));
+  return {
+    reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+    selection: {
+      rings: ring ? 1 : 0,
+      square: ring?.dataset.square || '',
+      animationName: ringStyle?.animationName || 'none',
+      duration: ringStyle?.animationDuration || '0s',
+      iterations: ringStyle?.animationIterationCount || '0',
+    },
+    landing: {
+      objects: ripple ? 1 : 0,
+      duration: rippleStyle?.animationDuration || '0s',
+      iterations: rippleStyle?.animationIterationCount || '0',
+    },
+    capture: {
+      particles: particles.length,
+      batches: particleBatches.size,
+      duration: particleStyle?.animationDuration || '0s',
+      iterations: particleStyle?.animationIterationCount || '0',
+      renderedPieces: boardPiecesEl.querySelectorAll('.piece3d').length,
+    },
+    panels: {
+      configuredMs: 200,
+      generation: detailScanGeneration,
+      keys: detailScanKeys.size,
+      active: scanTargets.filter((target) => target.classList.contains('detail-scan-enter')).length,
+      activeAnimation: scanStyle ? getComputedStyle(scanStyle).animationName : 'none',
+      started: phaseThreeEvents.filter((event) =>
+        event.type === 'panel_scan_started' && event.key?.startsWith(scanPrefix)).length,
+      completed: phaseThreeEvents.filter((event) =>
+        event.type === 'panel_scan_completed' && event.key?.startsWith(scanPrefix)).length,
+    },
+    propagation: {
+      kind: futurePreviewPlayback?.kind || 'none',
+      paths,
+      selectedPathLength: futureSnapshot().selectedPath.length,
+    },
+    pendingMotion: pendingBoardMotion ? { ...pendingBoardMotion } : null,
+    events: phaseThreeEvents.map((event) => ({ ...event })),
+  };
+}
+
 function setBloomEnabled(enabled) {
   bloomPass.enabled = !!enabled;
   requestCloudRender();
@@ -7189,6 +7539,11 @@ function resetGame(fen = null) {
   lastAi = null;
   thinking = false;
   resetCloudNarrative();
+  pendingBoardMotion = null;
+  deferredAiResult = null;
+  clearBoardDetailFx();
+  phaseThreeEvents.length = 0;
+  beginDetailScan();
   clearPvGuide();
   branchPath = [];
   expanded = [];
@@ -7374,6 +7729,11 @@ window.__test = {
   renderStats: renderStatsSnapshot,
   phaseOneVisual: phaseOneVisualSnapshot,
   phaseTwoVisual: phaseTwoVisualSnapshot,
+  phaseThreeVisual: phaseThreeVisualSnapshot,
+  rerenderFuture: () => {
+    renderFork();
+    return true;
+  },
   setBloomEnabled,
   setCloudVisible: (visible) => {
     cloudGroup.visible = !!visible;

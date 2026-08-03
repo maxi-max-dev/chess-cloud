@@ -38,6 +38,7 @@ const arg = (name, fallback = null) => {
 let cdpPort = Number(arg('--port', '0'));
 let requestedUrl = arg('--url');
 const SHOT = arg('--shot', path.join(os.tmpdir(), 'xiangqi-cloud-shot.png'));
+const PHASE_THREE_ONLY = argv.includes('--phase-three-only');
 let server = null;
 let chrome = null;
 let chromeProfile = null;
@@ -46,7 +47,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 66;
+const EXPECTED_RESULTS = 71;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -3453,6 +3454,174 @@ async function phaseOnePaletteAudit() {
   await setViewport(1440, 900);
 }
 
+async function phaseThreeDetailAudit() {
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(false);
+    window.__xiangqiTest.reset();
+  })()`);
+  const visual = await evaluate(`typeof window.__futureTest.phaseThreeVisual === 'function'
+    ? window.__futureTest.phaseThreeVisual()
+    : null`);
+  if (!visual) {
+    record(false, 'Phase 3 象棋选中棋子使用 2 秒呼吸光环且减少动态只留静态环', '旧实现没有 Phase 3 细节真值钩子');
+    record(false, 'Phase 3 象棋落点涟漪为 400ms 单次并接在原子提交之后', '旧实现没有落点涟漪');
+    record(false, 'Phase 3 象棋吃子碎裂为 8–12 粒、500ms 单次且不改棋子真值', '旧实现没有吃子碎裂');
+    record(false, 'Phase 3 象棋推演面板只在建立时播放约 200ms 扫描线', '旧实现没有面板扫描线');
+    record(false, 'Phase 3 象棋悬停连演路径按 ply 依次点亮且不改选路语义', '旧实现没有逐拍路径传导');
+    return;
+  }
+  const panelEarly = visual.panels;
+  await evaluate(`document.querySelector('#board .piece[data-side="red"]')
+    .closest('.square').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+  await sleep(30);
+  const selected = await evaluate('window.__futureTest.phaseThreeVisual()');
+  await send('Emulation.setEmulatedMedia', {
+    media: 'screen', features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  await sleep(100);
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(false);
+    window.__xiangqiTest.reset();
+    document.querySelector('#board .piece[data-side="red"]')
+      .closest('.square').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  })()`);
+  const reducedSelected = await evaluate('window.__futureTest.phaseThreeVisual()');
+  record(
+    selected.selection.rings === 1
+      && selected.selection.animationName === 'detail-selection-breathe'
+      && selected.selection.duration === '2s'
+      && selected.selection.iterations === '1'
+      && reducedSelected.reducedMotion === true
+      && reducedSelected.selection.rings === 1
+      && reducedSelected.selection.animationName === 'none',
+    'Phase 3 象棋选中棋子使用 2 秒呼吸光环且减少动态只留静态环',
+    `normal=${JSON.stringify(selected.selection)}｜reduced=${JSON.stringify(reducedSelected.selection)}`,
+  );
+  await send('Emulation.setEmulatedMedia', {
+    media: 'screen', features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
+  await sleep(100);
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(false);
+    window.__xiangqiTest.reset();
+  })()`);
+
+  let panelBefore = null;
+  for (let index = 0; index < 60; index++) {
+    const first = await evaluate('window.__futureTest.phaseThreeVisual().panels');
+    await sleep(60);
+    const second = await evaluate('window.__futureTest.phaseThreeVisual().panels');
+    panelBefore = second;
+    if (second.active === 0 && second.started === first.started) break;
+  }
+  const panelSettled = await evaluate(`(() => {
+    const before = window.__futureTest.phaseThreeVisual();
+    window.__futureTest.rerenderFuture();
+    const after = window.__futureTest.phaseThreeVisual();
+    return { before, after };
+  })()`);
+  record(
+    panelEarly.configuredMs === 200
+      && panelEarly.started > 0
+      && panelSettled.before.panels.active === 0
+      && panelSettled.after.panels.started === panelSettled.before.panels.started,
+    'Phase 3 象棋推演面板只在建立时播放约 200ms 扫描线',
+    `early=${panelEarly.started}/${panelEarly.active}｜stable=${panelBefore?.started}/${panelBefore?.active}`
+      + `｜settled=${panelSettled.before.panels.completed}/${panelSettled.before.panels.started}`
+      + `｜rerender=${panelSettled.after.panels.started}`,
+  );
+
+  const captureStarted = await evaluate(`(() => {
+    window.__futureTest.setAutoplay(false);
+    window.__xiangqiTest.loadFen('4k4/9/9/9/r3P4/9/9/9/9/R3K4 w - - 0 1');
+    return window.__xiangqiTest.tryMove('a0', 'a5');
+  })()`);
+  let captureVisual = null;
+  for (let index = 0; index < 45; index++) {
+    captureVisual = await evaluate('window.__futureTest.phaseThreeVisual()');
+    if (captureVisual.capture.particles >= 8 && captureVisual.landing.objects === 1) break;
+    await sleep(30);
+  }
+  const captureEvents = captureVisual.events.filter((event) =>
+    ['piece_motion_completed', 'landing_ripple_started', 'capture_shatter_started'].includes(event.type)
+      && event.source === 'real');
+  const capturePieceTruth = await evaluate('window.__xiangqiTest.board.length');
+  const impactShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-phase3-impact.png'),
+    Buffer.from(impactShot.data, 'base64'),
+  );
+  record(
+    captureStarted
+      && captureVisual.landing.objects === 1
+      && captureVisual.landing.duration === '0.4s'
+      && captureVisual.landing.iterations === '1'
+      && captureEvents.map((event) => event.type).join(',')
+        === 'piece_motion_completed,landing_ripple_started,capture_shatter_started',
+    'Phase 3 象棋落点涟漪为 400ms 单次并接在原子提交之后',
+    `objects=${captureVisual.landing.objects}｜duration=${captureVisual.landing.duration}`
+      + `｜events=${captureEvents.map((event) => event.type).join('→')}`
+      + `｜all=${captureVisual.events.map((event) => `${event.source || ''}:${event.type}`).join('/')}`,
+  );
+  await sleep(560);
+  const captureCleared = await evaluate('window.__futureTest.phaseThreeVisual()');
+  record(
+    captureVisual.capture.particles >= 8
+      && captureVisual.capture.particles <= 12
+      && captureVisual.capture.batches === 1
+      && captureVisual.capture.duration === '0.5s'
+      && captureVisual.capture.iterations === '1'
+      && captureVisual.capture.renderedPieces === capturePieceTruth
+      && capturePieceTruth === 4
+      && captureCleared.capture.particles === 0,
+    'Phase 3 象棋吃子碎裂为 8–12 粒、500ms 单次且不改棋子真值',
+    `particles=${captureVisual.capture.particles}→${captureCleared.capture.particles}`
+      + `｜duration=${captureVisual.capture.duration}｜pieces=${captureVisual.capture.renderedPieces}/${capturePieceTruth}`,
+  );
+
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(false);
+    window.__xiangqiTest.reset();
+  })()`);
+  await waitFor(`document.querySelectorAll('#branchGrid .branch-node').length === 44`, 12000, 'Phase 3 悬停分叉');
+  await evaluate(`(() => {
+    const card = document.querySelector('#branchGrid .branch-node');
+    card.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }));
+  })()`);
+  let propagation = null;
+  let observedOrders = [];
+  for (let index = 0; index < 100; index++) {
+    propagation = await evaluate('window.__futureTest.phaseThreeVisual()');
+    const current = propagation.propagation.paths.find((path) => path.state === 'current');
+    if (current && !observedOrders.includes(current.order)) observedOrders.push(current.order);
+    if (propagation.propagation.kind === 'hover' && observedOrders.length >= 2) break;
+    await sleep(50);
+  }
+  const currentPath = propagation.propagation.paths.find((path) => path.state === 'current');
+  const propagationShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-phase3-hover.png'),
+    Buffer.from(propagationShot.data, 'base64'),
+  );
+  record(
+    propagation.propagation.kind === 'hover'
+      && observedOrders.length >= 2
+      && observedOrders.every((order, index) => order === index + 1)
+      && propagation.propagation.paths.every((path) => path.pathLength === 1)
+      && propagation.propagation.paths.filter((path) => path.state === 'current').length === 1
+      && currentPath?.animationName === 'detail-path-conduct'
+      && currentPath?.animationDuration === '0.3s'
+      && propagation.propagation.selectedPathLength === 0,
+    'Phase 3 象棋悬停连演路径按 ply 依次点亮且不改选路语义',
+    `kind=${propagation.propagation.kind}｜observed=${observedOrders.join('→')}`
+      + `｜paths=${propagation.propagation.paths.map((path) => `${path.order}:${path.state}`).join('/')}`
+      + `｜selected=${propagation.propagation.selectedPathLength}`,
+  );
+  await evaluate(`document.querySelector('#branchGrid').dispatchEvent(new PointerEvent('pointerleave', {
+    bubbles: true, pointerType: 'mouse'
+  }))`);
+}
+
 async function cleanup() {
   try {
     if (socket?.readyState === WebSocket.OPEN) socket.close();
@@ -3482,6 +3651,16 @@ async function main() {
   await attach();
 
   await portalAudit(rootUrl);
+  if (PHASE_THREE_ONLY) {
+    await evaluate(`(() => {
+      window.__futureTest.setAutoplay(false);
+      window.__xiangqiTest.reset();
+    })()`);
+    await waitFor(`document.querySelectorAll('#branchGrid .branch-node').length === 44`, 12000, 'Phase 3 初始分叉');
+    await phaseThreeDetailAudit();
+    record(pageErrors.length === 0, '全程 console.error 与 page error 为 0', pageErrors.join('｜') || '0');
+    return;
+  }
   const initialFen = await initialAudit();
   await autoplayAudit();
   await hoverAutoplayAudit();
@@ -3501,6 +3680,7 @@ async function main() {
     await viewportAudit(width, height);
   }
   await phaseOnePaletteAudit();
+  await phaseThreeDetailAudit();
   await rafAndErrorAudit();
 
   // initialFen 是从页面实际读取的值；这里再明确防止初始节点换局面但仍有 44 个 DOM。
@@ -3517,8 +3697,9 @@ try {
   await cleanup();
 }
 
-if (results.length !== EXPECTED_RESULTS) {
-  record(false, '验收项总数没有静默缩水或意外膨胀', `运行到 ${results.length} 项，应为固定 ${EXPECTED_RESULTS} 项`);
+const expectedResults = PHASE_THREE_ONLY ? 9 : EXPECTED_RESULTS;
+if (results.length !== expectedResults) {
+  record(false, '验收项总数没有静默缩水或意外膨胀', `运行到 ${results.length} 项，应为固定 ${expectedResults} 项`);
 }
 const failed = results.filter((result) => !result.ok);
 console.log(`\n${failed.length ? '未通过' : '全绿'}：${results.length - failed.length}/${results.length} 项通过，零跳过。`);

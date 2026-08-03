@@ -41,6 +41,10 @@ AI 思考脉冲与搜索并行，结果回来后从选线末端重生新云。�
 快照不进入 `layers` / `__cloudStats()`；页面隐藏、离开视口、切 2D 或减少动态都会暂停或定格，稳定后
 继续保持零 rAF / WebGL frame。
 
+视觉 Phase 3 把叙事收进棋子与界面细节：选中棋子有限呼吸 2 秒；位移完成后依次出现 400ms 落点
+涟漪和 500ms 吃子碎裂；新面板只建立一次 200ms 扫描；悬停连演路径按 ply 逐段传导。视觉对象与
+真实棋子 / FEN / 路径计数分账，减少动态时只保留静态语义。
+
 **项目的灵魂仍然是“数字必须是真的”。** 页面说有多少棋子、合法走法、分叉或路径，就必须能从
 当前局面 / DOM / geometry 现读，并由独立 Node 或真 Chrome 裁判重算。浅层排序只能叫分析建议，
 不能叫预测或概率。
@@ -92,8 +96,8 @@ node xiangqi-live-check.mjs
 
 当前本地期望：
 
-- 国际象棋：**110/110**
-- 中国象棋：**66/66**
+- 国际象棋：**115/115**
+- 中国象棋：**71/71**
 
 两条脚本都会自己起本地静态服务和无头 Chrome。国际象棋脚本的本地目标已经改为
 `chess.html`；中国象棋脚本会从根首页实际点击两张卡，验证路由后再进入 `xiangqi.html`。
@@ -138,13 +142,13 @@ node xiangqi-self-play.mjs
 | `engine.js` | 国际象棋唯一评估函数、排序、威胁、搜索、PV 和路径展开 |
 | `worker.js` | 国际象棋 AI search Worker / cloud Worker 的共同入口 |
 | `verify.mjs` | 国际象棋 perft / 棋核裁判 |
-| `live-check.mjs` | 国际象棋 110 项真 Chrome 裁判；支持 `--headed --phase-one-only/--phase-two-only` 本机 GPU 复核与 `--shot` 存档 |
+| `live-check.mjs` | 国际象棋 115 项真 Chrome 裁判；支持三阶段专项与 `--shot` 存档 |
 | `self-play.mjs` | 国际象棋固定 10 局稳定性审计 |
 | `xiangqi.html` | 中国象棋 9×10 UI；3D 感全景、2D 推演、可能回应、路线后果、实战历史和威胁 |
 | `xiangqi-engine.js` | 中国象棋规则、唯一评估函数、排序、威胁、搜索与 PV |
 | `xiangqi-worker.js` | 中国象棋搜索 / 分叉 / 分析 Worker 入口 |
 | `xiangqi-verify.mjs` | 中国象棋 20 项棋核 / 搜索 / 固定分支事实裁判 |
-| `xiangqi-live-check.mjs` | 中国象棋 66 项真 Chrome / 零点击与悬停云演 / 身份隔离 / 视觉 / 路由 / 威胁 / 手机裁判 |
+| `xiangqi-live-check.mjs` | 中国象棋 71 项真 Chrome / 零点击与悬停云演 / 身份隔离 / 视觉 / 路由 / 威胁 / 手机裁判 |
 | `xiangqi-self-play.mjs` | 中国象棋固定 10 局稳定性审计 |
 | `README.md` / `BLOCKED.md` / `PROGRESS.md` | 对外说明 / 决策边界 / 历史记录 |
 
@@ -386,7 +390,7 @@ xiangqi-worker.js
 `verify.mjs` 固定 8 项：起始局面 20 / 400 / 8902 / 197281，Kiwipete
 48 / 2039 / 97862，以及 `count(fen, 0) === 1`。
 
-`live-check.mjs` 用 `EXPECTED_RESULTS = 110` 锁定 110 项，覆盖：
+`live-check.mjs` 用 `EXPECTED_RESULTS = 115` 锁定 115 项，覆盖：
 
 - L0–L4 真实 geometry、DOM 分叉数和 Node 独立 perft 对撞；
 - 零 `THREE.Points`、无预分配 / drawRange / 隐藏孤儿对象；
@@ -416,6 +420,8 @@ xiangqi-worker.js
   bloom 开关截图同时锁定可见下限和不过曝上限；`?cinema=1` 的 1440×900 画布与数字行逐层对账。
 - Phase 2 的共享 shader uniform 定向流动、零逐帧 geometry 写入、落子坍缩几何守恒、搜索并行、
   思考脉冲启停、末端重生、真实数字揭示，以及减少动态 / 静置归零。
+- Phase 3 的 2 秒有限选中呼吸、运动完成后 400ms 落点涟漪、8–12 粒 / 500ms 吃子碎裂、一次性
+  200ms 面板扫描和逐 ply 路径传导；视觉对象清理后棋子与路线真值必须不变。
 - `--headed --phase-one-only` 用本机 GPU 跑 5 项视觉复核；默认完整套件继续使用
   `--headless=new + SwiftShader`，两条渲染路径的阈值分别实测。
 
@@ -435,7 +441,7 @@ xiangqi-worker.js
 - 候选会看对方强回应与一步合法回吃，不把开局送炮换马排第一。
 - 固定主线首步后的三种真实黑方分支事实：马、炮、卒的坐标与记谱均独立重放。
 
-`xiangqi-live-check.mjs` 用 `EXPECTED_RESULTS = 66` 锁定 66 项，除原有裁判外新增覆盖：
+`xiangqi-live-check.mjs` 用 `EXPECTED_RESULTS = 71` 锁定 71 项，除原有裁判外新增覆盖：
 
 - 首次加载零点击自动选择主线、连续提交 4 ply、8 秒内稳定，实战 FEN / 历史不变；
 - `positionKey / positionId / requestId / runId` 生命周期与动画回调双重身份校验；
@@ -564,10 +570,11 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 国际象棋起始 perft 1/2/3/4 | 20 / 400 / 8,902 / 197,281 |
 | 中国象棋起始 perft 1/2/3/4 | 44 / 1,920 / 79,666 / 3,290,240 |
 | `npm test` | 国际 8/8 + 中国 20/20 + 门户 27/27 |
-| `node live-check.mjs` | 110/110 |
-| `node xiangqi-live-check.mjs` | 66/66 |
+| `node live-check.mjs` | 115/115 |
+| `node xiangqi-live-check.mjs` | 71/71 |
 | Phase 1 双渲染复核 | SwiftShader 5/5 + 本机 GPU 5/5 |
 | Phase 2 叙事复核 | SwiftShader 5/5 + 本机 GPU 5/5 |
+| Phase 3 细节复核 | 国际专项 6/6 + 中国专项 9/9 |
 | 国际路径线程 | L1–L4 全在 cloud Worker；主线程只建 geometry |
 | 国际路径生命周期 | 缩略 L3 / 明确放大 L4 / 收起释放 / 再放大完整重建 |
 | 国际空闲渲染 | 静置 rAF +0、WebGL frame +0 |
@@ -708,8 +715,9 @@ git rev-list --left-right --count origin/main...main
 - 中国棋子已改为轻量的象牙漆面与刻字双圈；选中 / 上一步使用内圈，威胁使用外圈，三种状态不再
   重写或遮掉棋子本身的纵深阴影，预演编号也已移到左侧避开右上“危”。
 - 新增第八个运行文件 `future-map.css`。
-- 当前源码基线：`npm test` 为 **8/8 + 20/20 + 27/27**，国际真机 **110/110**，
-  中国真机 **66/66**；Phase 1 与 Phase 2 专项在 SwiftShader / 本机 GPU 均各 **5/5**。
+- 当前源码基线：`npm test` 为 **8/8 + 20/20 + 27/27**，国际真机 **115/115**，
+  中国真机 **71/71**；Phase 1 与 Phase 2 专项在 SwiftShader / 本机 GPU 均各 **5/5**，
+  Phase 3 双页专项为 **6/6 + 9/9**。
 - 两套 10 局本次实测已完成：国际 583 plies，中国 833 plies；非法着、FEN、PV、分叉、威胁和注释
   失败全部为 0。
 - 当前运行源码 commit、八个文件 SHA-256 与线上复验结果以第 6 节发布封印为准。
