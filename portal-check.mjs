@@ -57,7 +57,7 @@ record(
 );
 record(
   (xiangqi.includes("from './xiangqi-engine.js'") || xiangqi.includes("import('./xiangqi-engine.js')"))
-    && xiangqi.includes("new Worker('./xiangqi-worker.js?v=p0.3.1'"),
+    && xiangqi.includes("new Worker('./xiangqi-worker.js?v=p0.4.1'"),
   '中国象棋独立页面接自己的棋核与 Worker',
 );
 record(
@@ -159,8 +159,14 @@ record(
     && xiangqi.includes("event.key === 'Escape'")
     && xiangqi.includes('touchGuard')
     && xiangqi.includes('id="xqReturnToPlay"')
-    && xiangqi.includes('id="xqAdoptPreview"'),
-  '零点击云演包含 4 ply、8 秒预算、原子时序、下棋入口、键盘与移动端保护',
+    && xiangqi.includes('id="xqAdoptPreview"')
+    && [chess, xiangqi].every((source) =>
+      source.includes('HOVER_PREVIEW_PLY = 4')
+        && source.includes("addEventListener('pointerover'")
+        && source.includes("addEventListener('focusin'"))
+    && chess.includes('id="chessReturnToPlay"')
+    && chess.includes('id="chessAdoptPreview"'),
+  '两棋种包含 4 ply 悬停连演、零点击云演、原子时序、下棋入口、键盘与移动端保护',
 );
 
 const forbidden = ['8902', '197281'];

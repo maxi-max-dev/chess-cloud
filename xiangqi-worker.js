@@ -10,11 +10,18 @@ import {
   moveToNotation,
   rankMoves,
   search,
+  squareToIndex,
   toFen,
 } from './xiangqi-engine.js';
 
 function sameMove(left, right) {
-  return !!left && !!right && left.from === right.from && left.to === right.to;
+  const from = (move) => Number.isInteger(move?.fromIndex)
+    ? move.fromIndex
+    : squareToIndex(move?.from);
+  const to = (move) => Number.isInteger(move?.toIndex)
+    ? move.toIndex
+    : squareToIndex(move?.to);
+  return !!left && !!right && from(left) === from(right) && to(left) === to(right);
 }
 
 function buildAutoplayLine(fen, rootBranches, maxPly = 4) {
@@ -35,6 +42,27 @@ function buildAutoplayLine(fen, rootBranches, maxPly = 4) {
     line.push({ ...candidate.reply, after: toFen(position) });
     if (line.length >= maxPly) break;
     ranked = rankMoves(toFen(position));
+  }
+  return line;
+}
+
+function buildPreviewLine(fen, requestedMoves, maxPly = 4) {
+  let position = parseFen(fen);
+  const seed = (Array.isArray(requestedMoves) ? requestedMoves : [requestedMoves]).filter(Boolean);
+  let seedIndex = 0;
+  let requested = seed[0] || null;
+  const line = [];
+  while (requested && line.length < maxPly) {
+    const legalMove = generateLegalMoves(position).find((move) => sameMove(move, requested));
+    if (!legalMove) break;
+    position = applyMove(position, legalMove, { validate: false });
+    line.push({ ...requested, ...legalMove, after: toFen(position) });
+    if (line.length >= maxPly) break;
+    seedIndex += 1;
+    requested = seed[seedIndex] || search(toFen(position), {
+      timeBudgetMs: 90,
+      maxDepth: 2,
+    }).move || null;
   }
   return line;
 }
@@ -90,6 +118,36 @@ self.onmessage = (event) => {
       self.postMessage({
         type: 'analyzeError',
         id: message.id,
+        message: String(error?.message || error),
+      });
+    }
+    return;
+  }
+
+  if (message.type === 'previewLine') {
+    try {
+      const line = buildPreviewLine(
+        message.fen || START_FEN,
+        message.moves || message.move,
+        Math.max(1, Math.min(4, Number(message.maxPly) || 4)),
+      );
+      self.postMessage({
+        type: 'previewLineDone',
+        id: message.id,
+        positionId: message.positionId,
+        positionKey: message.positionKey,
+        moveKey: message.moveKey,
+        rootMoveKey: message.rootMoveKey,
+        result: { line },
+      });
+    } catch (error) {
+      self.postMessage({
+        type: 'previewLineError',
+        id: message.id,
+        positionId: message.positionId,
+        positionKey: message.positionKey,
+        moveKey: message.moveKey,
+        rootMoveKey: message.rootMoveKey,
         message: String(error?.message || error),
       });
     }

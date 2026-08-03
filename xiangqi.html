@@ -1033,7 +1033,7 @@
         <div class="tree-title">
           <span class="future-kicker">Future map · Xiangqi</span>
           <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
-          <p>完整保留当前全部真实走法；默认自动演 4 步，随时可以采纳首步或返回棋盘自己下。</p>
+          <p>鼠标停在任一候选上会自动连演 4 步；移到另一条路线即可换线，点击仍用于明确选择。</p>
           <div class="future-map-legend" aria-label="未来地图图例">
             <span class="future-legend-key" data-kind="option">其他合法路线</span>
             <span class="future-legend-key" data-kind="selected">正在预演</span>
@@ -1085,7 +1085,7 @@
         <div class="future-context-copy">
           <span class="future-context-label">路线语境</span>
           <span id="xqFutureTitle" class="future-context-title">尚未选择路线</span>
-          <span id="xqFutureDetail" class="future-context-detail">候选就绪后会自动演 4 步；这只是分析路线，不会替你落子。</span>
+          <span id="xqFutureDetail" class="future-context-detail">悬停候选即可连续看我方→对方→我方→对方 4 步；不会替你落子。</span>
           <span id="xqFutureEffects" class="future-effects" aria-label="这条路线的直接后果"></span>
         </div>
         <div class="future-context-actions">
@@ -1312,11 +1312,18 @@ let thinking = false;
 let gameOver = false;
 let searchWorker = null;
 let branchWorker = null;
+let previewWorker = null;
 let searchRequestId = 0;
 let requestId = 0;
 let branchRequestFen = '';
 let requestPositionId = 0;
 let requestPositionKey = '';
+let hoverPreviewRequestId = 0;
+let hoverPreviewTimer = 0;
+let hoverPreviewKey = '';
+let hoverPreviewStatus = 'idle';
+let hoverFocusSuppressedUntil = 0;
+let hoverKeyboardIntentUntil = 0;
 let rankedBranches = [];
 let autoplayPrincipalLine = [];
 let lastSearchMs = 0;
@@ -1344,6 +1351,8 @@ const AUTOPLAY_IDLE_MS = 600;
 const AUTOPLAY_REVEAL_MS = 420;
 const AUTOPLAY_BUDGET_MS = 8000;
 const AUTOPLAY_PLY = 4;
+const HOVER_PREVIEW_PLY = 4;
+const HOVER_PREVIEW_DWELL_MS = 140;
 let futureMode = 'tree-2d';
 let overviewYaw = -.18;
 let overviewPitch = .06;
@@ -1498,7 +1507,10 @@ function buildPreviewFrames(line) {
 }
 
 function previewRouteKey(line) {
-  return `${futureMoveKey(line?.move)}|${futureMoveKey(line?.reply)}`;
+  const route = Array.isArray(line?.autoplayMoves) && line.autoplayMoves.length
+    ? line.autoplayMoves
+    : [line?.move, line?.reply].filter(Boolean);
+  return `${line?.source || 'manual'}|${route.map(futureMoveKey).join('|')}`;
 }
 
 function settledPreviewPhase(line, reduceMotion = false) {
@@ -1944,10 +1956,10 @@ function renderFutureContext() {
       : '尚未选择路线';
     els.futureDetail.textContent = suggested
       ? autoplayEnabled
-        ? '金色只表示浅层排序靠前；主线将自动演 4 步，但不会替你落子。'
+        ? '金色只表示浅层排序靠前；悬停任一候选都会自动连演 4 步，但不会替你落子。'
         : '金色只表示浅层排序靠前；点任一节点后才会出现蓝色预演路线。'
       : autoplayEnabled
-        ? '候选就绪后会自动演 4 步；你仍然决定真正走哪一步。'
+        ? '候选就绪后会自动演主线；也可悬停任一候选立即换线连演 4 步。'
         : '先选你的一步；对方实际会怎么走未知，再点一条可能回应继续分析。';
     els.futureEffects.replaceChildren();
     els.futureEffects.dataset.revealState = 'hidden';
@@ -1958,12 +1970,13 @@ function renderFutureContext() {
   const replyCount = line.replies?.length || 0;
   if (line.reply) {
     const autoRoute = !!playback?.autoplay;
+    const hoverRoute = line.source === 'hover';
     const autoMoves = Array.isArray(line.autoplayMoves) ? line.autoplayMoves : [];
-    els.futureTitle.textContent = autoRoute
-      ? `云演 ${autoMoves.length} 步：${autoMoves.map((move) => moveLabel(move)).join(' → ')}`
+    els.futureTitle.textContent = autoRoute || hoverRoute
+      ? `${hoverRoute ? '悬停连演' : '云演'} ${autoMoves.length} 步：${autoMoves.map((move) => moveLabel(move)).join(' → ')}`
       : `条件分析：${line.node.label} → 假设 ${moveLabel(line.reply)}`;
-    els.futureDetail.textContent = autoRoute
-      ? `整段由现有浅层分析逐段自动接续，只用于展示一种可能结果；可以随时采纳首步或返回棋盘自己下。`
+    els.futureDetail.textContent = autoRoute || hoverRoute
+      ? `整段由现有浅层分析逐段自动接续，只展示一种可能结果；${hoverRoute ? '移到另一候选即可换线，' : ''}不会替你落子。`
       : `第二步是你明确选择的可能回应；它不是对真人或 AI 下一步的预测。`
         + (sameMove(line.reply, line.suggestedReply) ? ' 这条同时也是引擎建议优先检查的应对。' : '');
   } else if (replyCount) {
@@ -1994,7 +2007,9 @@ function updateFutureMapState() {
   els.futureMap.dataset.phase = thinking ? 'thinking' : branchRequestFen === currentFen && !rankedBranches.length
     ? 'syncing'
     : gameOver ? 'gameover' : 'ready';
-  els.futureMap.dataset.routeOwner = playback?.autoplay ? 'autoplay' : previewLine ? 'user' : 'none';
+  els.futureMap.dataset.routeOwner = playback?.autoplay
+    ? 'autoplay'
+    : previewLine?.source === 'hover' ? 'hover' : previewLine ? 'user' : 'none';
   els.futureMap.dataset.rootFen = currentFen;
   els.futureRoot.dataset.fen = currentFen;
   els.futureRoot.dataset.depth = '0';
@@ -2713,12 +2728,15 @@ function renderPlayBridge() {
   if (!active) return;
   const total = playback.frames.length;
   const settled = playback.stage === 'settled';
+  const hoverRoute = previewLine?.source === 'hover';
   els.playBridgeTitle.textContent = settled
-    ? `推演了 ${total} 步，棋还没有落下`
-    : `正在推演第 ${playback.index + 1}/${total} 步，棋还没有落下`;
-  els.playBridgeDetail.textContent = settled
-    ? '现在由你决定：采纳主线第一步继续对局，或返回真实棋盘自己选择。'
-    : '推演只展示一种可能路线；你不用等它结束，也可以马上回棋盘下棋。';
+    ? `${hoverRoute ? '悬停连演' : '推演'}了 ${total} 步，棋还没有落下`
+    : `正在${hoverRoute ? '悬停连演' : '推演'}第 ${playback.index + 1}/${total} 步，棋还没有落下`;
+  els.playBridgeDetail.textContent = hoverRoute
+    ? '移到另一候选会立即换线；也可以采纳这条路线的第一步，或返回棋盘自己下。'
+    : settled
+      ? '现在由你决定：采纳主线第一步继续对局，或返回真实棋盘自己选择。'
+      : '推演只展示一种可能路线；你不用等它结束，也可以马上回棋盘下棋。';
   els.returnToPlay.disabled = thinking;
   els.adoptPreview.disabled = thinking || gameOver || fenSide(currentFen) !== 'red';
 }
@@ -2977,7 +2995,7 @@ function renderTree() {
   els.branchSummary.innerHTML = thinking
     ? '当前由黑方计算，分叉将在真实应手落盘后刷新。'
     : `这个局面共有 <b>${currentMoves.length}</b> 条合法分叉。`
-      + (autoplayEnabled ? '主线会自动演 4 步，你也可以随时换线或回棋盘下棋。' : '先选你的一步，再选可能回应继续分析。');
+      + (autoplayEnabled ? '主线会自动演 4 步；悬停任一候选即可直接换线连演。' : '悬停候选连演 4 步，点击用于明确选线。');
   if (thinking) {
     els.branchGrid.replaceChildren();
   } else {
@@ -2992,13 +3010,15 @@ function renderTree() {
       const node = futureNodeData(move, ranked);
       const selected = !!previewLine && sameMove(previewLine.move, move);
       const copy = selected
-        ? activePreviewPlayback()?.autoplay
+        ? previewLine?.source === 'hover'
+          ? `悬停连演中 · ${node.branchCount} 种回应`
+          : activePreviewPlayback()?.autoplay
           ? `主线自动选入 · ${node.branchCount} 种回应`
           : `已选第一步 · ${node.branchCount} 种可能回应`
         : index === 0 && ranked
           ? `建议先看 · 走后 ${node.branchCount} 种回应`
         : ranked
-          ? `走后 ${node.branchCount} 种可能回应`
+          ? `悬停连演 · 走后 ${node.branchCount} 种回应`
           : target
             ? `可吃 ${escapeHtml(PIECE_NAMES[target] || target)}`
             : `${coord(moveFrom(move))} 到 ${coord(moveTo(move))}`;
@@ -3162,8 +3182,76 @@ function setAutoplayEnabled(enabled) {
   return true;
 }
 
+function cancelHoverPreviewIntent({ clearPlayback = false } = {}) {
+  hoverPreviewRequestId += 1;
+  if (previewWorker) previewWorker.terminate();
+  previewWorker = null;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = '';
+  if (clearPlayback && previewLine?.source === 'hover') {
+    cancelPreviewPlayback('idle');
+    previewLine = null;
+    render();
+  }
+}
+
+function scheduleHoverPreview(move, ranked = null, { seedMoves = null, sourceKey = '' } = {}) {
+  if (!move || thinking || gameOver || fenSide(currentFen) !== 'red') return false;
+  const rootMoveKey = futureMoveKey(move);
+  const rankedSeed = ranked
+    ? [ranked, ranked.reply, ranked.continuation].filter(Boolean)
+    : [move];
+  const requestedMoves = (Array.isArray(seedMoves) && seedMoves.length
+    ? seedMoves
+    : rankedSeed).map((candidate) => ({
+      from: moveFrom(candidate),
+      to: moveTo(candidate),
+    }));
+  const key = sourceKey || requestedMoves.map((candidate) => `${candidate.from}-${candidate.to}`).join('|');
+  if (!key || (key === hoverPreviewKey && (hoverPreviewTimer || previewLine?.source === 'hover'))) return false;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = key;
+  const hoverRequestId = ++hoverPreviewRequestId;
+  hoverPreviewStatus = 'waiting';
+  const expectedPositionId = positionId;
+  const expectedPositionKey = positionKey;
+  autoplayEligiblePositionId = 0;
+  if (autoplayScheduleTimer) clearTimeout(autoplayScheduleTimer);
+  autoplayScheduleTimer = 0;
+  if (activePreviewPlayback()?.autoplay) {
+    cancelPreviewPlayback('manual');
+    previewLine = null;
+    render();
+  }
+  hoverPreviewTimer = window.setTimeout(() => {
+    hoverPreviewTimer = 0;
+    if (hoverRequestId !== hoverPreviewRequestId
+      || hoverPreviewKey !== key
+      || expectedPositionId !== positionId
+      || expectedPositionKey !== positionKey
+      || thinking
+      || gameOver) return;
+    makePreviewWorker().postMessage({
+      type: 'previewLine',
+      id: hoverRequestId,
+      fen: currentFen,
+      positionId: expectedPositionId,
+      positionKey: expectedPositionKey,
+      moveKey: key,
+      rootMoveKey,
+      moves: requestedMoves,
+      maxPly: HOVER_PREVIEW_PLY,
+    });
+    hoverPreviewStatus = 'requested';
+  }, HOVER_PREVIEW_DWELL_MS);
+  return true;
+}
+
 function focusMove(move, ranked = null) {
   if (!move || thinking || gameOver) return;
+  cancelHoverPreviewIntent();
   autoplayEligiblePositionId = 0;
   if (autoplayScheduleTimer) clearTimeout(autoplayScheduleTimer);
   autoplayScheduleTimer = 0;
@@ -3270,7 +3358,7 @@ function play(move, actor) {
 
 function makeSearchWorker() {
   if (searchWorker) searchWorker.terminate();
-  const worker = new Worker('./xiangqi-worker.js?v=p0.3.1', { type: 'module' });
+  const worker = new Worker('./xiangqi-worker.js?v=p0.4.1', { type: 'module' });
   searchWorker = worker;
   worker.addEventListener('message', onWorkerMessage);
   worker.addEventListener('error', () => fallbackAi('Worker 载入失败'));
@@ -3281,7 +3369,7 @@ function makeSearchWorker() {
 
 function makeBranchWorker() {
   if (branchWorker) branchWorker.terminate();
-  const worker = new Worker('./xiangqi-worker.js?v=p0.3.1', { type: 'module' });
+  const worker = new Worker('./xiangqi-worker.js?v=p0.4.1', { type: 'module' });
   branchWorker = worker;
   worker.addEventListener('message', onWorkerMessage);
   worker.addEventListener('error', () => {
@@ -3295,6 +3383,20 @@ function makeBranchWorker() {
     render();
   });
   worker.postMessage({ type: 'ping' });
+  return worker;
+}
+
+function makePreviewWorker() {
+  if (previewWorker) previewWorker.terminate();
+  const worker = new Worker('./xiangqi-worker.js?v=p0.4.1', { type: 'module' });
+  previewWorker = worker;
+  worker.addEventListener('message', onWorkerMessage);
+  worker.addEventListener('error', () => {
+    hoverPreviewStatus = 'error:Worker 载入失败';
+  });
+  worker.addEventListener('messageerror', () => {
+    hoverPreviewStatus = 'error:Worker 通信失败';
+  });
   return worker;
 }
 
@@ -3331,6 +3433,52 @@ function resultPv(result) {
 function onWorkerMessage(event) {
   const message = event.data || {};
   if (message.type === 'pong') return;
+  if (message.type === 'previewLineDone') {
+    const line = Array.isArray(message.result?.line)
+      ? message.result.line.slice(0, HOVER_PREVIEW_PLY)
+      : [];
+    if (Number(message.id) !== hoverPreviewRequestId
+      || Number(message.positionId) !== positionId
+      || message.positionKey !== positionKey
+      || message.moveKey !== hoverPreviewKey
+      || line.length === 0
+      || thinking
+      || gameOver) {
+      hoverPreviewStatus = `stale:id=${message.id}/${hoverPreviewRequestId}`
+        + `,position=${message.positionId}/${positionId}`
+        + `,positionKey=${message.positionKey === positionKey}`
+        + `,key=${message.moveKey}/${hoverPreviewKey}`
+        + `,line=${line.length},thinking=${thinking},gameOver=${gameOver}`;
+      return;
+    }
+    const move = currentMoves.find((candidate) => futureMoveKey(candidate) === message.rootMoveKey);
+    if (!move) return;
+    const ranked = rankedForMove(move) || move;
+    const node = futureNodeData(move, ranked);
+    const replies = buildFutureReplyOptions(node);
+    const reply = line[1]
+      ? replies.find((candidate) => sameMove(candidate, line[1])) || line[1]
+      : null;
+    previewLine = {
+      move: ranked,
+      reply,
+      autoplayMoves: line,
+      suggestedReply: reply,
+      replies,
+      node,
+      source: 'hover',
+    };
+    setAutoplayPhase('manual');
+    startPreviewPlayback(previewLine, { fromBeginning: true });
+    hoverPreviewStatus = 'playing';
+    return;
+  }
+  if (message.type === 'previewLineError') {
+    if (Number(message.id) === hoverPreviewRequestId) {
+      hoverPreviewStatus = `error:${String(message.message || 'unknown')}`;
+    }
+    return;
+  }
   if (message.type === 'branchesDone') {
     if (Number(message.id) !== requestId
       || currentFen !== branchRequestFen
@@ -3437,6 +3585,7 @@ function fallbackAi(reason) {
 
 function resetGame() {
   cancelPreviewPlayback();
+  cancelHoverPreviewIntent();
   clearAutoplayTimers();
   searchRequestId++;
   thinking = false;
@@ -3563,9 +3712,95 @@ els.futureReplyList.addEventListener('click', (event) => {
   const reply = futureReplyByKey(option.dataset.key || `${option.dataset.from}-${option.dataset.to}`);
   if (reply) chooseFutureReply(reply);
 });
+els.futureReplyList.addEventListener('pointerover', (event) => {
+  if (event.pointerType === 'touch'
+    || performance.now() < hoverFocusSuppressedUntil) return;
+  const option = event.target.closest('button[data-future-reply-option]');
+  const reply = option && futureReplyByKey(option.dataset.key || `${option.dataset.from}-${option.dataset.to}`);
+  const rootMove = previewLine?.move;
+  if (rootMove && reply) {
+    scheduleHoverPreview(rootMove, rankedForMove(rootMove), {
+      seedMoves: [rootMove, reply],
+      sourceKey: `reply:${futureMoveKey(rootMove)}|${futureMoveKey(reply)}`,
+    });
+  }
+});
+els.futureReplyList.addEventListener('pointerdown', () => {
+  hoverFocusSuppressedUntil = performance.now() + 500;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = '';
+});
+els.futureReplyList.addEventListener('pointerleave', () => {
+  cancelHoverPreviewIntent({ clearPlayback: previewLine?.source === 'hover' });
+});
+els.futureReplyList.addEventListener('focusin', (event) => {
+  if (performance.now() < hoverFocusSuppressedUntil
+    || performance.now() >= hoverKeyboardIntentUntil) return;
+  const option = event.target.closest('button[data-future-reply-option]');
+  const reply = option && futureReplyByKey(option.dataset.key || `${option.dataset.from}-${option.dataset.to}`);
+  const rootMove = previewLine?.move;
+  if (rootMove && reply) {
+    scheduleHoverPreview(rootMove, rankedForMove(rootMove), {
+      seedMoves: [rootMove, reply],
+      sourceKey: `reply:${futureMoveKey(rootMove)}|${futureMoveKey(reply)}`,
+    });
+  }
+});
+els.futureReplyList.addEventListener('focusout', () => {
+  window.queueMicrotask(() => {
+    if (!els.futureReplyList.contains(document.activeElement)) {
+      cancelHoverPreviewIntent({ clearPlayback: previewLine?.source === 'hover' });
+    }
+  });
+});
+
+function hoverCandidateFromNode(node) {
+  if (!node) return null;
+  const key = node.dataset.overviewKey
+    || `${node.dataset.from || ''}-${node.dataset.to || ''}`;
+  return currentMoves.find((candidate) => futureMoveKey(candidate) === key) || null;
+}
+
+function armHoverCandidate(node) {
+  const move = hoverCandidateFromNode(node);
+  if (move) scheduleHoverPreview(move, rankedForMove(move));
+}
+
+function bindHoverPreviewSurface(surface, selector) {
+  surface.addEventListener('pointerover', (event) => {
+    if (event.pointerType === 'touch' || performance.now() < hoverFocusSuppressedUntil) return;
+    armHoverCandidate(event.target.closest(selector));
+  });
+  surface.addEventListener('pointerdown', () => {
+    hoverFocusSuppressedUntil = performance.now() + 500;
+    if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = 0;
+    hoverPreviewKey = '';
+  });
+  surface.addEventListener('pointerleave', () => {
+    cancelHoverPreviewIntent({ clearPlayback: true });
+  });
+  surface.addEventListener('focusin', (event) => {
+    if (performance.now() < hoverFocusSuppressedUntil
+      || performance.now() >= hoverKeyboardIntentUntil) return;
+    armHoverCandidate(event.target.closest(selector));
+  });
+  surface.addEventListener('focusout', () => {
+    window.queueMicrotask(() => {
+      if (!surface.contains(document.activeElement)) {
+        cancelHoverPreviewIntent({ clearPlayback: true });
+      }
+    });
+  });
+}
+
+bindHoverPreviewSurface(els.branchGrid, 'button[data-from][data-to]');
+bindHoverPreviewSurface(els.overviewSvg, '[data-overview-key]');
 
 function returnToLiveBoard({ focusBoard = false } = {}) {
   if (thinking) return;
+  cancelHoverPreviewIntent();
   const clearedMoveKey = futureMoveKey(previewLine?.move);
   autoplayEligiblePositionId = 0;
   cancelPreviewPlayback('idle');
@@ -3677,6 +3912,9 @@ els.attackerChips.addEventListener('click', (event) => {
 document.addEventListener('pointerdown', noteUserInteraction, { capture: true, passive: true });
 document.addEventListener('wheel', noteUserInteraction, { capture: true, passive: true });
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Tab' || event.key.startsWith('Arrow')) {
+    hoverKeyboardIntentUntil = performance.now() + 1200;
+  }
   const interactive = event.target instanceof Element
     && !!event.target.closest('button, a, input, select, textarea, [contenteditable="true"]');
   if (event.key === 'Escape' && previewLine) {
@@ -3773,6 +4011,7 @@ resetGame();
 
 function loadFenForTest(fen) {
   cancelPreviewPlayback();
+  cancelHoverPreviewIntent();
   clearAutoplayTimers();
   searchRequestId++;
   thinking = false;
@@ -3840,11 +4079,13 @@ function xqFutureRecord(move, depth, role, parentFen = currentFen) {
 function futureSnapshot() {
   updateFutureMapState();
   const selectedPath = [];
+  const animatedPath = [];
   if (Array.isArray(previewLine?.autoplayMoves) && previewLine.autoplayMoves.length) {
     let parentFen = currentFen;
     previewLine.autoplayMoves.forEach((move, index) => {
       const record = xqFutureRecord(move, index + 1, 'selected', parentFen);
-      selectedPath.push(record);
+      animatedPath.push(record);
+      if (previewLine.source !== 'hover') selectedPath.push(record);
       parentFen = record.afterFen;
     });
   } else if (previewLine?.node) {
@@ -3867,7 +4108,9 @@ function futureSnapshot() {
       previewLine.node.afterFen,
     ));
   }
-  const previewPath = selectedPath.slice();
+  const previewPath = previewLine?.source === 'hover'
+    ? animatedPath
+    : selectedPath.slice();
   const suggestedPath = previewLine?.node
     ? (previewLine.suggestedReply
       ? [xqFutureRecord(previewLine.suggestedReply, 2, 'suggested', previewLine.node.afterFen)]
@@ -3927,6 +4170,9 @@ function futureSnapshot() {
       candidates: replyOptions,
     },
     preview: {
+      source: previewLine
+        ? previewLine.source || (activePreviewPlayback()?.autoplay ? 'autoplay' : 'manual')
+        : 'none',
       fen: previewPath.at(-1)?.afterFen || currentFen,
       depth: previewPath.length,
       path: previewPath,
@@ -3987,6 +4233,14 @@ window.__futureTest = Object.freeze({
   },
   setMode: setFutureMode,
   setAutoplay: setAutoplayEnabled,
+  hoverState: () => Object.freeze({
+    key: hoverPreviewKey,
+    requestId: hoverPreviewRequestId,
+    timerPending: !!hoverPreviewTimer,
+    focusSuppressed: performance.now() < hoverFocusSuppressedUntil,
+    source: previewLine?.source || 'none',
+    status: hoverPreviewStatus,
+  }),
   pause: pausePreviewPlayback,
   resume: resumePreviewPlayback,
   attemptMotionCommit: ({ token, positionId: callbackPositionId, runId: callbackRunId }) =>

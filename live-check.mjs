@@ -951,7 +951,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 101;
+const EXPECTED_RESULTS = 102;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -2201,8 +2201,8 @@ async function runTree2dChecks() {
       && mobileTreeBefore.modeButton.visible
       && mobileTreeBefore.modeButton.rect.w >= 43.9
       && mobileTreeBefore.modeButton.rect.h >= 43.9
-      && desktopTreeLayout.cloud.bottom <= desktopTreeLayout.board.top + 1
-      && shortDesktopTreeLayout.cloud.bottom <= shortDesktopTreeLayout.board.top + 1
+      && desktopTreeLayout.board.bottom <= desktopTreeLayout.cloud.top + 1
+      && shortDesktopTreeLayout.board.bottom <= shortDesktopTreeLayout.cloud.top + 1
       && visibleMobileCards.length > 0
       && visibleMobileCards.every((card) => card.rect.w >= 43.9 && card.rect.h >= 43.9)
       && mobileTreeBefore.levels.at(-1).scroller.scrollWidth
@@ -2232,8 +2232,8 @@ async function runTree2dChecks() {
     `可见节点 ${visibleMobileCards.length}｜最小高 ${
       visibleMobileCards.length ? Math.min(...visibleMobileCards.map((card) => card.rect.h)).toFixed(1) : 0
     }`
-      + `｜桌面间距 ${Math.round(desktopTreeLayout.board.top - desktopTreeLayout.cloud.bottom)}`
-      + ` / ${Math.round(shortDesktopTreeLayout.board.top - shortDesktopTreeLayout.cloud.bottom)}`
+      + `｜桌面间距 ${Math.round(desktopTreeLayout.cloud.top - desktopTreeLayout.board.bottom)}`
+      + ` / ${Math.round(shortDesktopTreeLayout.cloud.top - shortDesktopTreeLayout.board.bottom)}`
       + `｜横滑 ${branchSwipe?.before || 0}→${Math.round(branchScrollAfter)}`
       + `｜前缀 phase=${preparedMobilePhase}`
       + `｜触摸走到第 ${mobileThirdTree.path.length} 步`
@@ -3372,9 +3372,9 @@ async function runMobileChecks() {
   const tabletProblems = layoutProblems(tablet);
   const tabletTargets = [...tablet.controls.buttons, tablet.controls.firstCard].filter(Boolean);
   const tabletTwoColumn =
-    Math.abs(tablet.panels.cloudPanel.docY - tablet.panels.stage.docY) <= 1
-    && tablet.panels.cloudPanel.docRight <= tablet.panels.stage.docX + 1
-    && tablet.panels.boardPanel.docRight <= tablet.panels.stage.docX + 1;
+    Math.abs(tablet.panels.boardPanel.docY - tablet.panels.stage.docY) <= 1
+    && tablet.panels.boardPanel.docRight <= tablet.panels.stage.docX + 1
+    && tablet.panels.cloudPanel.docY > tablet.panels.boardPanel.docY;
   record(
     Math.abs(landscape.board.w - landscape.board.h) <= 1
       && landscape.board.docX >= -1
@@ -3911,6 +3911,108 @@ async function main() {
     `初始=${futureContract.initialButtons.legacyDisabled}/${futureContract.initialButtons.commitDisabled}`
       + `｜选路后=${futureContract.selectedButtons.legacyDisabled}/${futureContract.selectedButtons.commitDisabled}`
       + `｜清空后=${futureContract.cleanButtons.legacyDisabled}/${futureContract.cleanButtons.commitDisabled}`,
+  );
+
+  const hoverAuto = await evalJs(`(async () => {
+    window.__futureTest.rewind(0);
+    const liveBefore = window.__test.state();
+    const fork = document.getElementById('fork');
+    const candidates = [...fork.querySelectorAll('g.card[data-col="0"]')];
+    const card = candidates.find((node) => node.dataset.idx === '1') || candidates[0];
+    const first = card ? {
+      from: card.dataset.from,
+      to: card.dataset.to,
+      promotion: card.dataset.promotion || '',
+      san: card.dataset.san,
+    } : null;
+    card?.dispatchEvent(new PointerEvent('pointerover', {
+      bubbles: true,
+      pointerType: 'mouse',
+    }));
+    const started = performance.now();
+    while (performance.now() - started < 5000) {
+      const current = window.__futureTest.snapshot();
+      if (current.preview.source === 'hover' && current.preview.depth === 4) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const mouse = {
+      future: window.__futureTest.snapshot(),
+      state: window.__test.state(),
+      board: {
+        phase: document.getElementById('board').dataset.previewPhase,
+        stepCount: Number(document.getElementById('board').dataset.previewStepCount),
+        paths: document.querySelectorAll('#board [data-future-preview-step]').length,
+      },
+      bridge: {
+        hidden: document.getElementById('chessPlayBridge').hidden,
+        title: document.getElementById('chessPlayBridgeTitle').textContent,
+        detail: document.getElementById('chessPlayBridgeDetail').textContent,
+      },
+    };
+    fork.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    const cleared = window.__futureTest.snapshot();
+
+    const keyboardCard = candidates.find((node) => node !== card) || card;
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    keyboardCard?.focus({ preventScroll: true });
+    const keyboardStarted = performance.now();
+    while (performance.now() - keyboardStarted < 5000) {
+      const current = window.__futureTest.snapshot();
+      if (current.preview.source === 'hover' && current.preview.depth === 4) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const keyboard = window.__futureTest.snapshot();
+    keyboardCard?.blur();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    return { liveBefore, first, mouse, cleared, keyboard };
+  })()`, true);
+  let hoverReplayOk = hoverAuto.mouse.future.preview.path.length === 4;
+  try {
+    const replay = new Chess(hoverAuto.mouse.future.root.fen);
+    for (const step of hoverAuto.mouse.future.preview.path) {
+      const played = replay.move({
+        from: step.from,
+        to: step.to,
+        ...(step.promotion ? { promotion: step.promotion } : {}),
+      });
+      if (!played || replay.fen() !== step.afterFen) {
+        hoverReplayOk = false;
+        break;
+      }
+    }
+  } catch {
+    hoverReplayOk = false;
+  }
+  const hoverChecks = {
+    candidate: !!hoverAuto.first,
+    mouseSource: hoverAuto.mouse.future.preview.source === 'hover',
+    mouseDepth: hoverAuto.mouse.future.preview.depth === 4,
+    noSelection: hoverAuto.mouse.future.selectedPath.length === 0,
+    firstFrom: hoverAuto.mouse.future.preview.path[0]?.from === hoverAuto.first?.from,
+    firstTo: hoverAuto.mouse.future.preview.path[0]?.to === hoverAuto.first?.to,
+    stepCount: hoverAuto.mouse.board.stepCount === 4,
+    paths: hoverAuto.mouse.board.paths === 4,
+    bridgeVisible: !hoverAuto.mouse.bridge.hidden,
+    bridgeTitle: hoverAuto.mouse.bridge.title.includes('悬停连演'),
+    bridgeDetail: hoverAuto.mouse.bridge.detail.includes('移到另一候选'),
+    legal: hoverReplayOk,
+    sameFen: hoverAuto.mouse.state.fen === hoverAuto.liveBefore.fen,
+    sameHistory: hoverAuto.mouse.state.history.length === hoverAuto.liveBefore.history.length,
+    cleared: hoverAuto.cleared.preview.depth === 0,
+    keyboardSource: hoverAuto.keyboard.preview.source === 'hover',
+    keyboardDepth: hoverAuto.keyboard.preview.depth === 4,
+    keyboardNoSelection: hoverAuto.keyboard.selectedPath.length === 0,
+  };
+  record(
+    Object.values(hoverChecks).every(Boolean),
+    '鼠标悬停或键盘聚焦候选会自动连续演 4 ply，路线合法且不冒充实战选择',
+    `首着=${hoverAuto.first?.san || '无'}｜鼠标=${hoverAuto.mouse.future.preview.source}`
+      + `/${hoverAuto.mouse.future.preview.depth} ply`
+      + `｜键盘=${hoverAuto.keyboard.preview.source}/${hoverAuto.keyboard.preview.depth} ply`
+      + `｜selected=${hoverAuto.mouse.future.selectedPath.length}`
+      + `｜合法=${hoverReplayOk}｜实战未变=${hoverAuto.mouse.state.fen === hoverAuto.liveBefore.fen}`
+      + `｜fail=${Object.entries(hoverChecks).filter(([, ok]) => !ok).map(([key]) => key).join('/') || '无'}`,
   );
 
   let uncertainReplies = null;

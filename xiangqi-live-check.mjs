@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 63;
+const EXPECTED_RESULTS = 64;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -871,6 +871,137 @@ async function autoplayAudit() {
     window.__futureTest.setAutoplay(false);
     window.__xiangqiTest.reset();
   })()`);
+}
+
+async function hoverAutoplayAudit() {
+  await waitFor(
+    `!!document.querySelector('#branchGrid button[data-from][data-to]')`,
+    12000,
+    '悬停连演候选就绪',
+  );
+  const mouseStart = await evaluate(`(() => {
+    const surface = document.getElementById('branchGrid');
+    const candidates = [...surface.querySelectorAll('button[data-from][data-to]')];
+    const card = candidates.find((node) => node.dataset.selected !== 'true') || candidates[0];
+    const before = window.__futureTest.snapshot();
+    const liveFen = window.__xiangqiTest.fen;
+    const first = card ? {
+      from: 'abcdefghi'[Number(card.dataset.from) % 9]
+        + (9 - Math.floor(Number(card.dataset.from) / 9)),
+      to: 'abcdefghi'[Number(card.dataset.to) % 9]
+        + (9 - Math.floor(Number(card.dataset.to) / 9)),
+      label: card.textContent.replace(/\\s+/g, ' ').trim(),
+    } : null;
+    card?.dispatchEvent(new PointerEvent('pointerover', {
+      bubbles: true,
+      pointerType: 'mouse',
+    }));
+    return { before, liveFen, first };
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().preview.source === 'hover'
+      && window.__futureTest.snapshot().preview.depth === 4`,
+    6000,
+    '鼠标悬停四拍路线',
+  );
+  await waitFor(
+    `window.__futureTest.snapshot().preview.stage === 'settled'`,
+    7000,
+    '鼠标悬停四拍播放完成',
+  );
+  const mouse = await evaluate(`(() => {
+    const snapshot = window.__futureTest.snapshot();
+    const board = document.getElementById('board');
+    return {
+      snapshot,
+      liveFen: window.__xiangqiTest.fen,
+      board: {
+        phase: board.dataset.previewPhase,
+        stage: board.dataset.previewStage,
+        stepCount: Number(board.dataset.previewStepCount),
+        paths: board.querySelectorAll('[data-future-preview-step]').length,
+      },
+      bridge: {
+        hidden: document.getElementById('xqPlayBridge').hidden,
+        title: document.getElementById('xqPlayBridgeTitle').textContent,
+        detail: document.getElementById('xqPlayBridgeDetail').textContent,
+      },
+    };
+  })()`);
+  const replayProblems = [];
+  let replayFen = mouse.snapshot.root.fen;
+  for (const [index, step] of mouse.snapshot.preview.path.entries()) {
+    const matches = legalTransition(replayFen, step.afterFen);
+    if (matches.length !== 1) {
+      replayProblems.push(`第 ${index + 1} 手匹配 ${matches.length}`);
+      break;
+    }
+    replayFen = toFen(matches[0].next);
+  }
+
+  await evaluate(`document.getElementById('branchGrid').dispatchEvent(
+    new PointerEvent('pointerleave', { pointerType: 'mouse' })
+  )`);
+  await waitFor(
+    `window.__futureTest.snapshot().preview.depth === 0`,
+    3000,
+    '鼠标离开取消连演',
+  );
+  const cleared = await evaluate('window.__futureTest.snapshot()');
+  await evaluate(`(() => {
+    const candidates = [...document.querySelectorAll('#branchGrid button[data-from][data-to]')];
+    const card = candidates[1] || candidates[0];
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+    card?.focus({ preventScroll: true });
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().preview.source === 'hover'
+      && window.__futureTest.snapshot().preview.depth === 4`,
+    6000,
+    '键盘聚焦四拍路线',
+  );
+  const keyboard = await evaluate('window.__futureTest.snapshot()');
+  await evaluate(`(() => {
+    document.activeElement?.blur();
+    document.getElementById('branchGrid').dispatchEvent(
+      new PointerEvent('pointerleave', { pointerType: 'mouse' })
+    );
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().preview.depth === 0`,
+    3000,
+    '键盘连演清理',
+  );
+
+  record(
+    !!mouseStart.first
+      && mouse.snapshot.preview.source === 'hover'
+      && mouse.snapshot.preview.depth === 4
+      && mouse.snapshot.selectedPath.length === 0
+      && mouse.snapshot.preview.path[0]?.from === mouseStart.first.from
+      && mouse.snapshot.preview.path[0]?.to === mouseStart.first.to
+      && mouse.board.stepCount === 4
+      && mouse.board.paths === 4
+      && !mouse.bridge.hidden
+      && mouse.bridge.title.includes('悬停连演')
+      && mouse.bridge.detail.includes('移到另一候选')
+      && replayProblems.length === 0
+      && sameFen(mouse.liveFen, mouseStart.liveFen)
+      && mouse.snapshot.identity.positionId === mouseStart.before.identity.positionId
+      && mouse.snapshot.identity.positionKey === mouseStart.before.identity.positionKey
+      && cleared.preview.depth === 0
+      && keyboard.preview.source === 'hover'
+      && keyboard.preview.depth === 4
+      && keyboard.selectedPath.length === 0,
+    '鼠标悬停或键盘聚焦候选会自动连续演 4 ply，路线合法且不冒充实战选择',
+    `首着=${mouseStart.first?.label || '无'}｜鼠标=${mouse.snapshot.preview.source}`
+      + `/${mouse.snapshot.preview.depth} ply`
+      + `｜键盘=${keyboard.preview.source}/${keyboard.preview.depth} ply`
+      + `｜selected=${mouse.snapshot.selectedPath.length}`
+      + `｜合法=${replayProblems.length === 0}`
+      + `｜positionId=${mouse.snapshot.identity.positionId}`
+      + `｜实战未变=${sameFen(mouse.liveFen, mouseStart.liveFen)}`,
+  );
 }
 
 async function futureContractAudit() {
@@ -3199,6 +3330,7 @@ async function main() {
   await portalAudit(rootUrl);
   const initialFen = await initialAudit();
   await autoplayAudit();
+  await hoverAutoplayAudit();
   await futureRaceAndOverviewAudit();
   await futureContractAudit();
   await uncertainReplyAudit();

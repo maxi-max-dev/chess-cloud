@@ -938,6 +938,7 @@
       border: 1px solid rgba(121,230,219,.46);
       border-radius: 10px;
       box-shadow: 0 14px 38px rgba(0,0,0,.58), 0 0 24px rgba(121,230,219,.13);
+      pointer-events: none;
     }
     body[data-future-board-preview="active"] .future-board-badge {
       position: fixed; z-index: 141;
@@ -1100,23 +1101,94 @@
     }
   }
 
+  .chess-play-bridge {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px;
+    align-items: center; margin-top: 10px; padding: 10px 11px;
+    border: 1px solid rgba(143,216,255,.34); border-radius: 12px;
+    background: linear-gradient(120deg, rgba(25,49,68,.88), rgba(12,20,30,.92));
+    box-shadow: inset 3px 0 0 #8fd8ff, 0 8px 18px rgba(0,0,0,.2);
+  }
+  .chess-play-bridge[hidden] { display: none; }
+  .chess-play-bridge-copy b { display: block; color: #effaff; font-size: 12px; }
+  .chess-play-bridge-copy span { display: block; margin-top: 3px; color: #9eb3c4; font-size: 10px; }
+  .chess-play-bridge-actions { display: flex; gap: 7px; }
+  .chess-play-bridge-actions .primary {
+    color: #07151d; border-color: rgba(143,216,255,.8); background: #8fd8ff;
+  }
+
+  /* 与中国象棋统一成“左棋盘、右推演、全景为次级入口”的主布局。 */
+  body:not(.cloud-full) {
+    width: min(1480px, 100%); height: auto; min-height: 100vh; margin: 0 auto;
+    overflow-x: hidden; overflow-y: auto; display: grid;
+    grid-template-columns: minmax(480px, 650px) minmax(360px, 1fr);
+    grid-template-areas:
+      "appbar appbar"
+      "board stage"
+      "cloud stage";
+    gap: 16px; align-items: start;
+    padding: calc(18px + var(--safe-top)) 22px calc(20px + var(--safe-bottom));
+  }
+  body:not(.cloud-full) #productBar,
+  body:not(.cloud-full) #boardPanel,
+  body:not(.cloud-full) #cloudPanel,
+  body:not(.cloud-full) #stage {
+    position: relative; inset: auto; width: 100%; min-width: 0;
+  }
+  body:not(.cloud-full) #productBar { grid-area: appbar; }
+  body:not(.cloud-full) #boardPanel { grid-area: board; padding: 15px; }
+  body:not(.cloud-full) #board { width: min(100%, 590px); height: auto; aspect-ratio: 1; margin: 0 auto; }
+  body:not(.cloud-full) #stage { grid-area: stage; height: min(920px, calc(100dvh - 102px)); min-height: 720px; }
+  body:not(.cloud-full) #cloudPanel { grid-area: cloud; padding: 12px 15px 14px; }
+  body:not(.cloud-full) #skyBox { width: 100%; height: 210px; }
+
+  @media (max-width: 760px) {
+    body:not(.cloud-full) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "appbar" "board" "stage" "cloud";
+      gap: 12px;
+      padding: calc(12px + var(--safe-top)) 12px calc(12px + var(--safe-bottom));
+    }
+    body:not(.cloud-full) #stage { height: min(760px, 76dvh); min-height: 620px; }
+    body:not(.cloud-full) #skyBox { height: auto; aspect-ratio: 402 / 210; }
+    .chess-play-bridge { grid-template-columns: minmax(0, 1fr); }
+    .chess-play-bridge-actions button { flex: 1; min-height: 44px; }
+  }
+
+  @media (min-width: 560px) and (max-width: 950px) and (max-height: 520px) and (orientation: landscape) {
+    body:not(.cloud-full) {
+      grid-template-columns: minmax(276px, 44%) minmax(0, 1fr);
+      grid-template-areas:
+        "appbar appbar"
+        "board stage"
+        "cloud stage";
+      gap: 8px;
+      padding: max(8px, var(--safe-top)) max(8px, var(--safe-right))
+        max(8px, var(--safe-bottom)) max(8px, var(--safe-left));
+    }
+    body:not(.cloud-full) #boardPanel,
+    body:not(.cloud-full) #cloudPanel { padding: 8px; }
+    body:not(.cloud-full) #stage { height: auto; min-height: 620px; }
+    body:not(.cloud-full) #skyBox { height: auto; aspect-ratio: 402 / 158; }
+  }
+
 </style>
 </head>
 <body>
 
 <header id="productBar" class="future-appbar" aria-label="棋路产品导航">
-  <a class="future-brand" href="./" aria-label="返回棋路首页">
+  <a class="future-home" href="./" aria-label="返回棋路首页">←</a>
+  <a class="future-brand" href="./">
     <span class="future-brand-mark" aria-hidden="true"></span>
     <span class="future-brand-copy">
       <b>棋路 · 未来地图</b>
-      <small>看见选择，以及选择之后</small>
+      <small>国际象棋 · 看见选择，以及选择之后</small>
     </span>
   </a>
   <nav class="future-game-nav" aria-label="切换棋种">
     <a href="./chess.html" aria-current="page">国际象棋</a>
     <a href="./xiangqi.html">中国象棋</a>
   </nav>
-  <span class="future-truth">全部数字来自当前真实局面</span>
+  <span class="future-truth">白方行棋</span>
 </header>
 
 <div class="panel" id="cloudPanel">
@@ -1273,12 +1345,22 @@
     <g id="boardOverlay"></g>
   </svg>
   <div id="futureBoardBadge" class="future-board-badge" aria-live="polite" hidden>
-    <b>路线分析</b><span>先走你的选择，再挑一种可能回应</span>
+    <b>路线连演</b><span>悬停候选即可连续看 4 步，不会替你落子</span>
+  </div>
+  <div id="chessPlayBridge" class="chess-play-bridge" hidden aria-live="polite">
+    <div class="chess-play-bridge-copy">
+      <b id="chessPlayBridgeTitle">这只是推演，棋还没有落下</b>
+      <span id="chessPlayBridgeDetail">移到候选上连演，也可以返回棋盘自己选择。</span>
+    </div>
+    <div class="chess-play-bridge-actions">
+      <button id="chessReturnToPlay" type="button">返回棋盘自己下</button>
+      <button id="chessAdoptPreview" class="primary" type="button">采纳首步继续</button>
+    </div>
   </div>
   <div id="status">正在算分叉…</div>
   <div class="row">
     <button id="btnReset">重开</button>
-    <button id="btnPlayLine">走已选第一步</button>
+    <button id="btnPlayLine">采纳首步继续</button>
   </div>
 </div>
 
@@ -1287,7 +1369,7 @@
   <div id="stageHead">
     <span class="future-kicker">Future map · Analysis</span>
     <h2 data-future-root data-node-id="root">推演 · 未来地图</h2>
-    <div class="sub">第一列是你的选择；从第二列开始都是可能分支，点中后才继续条件预演。</div>
+    <div class="sub">鼠标停在任一候选上会自动连演 4 步；移到另一条路线即可换线，点击仍用于明确选择。</div>
     <div class="future-map-legend" aria-label="未来地图图例">
       <span class="future-legend-key" data-kind="option">其他合法路线</span>
       <span class="future-legend-key" data-kind="selected">正在预演</span>
@@ -1298,8 +1380,8 @@
     <div id="coachPanel" data-state="idle" aria-live="polite">
       <div id="coachLead">
         <span class="coach-kicker">路线影响</span>
-        <b id="coachTitle">先点一枚白棋，或从地图选择路线</b>
-        <span id="coachExplain">先播放你选的一步，再列出对手全部真实合法回应供你选择</span>
+        <b id="coachTitle">把鼠标移到任一候选，直接看后续</b>
+        <span id="coachExplain">自动连演我方→对方→我方→对方 4 步；点击才算明确选择</span>
       </div>
       <div id="coachThreatStrip" aria-label="一步威胁提示"></div>
       <div id="coachMoves"></div>
@@ -1331,8 +1413,8 @@
       </section>
     </div>
     <div class="future-context-actions">
-      <button id="futureClear" type="button" disabled>回到现在</button>
-      <button id="futureCommit" type="button" disabled>走这步</button>
+      <button id="futureClear" type="button" disabled>返回棋盘自己下</button>
+      <button id="futureCommit" type="button" disabled>采纳首步继续</button>
     </div>
   </div>
 </div>
@@ -2199,6 +2281,7 @@ function onAiMove(result) {
 /** 落子入口。棋盘点击、分叉图、测试钩子走的都是这一条路，合法性一律由 chess.js 判。 */
 function tryMove(from, to, promotion) {
   if (thinking || game.isGameOver() || game.turn() !== 'w') return false;
+  cancelHoverPreview({ restoreExplicit: false });
   const prediction = captureCoachPrediction(from, to, promotion);
   let mv = null;
   try { mv = game.move({ from, to, promotion: promotion || 'q' }); } catch (e) { mv = null; }
@@ -2212,6 +2295,7 @@ function tryMove(from, to, promotion) {
   coachOutcome = null;
   setCoachThinking(mv);
   coachReplyCache.clear();
+  hoverPreviewLineCache.clear();
   branchPath = [];
   expanded = [];
   routeSelectionDepth = 0;
@@ -2250,6 +2334,11 @@ const boardSquaresEl = document.getElementById('boardSquares');
 const boardPiecesEl = document.getElementById('boardPieces');
 const boardOverlayEl = document.getElementById('boardOverlay');
 const futureBoardBadgeEl = document.getElementById('futureBoardBadge');
+const chessPlayBridgeEl = document.getElementById('chessPlayBridge');
+const chessPlayBridgeTitleEl = document.getElementById('chessPlayBridgeTitle');
+const chessPlayBridgeDetailEl = document.getElementById('chessPlayBridgeDetail');
+const chessReturnToPlayEl = document.getElementById('chessReturnToPlay');
+const chessAdoptPreviewEl = document.getElementById('chessAdoptPreview');
 const CELL = 50;
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const PIECE_NAME = { k: '王', q: '后', r: '车', b: '象', n: '马', p: '兵' };
@@ -2258,7 +2347,20 @@ let coachPreview = null;  // 棋子助手只画已明确的候选步；回应仅
 let futurePreviewPlayback = null;
 let futurePreviewEpoch = 0;
 let futurePreviewTimer = 0;
+let hoverPreviewTimer = 0;
+let hoverPreviewKey = '';
+let hoverPreviewState = null;
+let hoverFocusSuppressedUntil = 0;
+let hoverKeyboardIntentUntil = 0;
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Tab' || event.key.startsWith('Arrow')) {
+    hoverKeyboardIntentUntil = performance.now() + 1200;
+  }
+}, { capture: true });
 const FUTURE_PREVIEW_STEP_MS = 660;
+const HOVER_PREVIEW_DWELL_MS = 140;
+const HOVER_PREVIEW_PLY = 4;
 const coachPanelEl = document.getElementById('coachPanel');
 const coachTitleEl = document.getElementById('coachTitle');
 const coachExplainEl = document.getElementById('coachExplain');
@@ -2302,19 +2404,30 @@ function syncFuturePreviewDataset() {
   boardEl.dataset.previewReplyCount = active ? String(futurePreviewPlayback.replyCount) : '0';
   document.body.dataset.futureBoardPreview = active ? 'active' : 'idle';
   futureBoardBadgeEl.hidden = !active;
+  chessPlayBridgeEl.hidden = !active;
   if (active) {
     const current = futurePreviewPlayback.frames[futurePreviewPlayback.index];
     const phase = futurePreviewPlayback.phase;
+    const total = futurePreviewPlayback.frames.length;
+    const hoverRoute = futurePreviewPlayback.kind === 'hover';
     const copy = phase === 'await-reply'
       ? `你的 ${current.move.san} 已走完 · 对手有 ${futurePreviewPlayback.replyCount} 种可能回应`
       : phase === 'terminal'
         ? `你的 ${current.move.san} 已走完 · 对手没有合法回应`
         : phase === 'conditional-settled' || phase === 'conditional-static'
-          ? `条件结果：假设对手走 ${current.move.san}`
+          ? `${hoverRoute ? '悬停连演' : '条件路线'}完成 · 共 ${total} 步`
           : current.role === 'you'
-            ? `正在播放你的选择 ${current.move.san}`
-            : `正在播放假设回应 ${current.move.san}`;
+            ? `第 ${futurePreviewPlayback.index + 1}/${total} 步 · 我方 ${current.move.san}`
+            : `第 ${futurePreviewPlayback.index + 1}/${total} 步 · 对方可能 ${current.move.san}`;
     futureBoardBadgeEl.querySelector('span').textContent = copy;
+    chessPlayBridgeTitleEl.textContent = phase === 'conditional-settled' || phase === 'conditional-static'
+      ? `${hoverRoute ? '悬停连演' : '推演'}了 ${total} 步，棋还没有落下`
+      : `正在${hoverRoute ? '悬停连演' : '推演'}第 ${futurePreviewPlayback.index + 1}/${total} 步，棋还没有落下`;
+    chessPlayBridgeDetailEl.textContent = hoverRoute
+      ? '移到另一候选会立即换线；也可以采纳这条路线的第一步，或返回棋盘自己下。'
+      : '这只是条件分析；可以采纳第一步，也可以回到真实棋盘。';
+    chessReturnToPlayEl.disabled = thinking;
+    chessAdoptPreviewEl.disabled = thinking || game.isGameOver() || game.turn() !== 'w';
   }
   syncFutureDepthInteractivity();
 }
@@ -2334,7 +2447,7 @@ function replayFuturePreview(rootFen, moves) {
   let replay;
   try { replay = new Chess(rootFen); } catch { return []; }
   const frames = [];
-  for (const [index, requested] of moves.slice(0, 2).entries()) {
+  for (const [index, requested] of moves.slice(0, HOVER_PREVIEW_PLY).entries()) {
     const legal = replay.moves({ verbose: true }).find((candidate) =>
       candidate.from === requested.from
       && candidate.to === requested.to
@@ -2346,7 +2459,7 @@ function replayFuturePreview(rootFen, moves) {
       ...(legal.promotion ? { promotion: legal.promotion } : {}),
     });
     frames.push({
-      role: index === 0 ? 'you' : 'reply',
+      role: index % 2 === 0 ? 'you' : 'reply',
       fen: replay.fen(),
       move: {
         san: legal.san,
@@ -2377,7 +2490,13 @@ function armFuturePreviewStep(token) {
   }, FUTURE_PREVIEW_STEP_MS);
 }
 
-function startFutureBoardPreview(moves) {
+function startFutureBoardPreview(moves, { fromBeginning = false, kind = 'explicit' } = {}) {
+  if (kind !== 'hover') {
+    if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+    hoverPreviewTimer = 0;
+    hoverPreviewKey = '';
+    hoverPreviewState = null;
+  }
   const rootFen = game.fen();
   const frames = replayFuturePreview(rootFen, Array.isArray(moves) ? moves : []);
   if (frames.length === 0) {
@@ -2401,9 +2520,12 @@ function startFutureBoardPreview(moves) {
     rootFen,
     steps: frames.map((frame) => ({ ...frame.move, role: frame.role })),
     frames,
+    kind,
     replyCount,
     finalPhase,
-    index: hasExplicitReply ? frames.length - 1 : 0,
+    index: reduced
+      ? frames.length - 1
+      : fromBeginning ? 0 : hasExplicitReply ? frames.length - 1 : 0,
     phase: reduced
       ? hasExplicitReply ? 'conditional-static' : finalPhase
       : hasExplicitReply ? 'conditional-playing' : 'playing',
@@ -2413,6 +2535,7 @@ function startFutureBoardPreview(moves) {
   coachPreview = null;
   renderBoard();
   if (!reduced) armFuturePreviewStep(token);
+  if (kind === 'hover') renderHoverFutureContext(frames);
   return true;
 }
 
@@ -2788,6 +2911,7 @@ let forkScrollGen = 0;
 let forkStale = false;
 let forkHoverKey = '';
 const forkReplyCountCache = new Map();
+const hoverPreviewLineCache = new Map();
 let routeSelectionDepth = 0;
 let routeSyncing = false;
 
@@ -2804,6 +2928,70 @@ function futureMoveKey(move) {
   return move
     ? `${move.from}-${move.to}-${move.promotion || ''}`
     : '';
+}
+
+function buildHoverPreviewLine(seedMoves, maxPly = HOVER_PREVIEW_PLY) {
+  const seed = (Array.isArray(seedMoves) ? seedMoves : [seedMoves]).filter(Boolean);
+  if (!seed.length || !seed.at(-1)?.after) return [];
+  const cacheKey = `${game.fen()}|${seed.map(futureMoveKey).join('|')}|${maxPly}`;
+  const cached = hoverPreviewLineCache.get(cacheKey);
+  if (cached) return cached;
+  const line = seed.slice(0, maxPly);
+  let fen = line.at(-1).after;
+  while (line.length < maxPly) {
+    const next = rankMoves(fen, { depth: RANK_DEPTH })[0] || null;
+    if (!next) break;
+    line.push(next);
+    fen = next.after;
+  }
+  hoverPreviewLineCache.set(cacheKey, line);
+  return line;
+}
+
+function renderHoverFutureContext(frames = futurePreviewPlayback?.frames || []) {
+  const moves = frames.map((frame) => frame.move);
+  writeFutureContext({
+    label: '悬停连演',
+    title: `自动连演 ${moves.length} 步：${moves.map((move) => move.san).join(' → ')}`,
+    detail: '第一步是你正在看的候选；后续由现有浅层分析逐段接续，只展示一种可能路线。移到另一候选即可换线。',
+    canCommit: moves.length > 0,
+    canClear: moves.length > 0,
+  });
+}
+
+function cancelHoverPreview({ restoreExplicit = true } = {}) {
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = '';
+  hoverPreviewState = null;
+  if (futurePreviewPlayback?.kind !== 'hover') return false;
+  if (restoreExplicit && routeSelectionDepth > 0) {
+    startFutureBoardPreview(routeMovesFromColumns(Math.min(2, routeSelectionDepth)));
+  } else {
+    cancelFutureBoardPreview();
+  }
+  renderFutureContextIdle();
+  return true;
+}
+
+function scheduleHoverPreview(move, sourceKey = futureMoveKey(move), prefix = []) {
+  if (!move || thinking || forkStale || game.turn() !== 'w' || game.isGameOver()) return false;
+  const key = `${sourceKey}|${futureMoveKey(move)}`;
+  if (key === hoverPreviewKey && (hoverPreviewTimer || futurePreviewPlayback?.kind === 'hover')) return false;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = key;
+  const expectedFen = game.fen();
+  if (futurePreviewPlayback?.kind === 'hover') cancelFutureBoardPreview();
+  hoverPreviewTimer = window.setTimeout(() => {
+    hoverPreviewTimer = 0;
+    if (hoverPreviewKey !== key || game.fen() !== expectedFen || thinking || forkStale) return;
+    const line = buildHoverPreviewLine([...prefix, move]);
+    if (!line.length || game.fen() !== expectedFen) return;
+    hoverPreviewState = { key, rootFen: expectedFen, line };
+    startFutureBoardPreview(line, { fromBeginning: true, kind: 'hover' });
+  }, HOVER_PREVIEW_DWELL_MS);
+  return true;
 }
 
 function futureEffectHtml(effect) {
@@ -3004,7 +3192,9 @@ function updateFutureMapDataset() {
   futureMapEl.dataset.mode = cloudViewMode === '2d' ? 'tree-2d' : 'overview-3d';
   futureMapEl.dataset.phase = thinking ? 'thinking' : forkStale ? 'syncing' : 'ready';
   futureMapEl.dataset.rootFen = rootFen;
-  futureMapEl.dataset.routeOwner = routeSelectionDepth > 0 ? 'user' : 'suggested';
+  futureMapEl.dataset.routeOwner = futurePreviewPlayback?.kind === 'hover'
+    ? 'hover'
+    : routeSelectionDepth > 0 ? 'user' : 'suggested';
   document.body.dataset.routeOwner = futureMapEl.dataset.routeOwner;
   futureRootEl.dataset.fen = rootFen;
   futureRootEl.dataset.depth = '0';
@@ -3960,6 +4150,41 @@ futureReplyListEl.addEventListener('click', (event) => {
   if (!Number.isInteger(rank) || !columns[1].ranked[rank]) return;
   chooseForkBranch(1, rank, false);
 });
+futureReplyListEl.addEventListener('pointerover', (event) => {
+  if (event.pointerType === 'touch' || performance.now() < hoverFocusSuppressedUntil) return;
+  const option = event.target.closest?.('[data-future-reply-option]');
+  const first = routeSelectionDepth > 0 ? columns[0]?.ranked[columns[0].chosen] : null;
+  const reply = option ? columns[1]?.ranked[Number(option.dataset.rank)] : null;
+  if (first && reply) scheduleHoverPreview(
+    reply,
+    `reply:1:${option.dataset.rank}`,
+    [first],
+  );
+});
+futureReplyListEl.addEventListener('pointerdown', () => {
+  hoverFocusSuppressedUntil = performance.now() + 500;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = '';
+});
+futureReplyListEl.addEventListener('pointerleave', () => cancelHoverPreview());
+futureReplyListEl.addEventListener('focusin', (event) => {
+  if (performance.now() < hoverFocusSuppressedUntil
+    || performance.now() >= hoverKeyboardIntentUntil) return;
+  const option = event.target.closest?.('[data-future-reply-option]');
+  const first = routeSelectionDepth > 0 ? columns[0]?.ranked[columns[0].chosen] : null;
+  const reply = option ? columns[1]?.ranked[Number(option.dataset.rank)] : null;
+  if (first && reply) scheduleHoverPreview(
+    reply,
+    `reply:1:${option.dataset.rank}`,
+    [first],
+  );
+});
+futureReplyListEl.addEventListener('focusout', () => {
+  window.queueMicrotask(() => {
+    if (!futureReplyListEl.contains(document.activeElement)) cancelHoverPreview();
+  });
+});
 
 function showMoveDetails(c, m, rank) {
   const isCurrentPosition = c.fen === game.fen();
@@ -4013,11 +4238,42 @@ forkEl.addEventListener('mouseover', (ev) => {
   if (!m) return;
   showMoveDetails(c, m, +card.dataset.idx);
 });
-forkEl.addEventListener('mouseleave', () => {
+forkEl.addEventListener('pointerover', (event) => {
+  if (event.pointerType === 'touch' || performance.now() < hoverFocusSuppressedUntil || thinking || forkStale) return;
+  const card = event.target.closest ? event.target.closest('g.card') : null;
+  if (!card) return;
+  const col = Number(card.dataset.col);
+  const rank = Number(card.dataset.idx);
+  const move = columns[col]?.ranked[rank];
+  if (move) scheduleHoverPreview(move, `fork:${col}:${rank}`, routeMovesFromColumns(col));
+});
+forkEl.addEventListener('pointerdown', () => {
+  hoverFocusSuppressedUntil = performance.now() + 500;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = '';
+});
+forkEl.addEventListener('focusin', (event) => {
+  if (performance.now() < hoverFocusSuppressedUntil
+    || performance.now() >= hoverKeyboardIntentUntil) return;
+  const card = event.target.closest ? event.target.closest('g.card') : null;
+  if (!card || thinking || forkStale) return;
+  const col = Number(card.dataset.col);
+  const rank = Number(card.dataset.idx);
+  const move = columns[col]?.ranked[rank];
+  if (move) scheduleHoverPreview(move, `fork:${col}:${rank}`, routeMovesFromColumns(col));
+});
+forkEl.addEventListener('pointerleave', () => {
   if (thinking || forkStale) return;
+  cancelHoverPreview();
   forkHoverKey = '';
   forkPreview = null; renderBoardOverlay();
   renderFutureContextIdle();
+});
+forkEl.addEventListener('focusout', () => {
+  window.queueMicrotask(() => {
+    if (!forkEl.contains(document.activeElement)) cancelHoverPreview();
+  });
 });
 
 function commitFirstFutureMove(requireExplicit = false) {
@@ -4028,11 +4284,20 @@ function commitFirstFutureMove(requireExplicit = false) {
   return tryMove(m.from, m.to, m.promotion);
 }
 
-document.getElementById('btnPlayLine').onclick = () => commitFirstFutureMove(true);
-futureCommitEl.onclick = () => commitFirstFutureMove(true);
+function commitCurrentPreviewFirstMove(requireExplicit = false) {
+  const first = futurePreviewIsActive() ? futurePreviewPlayback.frames[0]?.move : null;
+  if (first && (!requireExplicit || routeSelectionDepth > 0 || futurePreviewPlayback.kind === 'hover')) {
+    return tryMove(first.from, first.to, first.promotion);
+  }
+  return commitFirstFutureMove(requireExplicit);
+}
+
+document.getElementById('btnPlayLine').onclick = () => commitCurrentPreviewFirstMove(true);
+futureCommitEl.onclick = () => commitCurrentPreviewFirstMove(true);
 
 function clearFutureRoute({ focus = true } = {}) {
   if (thinking || forkStale) return false;
+  cancelHoverPreview({ restoreExplicit: false });
   cancelFutureBoardPreview(false);
   selected = null;
   forkPreview = null;
@@ -4054,6 +4319,16 @@ function clearFutureRoute({ focus = true } = {}) {
 }
 
 futureClearEl.onclick = () => clearFutureRoute();
+chessReturnToPlayEl.onclick = () => {
+  if (!clearFutureRoute({ focus: false })) return;
+  const firstPlayable = boardEl.querySelector('[data-sq][tabindex="0"]');
+  firstPlayable?.focus({ preventScroll: true });
+  boardEl.scrollIntoView({
+    block: 'center',
+    behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+  });
+};
+chessAdoptPreviewEl.onclick = () => commitCurrentPreviewFirstMove();
 
 // ─────────────────────────────────────────────── 全屏变体棋盘
 const exploreSquaresEl = document.getElementById('exploreSquares');
@@ -4623,6 +4898,50 @@ cloudTree2dEl.addEventListener('click', (event) => {
     chooseExplorerMoveAt(parentDepth, +choice.dataset.treeRank);
   }
 });
+cloudTree2dEl.addEventListener('pointerover', (event) => {
+  if (event.pointerType === 'touch' || performance.now() < hoverFocusSuppressedUntil) return;
+  const choice = event.target.closest?.('button[data-tree-rank]');
+  if (!choice || choice.disabled) return;
+  const parentDepth = Number(choice.dataset.parentDepth);
+  const parentFen = parentDepth === 0
+    ? explorerState.rootFen
+    : explorerState.path[parentDepth - 1]?.after;
+  if (!parentFen || choice.dataset.parentFen !== parentFen) return;
+  const move = explorerChoicesFor(parentFen)[Number(choice.dataset.treeRank)];
+  if (move) scheduleHoverPreview(
+    move,
+    `tree:${parentDepth}:${choice.dataset.treeRank}`,
+    explorerState.path.slice(0, parentDepth),
+  );
+});
+cloudTree2dEl.addEventListener('pointerdown', () => {
+  hoverFocusSuppressedUntil = performance.now() + 500;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = '';
+});
+cloudTree2dEl.addEventListener('pointerleave', () => cancelHoverPreview());
+cloudTree2dEl.addEventListener('focusin', (event) => {
+  if (performance.now() < hoverFocusSuppressedUntil
+    || performance.now() >= hoverKeyboardIntentUntil) return;
+  const choice = event.target.closest?.('button[data-tree-rank]');
+  if (!choice || choice.disabled) return;
+  const parentDepth = Number(choice.dataset.parentDepth);
+  const parentFen = parentDepth === 0
+    ? explorerState.rootFen
+    : explorerState.path[parentDepth - 1]?.after;
+  const move = parentFen ? explorerChoicesFor(parentFen)[Number(choice.dataset.treeRank)] : null;
+  if (move) scheduleHoverPreview(
+    move,
+    `tree:${parentDepth}:${choice.dataset.treeRank}`,
+    explorerState.path.slice(0, parentDepth),
+  );
+});
+cloudTree2dEl.addEventListener('focusout', () => {
+  window.queueMicrotask(() => {
+    if (!cloudTree2dEl.contains(document.activeElement)) cancelHoverPreview();
+  });
+});
 tree2dBodyEl.addEventListener('scroll', (event) => {
   if (event.target.classList?.contains('tree2d-branch-scroll')) {
     syncTreePanButtons(event.target);
@@ -4939,6 +5258,33 @@ cloudLabelsEl.addEventListener('click', (ev) => {
     chooseExplorerRootAfter(after);
     focusCloudMove(after);
   }
+});
+cloudLabelsEl.addEventListener('pointerover', (event) => {
+  if (event.pointerType === 'touch' || performance.now() < hoverFocusSuppressedUntil) return;
+  const label = event.target.closest?.('button.cloud-move-label[data-rank]');
+  if (!label || !columns[0]) return;
+  const rank = Number(label.dataset.rank);
+  const move = columns[0].ranked[rank];
+  if (move) scheduleHoverPreview(move, `cloud:0:${rank}`);
+});
+cloudLabelsEl.addEventListener('pointerdown', () => {
+  hoverFocusSuppressedUntil = performance.now() + 500;
+  if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
+  hoverPreviewTimer = 0;
+  hoverPreviewKey = '';
+});
+cloudLabelsEl.addEventListener('pointerleave', () => cancelHoverPreview());
+cloudLabelsEl.addEventListener('focusin', (event) => {
+  if (performance.now() < hoverFocusSuppressedUntil
+    || performance.now() >= hoverKeyboardIntentUntil) return;
+  const label = event.target.closest?.('button.cloud-move-label[data-rank]');
+  const move = label && columns[0]?.ranked[Number(label.dataset.rank)];
+  if (move) scheduleHoverPreview(move, `cloud:0:${label.dataset.rank}`);
+});
+cloudLabelsEl.addEventListener('focusout', () => {
+  window.queueMicrotask(() => {
+    if (!cloudLabelsEl.contains(document.activeElement)) cancelHoverPreview();
+  });
 });
 
 // ─────────────────────────────────────────────── 路径网视角
@@ -5975,6 +6321,7 @@ function resetGame(fen = null) {
   clearAiWatchdog();
   aiPending = null;
   restartSearchWorker();
+  cancelHoverPreview({ restoreExplicit: false });
   cancelFutureBoardPreview(false);
   if (fen) game.load(fen); else game.reset();
   resetCloudView();
@@ -5987,6 +6334,7 @@ function resetGame(fen = null) {
   pendingCoachPrediction = null;
   pendingCoachOutcome = null;
   coachReplyCache.clear();
+  hoverPreviewLineCache.clear();
   lastAi = null;
   thinking = false;
   clearPvGuide();
@@ -6002,7 +6350,7 @@ function resetGame(fen = null) {
   renderCoachIdle();
   setStatusText(fen
     ? `${game.turn() === 'w' ? '白方' : '黑方'}行棋。`
-    : '你执白。点一枚白棋看预演；右侧从「现在」向右选路。');
+    : '你执白。鼠标停在候选上会自动连演 4 步；点击棋盘仍可直接下棋。');
   return true;
 }
 
@@ -6033,8 +6381,12 @@ function futureSnapshot() {
   const routeMoves = columnsCurrent ? routeMovesFromColumns() : [];
   const selectedMoves = routeMoves.slice(0, routeSelectionDepth);
   const suggestedMoves = routeMoves.slice(routeSelectionDepth);
-  const previewMoves =
-    explorerState.rootFen === game.fen() && explorerState.path.length
+  const hoverPreviewMoves = futurePreviewPlayback?.kind === 'hover'
+    ? futurePreviewPlayback.frames.map((frame) => ({ ...frame.move, after: frame.fen }))
+    : [];
+  const previewMoves = hoverPreviewMoves.length
+    ? hoverPreviewMoves
+    : explorerState.rootFen === game.fen() && explorerState.path.length
       ? explorerState.path
       : selectedMoves;
   const activeEnginePath = !!pvGuide && pvGuide.rootFen === game.fen();
@@ -6061,10 +6413,13 @@ function futureSnapshot() {
     suggestedPath: suggestedMoves.map((move, index) =>
       futureMoveSnapshot(move, routeSelectionDepth + index + 1, 'suggested')),
     preview: {
+      source: hoverPreviewMoves.length ? 'hover' : selectedMoves.length ? 'manual' : 'suggested',
       fen: previewMoves.at(-1)?.after || game.fen(),
       depth: previewMoves.length,
       path: previewMoves.map((move, index) =>
-        futureMoveSnapshot(move, index + 1, index < routeSelectionDepth ? 'selected' : 'suggested')),
+        futureMoveSnapshot(move, index + 1, hoverPreviewMoves.length
+          ? 'suggested'
+          : index < routeSelectionDepth ? 'selected' : 'suggested')),
     },
     frontier: replyFrontier ? {
       parentFen: replyFrontier.parentFen,
