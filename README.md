@@ -20,6 +20,12 @@
 其他合法路线，蓝色表示用户明确选择的条件路线，金色表示引擎分析建议或已验证 PV，白色表示实战历史，红色表示吃子 /
 威胁等路线后果。
 
+未来地图使用深空蓝紫底色，近层暖白、深层逐级沉入蓝紫；国际象棋的真实 `LineSegments` 使用
+加法混合，让重叠密度自然成为亮度，并由单个选择性 bloom composer 只给线云与“现在”节点添一层
+克制辉光，SAN 标签和页面 UI 不进入 WebGL 发光层。中国象棋在既有 SVG / CSS 全景中同步同一套
+色彩层次，继续保持零 Three.js。国际象棋可用 `chess.html?cinema=1` 进入录屏影院模式：只保留
+全屏星云与从 `__cloudStats()` 现读的层数行，不改变普通模式行为。
+
 项目地基仍是：**所有显示出来的数字必须是真的**。合法着数、分叉数、棋子数和路径数都从当前局面
 或真实渲染对象现读，再由独立验收重算；不能硬编码好看的答案，也不能把浅层排序说成概率。
 
@@ -121,9 +127,9 @@ AI 搜索在独立 Worker 中进行，主线程保留 watchdog 与合法 fallbac
 | `index.html` | 统一棋局未来地图的双规则入口 |
 | `future-map.css` | 两页共用的产品壳、路线角色、图例、语境栏与响应式规则 |
 | `chess.html` / `engine.js` / `worker.js` | 国际象棋 UI、唯一评估 / 搜索、AI、1–10 ply 推荐主线与 L1–L4 路径 Worker |
-| `verify.mjs` / `live-check.mjs` / `self-play.mjs` | 国际象棋棋核、102 项真 Chrome、10 局稳定性验收 |
+| `verify.mjs` / `live-check.mjs` / `self-play.mjs` | 国际象棋棋核、106 项真 Chrome、10 局稳定性验收 |
 | `xiangqi.html` / `xiangqi-engine.js` / `xiangqi-worker.js` | 中国象棋 UI、规则 / 唯一评估 / 搜索、搜索与分叉 Worker |
-| `xiangqi-verify.mjs` / `xiangqi-live-check.mjs` / `xiangqi-self-play.mjs` | 中国象棋棋核、64 项真 Chrome、固定 10 局稳定性验收 |
+| `xiangqi-verify.mjs` / `xiangqi-live-check.mjs` / `xiangqi-self-play.mjs` | 中国象棋棋核、65 项真 Chrome、固定 10 局稳定性验收 |
 | `portal-check.mjs` | 首页、共享未来地图契约、两个规则入口和运行代码红线的 27 项静态验收 |
 | `HANDOFF.md` / `BLOCKED.md` / `PROGRESS.md` | 自足交接、边界决策、迭代记录 |
 
@@ -143,6 +149,10 @@ npm test
 node live-check.mjs
 node xiangqi-live-check.mjs
 
+# bloom 的本机 GPU / 可见 Chrome 复核，以及可选截图存档
+node live-check.mjs --headed --phase-one-only --shot .artifacts/chess.png
+node xiangqi-live-check.mjs --shot .artifacts/xiangqi.png
+
 # 两套固定 10 局稳定性审计；它们不是棋力基准
 node self-play.mjs
 node xiangqi-self-play.mjs
@@ -151,10 +161,10 @@ node xiangqi-self-play.mjs
 当前本地固定验收项数，以及本次 10 局实测记录：
 
 - `npm test`：国际象棋 **8/8**、中国象棋 **20/20**、统一门户 **27/27**；
-- `node live-check.mjs`：**102/102**；
-- `node xiangqi-live-check.mjs`：**64/64**；
-- `node self-play.mjs`：10 局、673 plies、633 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
-- `node xiangqi-self-play.mjs`：10 局、794 plies、794 次搜索、1,493 个 PV 节点；
+- `node live-check.mjs`：**106/106**；
+- `node xiangqi-live-check.mjs`：**65/65**；
+- `node self-play.mjs`：10 局、583 plies、543 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
+- `node xiangqi-self-play.mjs`：10 局、833 plies、833 次搜索、1,550 个 PV 节点；
   `illegalMoves / fenMismatches / pvFailures / branchFailures / threatFailures` 全为 0。
 
 自对弈固定的是局数、种子、单局上限和零错误断言；搜索采用墙钟预算，精确 plies / searches / PV

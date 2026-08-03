@@ -3,19 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#080b10" />
+<meta name="theme-color" content="#070914" />
 <meta name="description" content="在一张可交互的棋局未来地图里查看中国象棋的真实下一步、可能回应与路线后果。" />
 <title>中国象棋 · 棋路未来地图</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23071017'/%3E%3Cpath d='M16 42L32 16l16 26M21 34h22' fill='none' stroke='%2379e6db' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='42' r='5' fill='%23ef665c'/%3E%3Ccircle cx='32' cy='16' r='5' fill='%23f1c66b'/%3E%3Ccircle cx='48' cy='42' r='5' fill='%2379e6db'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="./future-map.css" />
 <style>
   :root {
-    --bg: #0c100f;
-    --panel: rgba(20, 25, 23, .94);
-    --panel-2: #151c19;
-    --edge: rgba(214, 196, 158, .16);
-    --text: #f2eee5;
-    --muted: #9ca39e;
+    --bg: #070914;
+    --panel: rgba(14, 17, 31, .94);
+    --panel-2: #141827;
+    --edge: rgba(181, 190, 225, .17);
+    --text: #f3f1ec;
+    --muted: #9ea6bd;
     --blue: #66c5ad;
     --blue-2: #193f38;
     --gold: #d6aa5c;
@@ -33,8 +33,9 @@
     font: 14px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC",
       "Microsoft YaHei", sans-serif;
     background:
-      radial-gradient(circle at 16% 8%, rgba(66, 119, 103, .14), transparent 32rem),
-      radial-gradient(circle at 88% 88%, rgba(165, 112, 49, .10), transparent 30rem),
+      radial-gradient(circle at 14% 7%, rgba(72, 104, 226, .14), transparent 33rem),
+      radial-gradient(circle at 86% 88%, rgba(102, 60, 163, .11), transparent 31rem),
+      radial-gradient(circle at 48% 42%, rgba(242, 235, 219, .025), transparent 28rem),
       var(--bg);
   }
   button, select { font: inherit; }
@@ -815,11 +816,13 @@
     height: 646px;
     overflow: hidden;
     background:
-      radial-gradient(circle at 12% 50%, rgba(121,230,219,.12), transparent 34%),
-      linear-gradient(rgba(151,180,166,.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(151,180,166,.035) 1px, transparent 1px),
-      #081116;
-    background-size: auto, 28px 28px, 28px 28px, auto;
+      radial-gradient(circle at 11% 50%, rgba(244,232,205,.12), transparent 30%),
+      radial-gradient(circle at 68% 45%, rgba(86,102,213,.15), transparent 42%),
+      radial-gradient(circle at 91% 72%, rgba(105,56,158,.12), transparent 38%),
+      linear-gradient(rgba(135,151,210,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(135,151,210,.035) 1px, transparent 1px),
+      #05071a;
+    background-size: auto, auto, auto, 28px 28px, 28px 28px;
     touch-action: none;
     cursor: grab;
   }
@@ -827,7 +830,7 @@
   #xqOverviewSvg { display: block; width: 100%; height: 100%; }
   #xqOverviewSvg .overview-option {
     fill: none;
-    stroke: rgba(116,133,139,.44);
+    stroke: rgba(123,139,201,.40);
     stroke-width: 1.2;
     vector-effect: non-scaling-stroke;
   }
@@ -840,24 +843,25 @@
     stroke-width: 3;
   }
   #xqOverviewSvg .overview-node {
-    fill: #142329;
-    stroke: rgba(175,204,201,.38);
+    fill: #11182f;
+    stroke: rgba(174,187,232,.34);
     stroke-width: 1;
     vector-effect: non-scaling-stroke;
   }
   #xqOverviewSvg [data-selected="true"] .overview-node {
     stroke: var(--future-blue);
-    fill: #153a3a;
+    fill: #15373d;
   }
   #xqOverviewSvg [data-suggested="true"] .overview-node {
     stroke: var(--future-gold);
-    fill: #362d1a;
+    fill: #362b1c;
   }
   #xqOverviewSvg text {
     fill: var(--future-text);
     font-family: inherit;
     pointer-events: none;
   }
+  #xqOverviewSvg [data-depth="2"] { opacity: .84; }
   .xq-overview-hud {
     position: absolute;
     left: 14px;
@@ -870,7 +874,7 @@
     border: 1px solid var(--future-edge);
     border-radius: 11px;
     color: var(--future-muted);
-    background: rgba(6,15,20,.82);
+    background: rgba(5,7,24,.82);
     font-size: 10px;
     pointer-events: none;
   }
@@ -1065,7 +1069,8 @@
           <button id="zoomIn" type="button" aria-label="放大路径图">＋</button>
         </div>
       </header>
-      <div id="xqOverview" aria-label="中国象棋三维感全景路径">
+      <div id="xqOverview" data-palette="deep-space-blue-violet"
+           aria-label="中国象棋三维感全景路径">
         <svg id="xqOverviewSvg" viewBox="0 0 900 620" role="img"
              aria-label="从当前局面向未来展开的真实路径"></svg>
         <div class="xq-overview-hud">
@@ -2830,6 +2835,7 @@ function renderOverview() {
     paths.push(
       `<path class="overview-option" data-overview-edge data-future-edge`
       + ` data-parent-id="root" data-child-id="${escapeHtml(node.id)}"`
+      + ` data-depth="1"`
       + ` data-selected="${selected}" data-suggested="${suggested}"`
       + ` data-engine="false" data-played="false"`
       + ` d="M${rootX},${rootY} C${controlX.toFixed(1)},${rootY} ${controlX.toFixed(1)},${controlY.toFixed(1)} ${point.x.toFixed(1)},${point.y.toFixed(1)}"/>`,
@@ -2882,11 +2888,11 @@ function renderOverview() {
         : `已选假设回应${sameMove(overviewReply, previewLine.suggestedReply) ? ' · 同时为建议' : ''}`
       : '建议先检查 · 尚未选择';
     replyMarkup =
-      `<path data-future-edge data-selected="${explicit}" data-suggested="${!explicit}"`
+      `<path data-future-edge data-depth="2" data-selected="${explicit}" data-suggested="${!explicit}"`
       + ` data-engine="${!explicit}" data-played="false"`
       + ` d="M${from.x.toFixed(1)},${from.y.toFixed(1)} C${(from.x + 58).toFixed(1)},${from.y.toFixed(1)} ${(to.x - 48).toFixed(1)},${to.y.toFixed(1)} ${to.x.toFixed(1)},${to.y.toFixed(1)}"`
       + ` fill="none" stroke="${lineColor}" stroke-width="2.4" stroke-dasharray="7 5"/>`
-      + `<g transform="translate(${to.x.toFixed(1)} ${to.y.toFixed(1)})">`
+      + `<g data-depth="2" transform="translate(${to.x.toFixed(1)} ${to.y.toFixed(1)})">`
       + `<rect x="-64" y="-19" width="128" height="38" rx="10" fill="${fillColor}" stroke="${lineColor}"/>`
       + `<text x="0" y="-2" text-anchor="middle" font-size="12" font-weight="700">${escapeHtml(replyLabel)}</text>`
       + `<text x="0" y="11" text-anchor="middle" font-size="8.5" fill="${lineColor}">${escapeHtml(copy)}</text></g>`;
@@ -2894,8 +2900,8 @@ function renderOverview() {
 
   els.overviewSvg.innerHTML =
     `<g aria-hidden="true">${paths.join('')}</g>`
-    + `<g class="overview-root"><rect x="34" y="288" width="116" height="44" rx="22"`
-    + ` fill="#12302f" stroke="#79e6db"/>`
+    + `<g class="overview-root" data-depth="0"><rect x="34" y="288" width="116" height="44" rx="22"`
+    + ` fill="#1d2741" stroke="#eadfca"/>`
     + `<text x="92" y="306" text-anchor="middle" font-size="12" font-weight="800">现在</text>`
     + `<text x="92" y="321" text-anchor="middle" font-size="9" fill="#9ab4b2">${moves.length} 个真实下一步</text></g>`
     + nodes.join('')
@@ -4285,6 +4291,43 @@ function selectFutureNode(parentDepth, key) {
   return false;
 }
 
+function overviewVisualSnapshot() {
+  const parseColor = (value) => {
+    const parts = String(value || '').match(/[\d.]+/g)?.slice(0, 3).map(Number) || [];
+    return parts.length === 3
+      ? { r: parts[0] / 255, g: parts[1] / 255, b: parts[2] / 255 }
+      : { r: 0, g: 0, b: 0 };
+  };
+  const luminance = (color) => color.r * .2126 + color.g * .7152 + color.b * .0722;
+  const rootNode = els.overviewSvg.querySelector('.overview-root rect');
+  const optionNode = els.overviewSvg.querySelector(
+    '.overview-choice[data-suggested="false"] .overview-node',
+  ) || els.overviewSvg.querySelector('.overview-node');
+  const rootColor = parseColor(rootNode ? getComputedStyle(rootNode).fill : '');
+  const optionColor = parseColor(optionNode ? getComputedStyle(optionNode).fill : '');
+  const styles = getComputedStyle(document.documentElement);
+  const selectedColor = styles.getPropertyValue('--future-blue').trim().toLowerCase();
+  const suggestedColor = styles.getPropertyValue('--future-gold').trim().toLowerCase();
+  return Object.freeze({
+    mode: futureMode,
+    threeResources: performance.getEntriesByType('resource')
+      .filter((entry) => /\/three(?:@|\.|\/)/i.test(entry.name)).length,
+    palette: Object.freeze({
+      background: els.overview.dataset.palette || '',
+      rootLuminance: luminance(rootColor),
+      optionLuminance: luminance(optionColor),
+      optionRed: optionColor.r,
+      optionBlue: optionColor.b,
+    }),
+    roles: Object.freeze({
+      selected: selectedColor === '#79e6db' ? 'blue' : selectedColor,
+      suggested: suggestedColor === '#f1c66b' ? 'gold' : suggestedColor,
+    }),
+    paths: els.overviewSvg.querySelectorAll('[data-overview-edge]').length,
+    nodes: els.overviewSvg.querySelectorAll('.overview-node').length,
+  });
+}
+
 window.__futureTest = Object.freeze({
   schema: 1,
   game: 'xiangqi',
@@ -4313,6 +4356,7 @@ window.__futureTest = Object.freeze({
   }),
   pause: pausePreviewPlayback,
   resume: resumePreviewPlayback,
+  visualFx: overviewVisualSnapshot,
   attemptMotionCommit: ({ token, positionId: callbackPositionId, runId: callbackRunId }) =>
     commitPreviewMotion(token, callbackPositionId, callbackRunId),
   commitSelected: () => {

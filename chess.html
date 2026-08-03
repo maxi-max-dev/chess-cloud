@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#05060b" />
+<meta name="theme-color" content="#030617" />
 <meta name="description" content="在一张可交互的棋局未来地图里查看国际象棋的真实下一步、可能回应与路线后果。" />
 <title>国际象棋 · 棋路未来地图</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23071017'/%3E%3Cpath d='M16 42L32 16l16 26M21 34h22' fill='none' stroke='%2379e6db' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='42' r='5' fill='%23ef665c'/%3E%3Ccircle cx='32' cy='16' r='5' fill='%23f1c66b'/%3E%3Ccircle cx='48' cy='42' r='5' fill='%2379e6db'/%3E%3C/svg%3E" />
@@ -11,13 +11,13 @@
 <style>
   :root {
     --ink: #e8ecf6;
-    --dim: #8c93a8;
-    --faint: #5f6679;
+    --dim: #929bb9;
+    --faint: #626b8f;
     --warm: #ff7a1f;
     --cold: #2f86ff;
     --pick: #8fd8ff;
-    --glass: rgba(14, 17, 27, 0.74);
-    --edge: rgba(150, 170, 220, 0.16);
+    --glass: rgba(11, 14, 35, 0.78);
+    --edge: rgba(155, 172, 228, 0.17);
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -25,19 +25,19 @@
   }
   * { box-sizing: border-box; }
   html {
-    margin: 0; min-height: 100%; background: #05060b;
-    scrollbar-color: #1b2737 #05060b;
+    margin: 0; min-height: 100%; background: #030617;
+    scrollbar-color: #222b51 #030617;
   }
-  html::-webkit-scrollbar { width: 7px; height: 7px; background: #05060b; }
-  html::-webkit-scrollbar-track { background: #05060b; }
+  html::-webkit-scrollbar { width: 7px; height: 7px; background: #030617; }
+  html::-webkit-scrollbar-track { background: #030617; }
   html::-webkit-scrollbar-thumb {
-    border: 1px solid #05060b; border-radius: 999px; background: #1b2737;
+    border: 1px solid #030617; border-radius: 999px; background: #222b51;
   }
   body {
     margin: 0;
     height: 100%;
     overflow: hidden;
-    background: #05060b;
+    background: #030617;
     position: relative;
     isolation: isolate;
   }
@@ -48,9 +48,10 @@
     inset: 0;
     pointer-events: none;
     background:
-      radial-gradient(ellipse at 10% 8%, rgba(47,134,255,.11), transparent 42%),
-      radial-gradient(ellipse at 90% 92%, rgba(255,122,31,.08), transparent 44%),
-      linear-gradient(180deg, #070913 0%, #05060b 48%, #07070c 100%);
+      radial-gradient(ellipse at 12% 9%, rgba(76,109,255,.15), transparent 43%),
+      radial-gradient(ellipse at 86% 88%, rgba(103,61,181,.11), transparent 46%),
+      radial-gradient(ellipse at 52% 38%, rgba(230,220,255,.035), transparent 36%),
+      linear-gradient(180deg, #080a20 0%, #030617 50%, #080619 100%);
   }
   body {
     font: 14px/1.55 -apple-system, "SF Pro SC", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
@@ -81,8 +82,9 @@
   #skyBox {
     position: relative; width: 402px; height: 158px; border-radius: 9px; overflow: hidden;
     background:
-      radial-gradient(circle at 48% 50%, rgba(52,72,106,.12), transparent 48%),
-      #05060b;
+      radial-gradient(circle at 42% 48%, rgba(92,105,203,.16), transparent 46%),
+      radial-gradient(circle at 76% 56%, rgba(86,49,154,.12), transparent 54%),
+      #030617;
     cursor: zoom-in;
   }
   #sky {
@@ -395,7 +397,7 @@
     padding: 0;
     border: 0;
     border-radius: 0;
-    background: #05060b;
+    background: #030617;
     box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -448,6 +450,35 @@
     border-radius: 999px;
     color: #b5bed4;
     background: rgba(5,6,11,.62);
+  }
+  body.cinema-mode #productBar,
+  body.cinema-mode #boardPanel,
+  body.cinema-mode #stage,
+  body.cinema-mode #cloudPanel > h1,
+  body.cinema-mode #cloudStats,
+  body.cinema-mode #cloudControls,
+  body.cinema-mode #cloudExplorer,
+  body.cinema-mode #cloudLabels,
+  body.cinema-mode #skyHint,
+  body.cinema-mode #cloudMapHud > b,
+  body.cinema-mode #cloudChoice { display: none !important; }
+  body.cinema-mode #cloudMapHud {
+    display: block;
+    left: 50%; right: auto;
+    top: max(18px, calc(var(--safe-top) + 12px));
+    width: auto; max-width: calc(100vw - 32px); padding: 0;
+    border: 0; border-radius: 0;
+    background: transparent; box-shadow: none;
+    backdrop-filter: none; -webkit-backdrop-filter: none;
+    transform: translateX(-50%);
+  }
+  body.cinema-mode #cloudLayerLegend {
+    margin: 0; padding: 7px 12px;
+    border: 1px solid rgba(184,198,244,.14); border-radius: 999px;
+    color: rgba(225,231,255,.76);
+    background: rgba(3,6,23,.42);
+    box-shadow: 0 0 28px rgba(84,97,196,.12);
+    font-size: 11px; letter-spacing: .035em; white-space: nowrap;
   }
   #cloudStats { margin-top: 8px; font-size: 11.5px; color: var(--dim); font-variant-numeric: tabular-nums; }
   #cloudStats b { color: var(--ink); font-weight: 600; }
@@ -1433,8 +1464,20 @@
   </div>
 </div>
 
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 <script type="module">
-import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import {
   Chess, rankMoves, MATE,
   currentAttacks, analyzeCandidateThreat,
@@ -1450,6 +1493,8 @@ const BATCH_PARENTS = 400; // L4 渐进回传；完成后合并为一个真实 g
 const ROOT_FAN = 0.34;      // 第一层只向「未来」方向张开，不再围成球壳
 const CLOUD_TARGET_X = 8.2; // 镜头看树体中段，让「现在」留在画面左边
 const CLOUD_LABELS_MAX = 8; // 只标少量真实走法，不能给几十万条路径造 DOM
+const CINEMA_MODE = new URLSearchParams(location.search).get('cinema') === '1';
+const BLOOM_LAYER = 1;
 
 const COLS = 5;                    // 分叉图往前排几步
 const SHOW = [7, 6, 5, 4, 4];      // 每列先列出几条（其余折起来）
@@ -1459,7 +1504,7 @@ const RANK_DEPTH = 2;              // 排序往前看几步
 const STEP    = [0, 9.0, 5.6, 3.7, 2.25];
 const SPREAD  = [0, 0, 0.26, 0.17, 0.11];
 // 深层依然逐条真实绘制，但压低透明度，避免 20 万条线重新糊成一个发光球。
-const EDGE_OPAC = [0.92, 0.80, 0.18, 0.032, 0.004];
+const EDGE_OPAC = [0.88, 0.62, 0.115, 0.018, 0.0028];
 
 const GOLDEN = 2.39996322972865332;
 
@@ -1477,26 +1522,59 @@ const cloudChoiceEl = document.getElementById('cloudChoice');
 let cloudViewMode = '3d';
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(1); // 缩略窗固定 DPR1；全屏按设备能力提升，避免小窗白烧像素
-renderer.setClearColor(0x05060b, 1);
+// Composer 的最终输出会经过色域传递；用近黑的蓝紫工作色，落到屏幕上仍是深空而非灰蓝幕布。
+renderer.setClearColor(0x010103, 1);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x05060b, 30, 74);
+scene.fog = new THREE.Fog(0x010103, 30, 76);
 const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 4000);
+camera.layers.set(BLOOM_LAYER);
 const cloudGroup = new THREE.Group();
 const cloudTarget = new THREE.Vector3(CLOUD_TARGET_X, 0, 0);
 scene.add(cloudGroup);
+
+const bloomSelection = new THREE.Layers();
+bloomSelection.set(BLOOM_LAYER);
+function markBloomObject(object) {
+  object.layers.set(BLOOM_LAYER);
+  return object;
+}
+
+const renderPass = new RenderPass(scene, camera);
+// 20 万条加法混合线会自然形成高动态范围亮区；bloom 只接住这些密集峰值，
+// 不能把整片未来抬成白雾。阈值偏高、半径偏窄，保留安静的单线与深空底色。
+const bloomPass = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.24, 0.16, 0.48);
+const outputPass = new OutputPass();
+const composer = new EffectComposer(renderer);
+composer.addPass(renderPass);
+composer.addPass(bloomPass);
+composer.addPass(outputPass);
 
 const lineMaterials = EDGE_OPAC.map((opacity) => new THREE.LineBasicMaterial({
   vertexColors: true,
   transparent: true,
   opacity,
   depthWrite: false,
-  blending: THREE.NormalBlending,
+  blending: THREE.AdditiveBlending,
 }));
 const cloudRouteMaterial = new THREE.LineBasicMaterial({
   color: 0x8fd8ff, transparent: true, opacity: 0.92,
   depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
 });
+
+const cloudNowGeometry = new THREE.SphereGeometry(0.17, 14, 10);
+const cloudNowMaterial = new THREE.MeshBasicMaterial({
+  color: 0xffefd0,
+  transparent: true,
+  opacity: 0.96,
+  depthWrite: false,
+  toneMapped: false,
+});
+const cloudNowNode = markBloomObject(new THREE.Mesh(cloudNowGeometry, cloudNowMaterial));
+cloudNowNode.userData = { kind: 'cloud-now' };
+cloudNowNode.frustumCulled = false;
+cloudNowNode.renderOrder = 20;
+cloudGroup.add(cloudNowNode);
 
 // ─────────────────────────────────────────────── 颜色：分数 → 暖冷
 // 分数正 = 白优（暖），负 = 黑优（冷）。路径网和分叉图共用这一个映射。
@@ -1504,6 +1582,14 @@ const WARM = [1.00, 0.44, 0.08];
 const COLD = [0.10, 0.46, 1.00];
 const EVEN = [0.55, 0.53, 0.55];   // 均势得是真中性灰，不然「黑优」和「均势」分不开
 const COLOR_FULL = 120;            // 多少百分兵算「一边倒」（≈一个兵）
+const COLOR_DEAD_ZONE = 12;
+const CLOUD_NEUTRAL = [
+  [1.00, 0.91, 0.76],
+  [0.78, 0.83, 1.00],
+  [0.54, 0.59, 0.91],
+  [0.34, 0.36, 0.70],
+  [0.21, 0.20, 0.48],
+];
 
 function mixColor(score) {
   let t = score / COLOR_FULL;
@@ -1517,8 +1603,18 @@ function mixColor(score) {
     EVEN[2] + (target[2] - EVEN[2]) * a,
   ];
 }
-function writeColorBytes(out, o, score, dim = 1) {
-  const c = mixColor(score);
+function mixCloudColor(score, depth) {
+  const neutral = CLOUD_NEUTRAL[Math.max(0, Math.min(DEEP_DEPTH, depth))];
+  const sign = Math.sign(score);
+  const magnitude = Math.max(0, Math.abs(score) - COLOR_DEAD_ZONE);
+  if (magnitude === 0) return neutral.slice();
+  const scaled = Math.min(1, magnitude / (COLOR_FULL - COLOR_DEAD_ZONE));
+  const amount = Math.pow(scaled, 0.58);
+  const target = sign >= 0 ? WARM : COLD;
+  return neutral.map((value, index) => value + (target[index] - value) * amount);
+}
+function writeColorBytes(out, o, score, depth, dim = 1) {
+  const c = mixCloudColor(score, depth);
   out[o] = Math.round(c[0] * dim * 255);
   out[o + 1] = Math.round(c[1] * dim * 255);
   out[o + 2] = Math.round(c[2] * dim * 255);
@@ -1602,10 +1698,10 @@ function mergeCloudLayer(depth) {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.Uint8BufferAttribute(colors, 3, true));
-  const merged = new THREE.LineSegments(
+  const merged = markBloomObject(new THREE.LineSegments(
     geometry,
     lineMaterials[Math.min(depth, lineMaterials.length - 1)],
-  );
+  ));
   merged.userData = { kind: 'cloud-links', depth };
   merged.frustumCulled = false;
   for (const obj of rec.objects) {
@@ -1667,11 +1763,13 @@ function addRoot(score) {
   // 用一条很短的“过去 → 现在”线表示根；终点严格是原点，2 个顶点 = 1 个真实根节点。
   const pos = new Float32Array([0, 0, 0]);
   const edgePos = new Float32Array([-0.55, 0, 0, 0, 0, 0]);
-  const edgeCol = new Uint8Array([45, 91, 73, 126, 224, 168]);
+  const edgeCol = new Uint8Array(6);
+  writeColorBytes(edgeCol, 0, score, 0, 0.42);
+  writeColorBytes(edgeCol, 3, score, 0, 1);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
   geo.setAttribute('color', new THREE.Uint8BufferAttribute(edgeCol, 3, true));
-  const obj = new THREE.LineSegments(geo, lineMaterials[0]);
+  const obj = markBloomObject(new THREE.LineSegments(geo, lineMaterials[0]));
   obj.userData = { kind: 'cloud-links', depth: 0 };
   obj.frustumCulled = false;
   cloudGroup.add(obj);
@@ -1740,8 +1838,8 @@ function appendLayer(depth, parents, scores) {
       const eo = (i + j) * 6;
       edgePos[eo] = px; edgePos[eo + 1] = py; edgePos[eo + 2] = pz;
       edgePos[eo + 3] = childX; edgePos[eo + 4] = childY; edgePos[eo + 5] = childZ;
-      writeColorBytes(edgeCol, eo, scores[i + j], 0.34);
-      writeColorBytes(edgeCol, eo + 3, scores[i + j], 1);
+      writeColorBytes(edgeCol, eo, scores[i + j], depth, 0.34);
+      writeColorBytes(edgeCol, eo + 3, scores[i + j], depth, 1);
     }
     i += k;
   }
@@ -1749,7 +1847,10 @@ function appendLayer(depth, parents, scores) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
   geo.setAttribute('color', new THREE.Uint8BufferAttribute(edgeCol, 3, true));
-  const obj = new THREE.LineSegments(geo, lineMaterials[Math.min(depth, lineMaterials.length - 1)]);
+  const obj = markBloomObject(new THREE.LineSegments(
+    geo,
+    lineMaterials[Math.min(depth, lineMaterials.length - 1)],
+  ));
   obj.userData = { kind: 'cloud-links', depth };
   obj.frustumCulled = false;
   cloudGroup.add(obj);
@@ -5160,7 +5261,7 @@ function updateCloudRoute(route = traceCloudRoute()) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
   cloudRouteMaterial.color.setHex(routeSelectionDepth > 0 ? 0x8fd8ff : 0xf1c66b);
-  cloudRouteLine = new THREE.Line(geo, cloudRouteMaterial);
+  cloudRouteLine = markBloomObject(new THREE.Line(geo, cloudRouteMaterial));
   cloudRouteLine.userData = { kind: 'selected-route', depth: route.length, san: route.map((s) => s.san).join(' ') };
   cloudRouteLine.frustumCulled = false;
   cloudRouteLine.renderOrder = 10;
@@ -5563,7 +5664,11 @@ document.getElementById('cloudZoomOut').onclick = () => zoomCloud(1.18);
 document.getElementById('cloudZoomIn').onclick = () => zoomCloud(0.84);
 document.getElementById('cloudMotion').onclick = () => setCloudMotion(!view.auto);
 addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && document.body.classList.contains('cloud-full')) {
+  if (
+    event.key === 'Escape'
+    && !CINEMA_MODE
+    && document.body.classList.contains('cloud-full')
+  ) {
     event.preventDefault();
     toggleCloudFull(false);
   }
@@ -5608,6 +5713,8 @@ function resize() {
     rendererDpr = dpr;
     renderer.setPixelRatio(dpr);
     renderer.setSize(w, h, false);
+    composer.setPixelRatio(dpr);
+    composer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
   }
@@ -5734,7 +5841,7 @@ function renderCloudFrame() {
       cloudTarget.z + Math.cos(view.yaw) * cp * fitDist,
     );
     camera.lookAt(cloudTarget);
-    renderer.render(scene, camera);
+    composer.render();
     positionCloudLabels();
   }
   if (settling) requestCloudRender();
@@ -6265,6 +6372,63 @@ function renderStatsSnapshot() {
   };
 }
 
+function phaseOneVisualSnapshot() {
+  const renderObjects = cloudGroup.children.filter((object) =>
+    !!object.geometry && (object.isLine || object.isLineSegments || object.isMesh || object.isPoints));
+  const cloudLineObjects = renderObjects.filter((object) =>
+    object.userData.kind === 'cloud-links');
+  const nowObjects = renderObjects.filter((object) => object.userData.kind === 'cloud-now');
+  const luminance = (color) => color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+  const toRgb = (color) => ({ r: color[0], g: color[1], b: color[2] });
+  return {
+    composerCount: [composer].filter(Boolean).length,
+    passes: composer.passes.map((pass) => pass.constructor.name),
+    bloom: {
+      enabled: bloomPass.enabled,
+      layer: BLOOM_LAYER,
+      strength: bloomPass.strength,
+      radius: bloomPass.radius,
+      threshold: bloomPass.threshold,
+      eligibleObjects: renderObjects.filter((object) => bloomSelection.test(object.layers)).length,
+      outsideLayer: renderObjects.filter((object) => !bloomSelection.test(object.layers)).length,
+    },
+    materials: {
+      cloudLineObjects: cloudLineObjects.length,
+      additiveObjects: cloudLineObjects.filter((object) =>
+        object.material?.blending === THREE.AdditiveBlending).length,
+    },
+    now: {
+      objects: nowObjects.length,
+      countedInCloudStats: [...layers.values()].some((record) =>
+        record.objects.some((object) => nowObjects.includes(object))),
+    },
+    palette: {
+      name: 'deep-space-blue-violet',
+      depths: CLOUD_NEUTRAL.map((color, depth) => ({ depth, luminance: luminance(color) })),
+      warm: toRgb(mixCloudColor(COLOR_FULL, 1)),
+      cold: toRgb(mixCloudColor(-COLOR_FULL, 1)),
+      deadZone: COLOR_DEAD_ZONE,
+    },
+    dom: {
+      labels: cloudLabelsEl.childElementCount,
+      labelsInWebgl: renderObjects.filter((object) => object.userData.kind === 'cloud-label').length,
+    },
+    renderer: {
+      preserveDrawingBuffer: renderer.getContext().getContextAttributes()?.preserveDrawingBuffer ?? null,
+    },
+    cinema: {
+      enabled: CINEMA_MODE && document.body.classList.contains('cinema-mode'),
+      full: document.body.classList.contains('cloud-full'),
+    },
+  };
+}
+
+function setBloomEnabled(enabled) {
+  bloomPass.enabled = !!enabled;
+  requestCloudRender();
+  return bloomPass.enabled;
+}
+
 /**
  * 棋子助手现状。候选数、回应和动画都从当前 DOM 现读，验收不会相信另一份影子状态。
  */
@@ -6625,6 +6789,8 @@ window.__test = {
   explorer: explorerSnapshot,
   tree2d: tree2dSnapshot,
   renderStats: renderStatsSnapshot,
+  phaseOneVisual: phaseOneVisualSnapshot,
+  setBloomEnabled,
   setCloudVisible: (visible) => {
     cloudGroup.visible = !!visible;
     requestCloudRender();
@@ -6655,6 +6821,13 @@ window.__test = {
 
 document.getElementById('btnReset').onclick = () => window.__test.reset();
 
+document.body.classList.toggle('cinema-mode', CINEMA_MODE);
+document.body.dataset.cinema = CINEMA_MODE ? 'true' : 'false';
+if (CINEMA_MODE) {
+  document.body.classList.add('cloud-full');
+  document.body.classList.remove('cloud-view-2d');
+  for (const id of ['boardPanel', 'stage']) document.getElementById(id).inert = true;
+}
 updateCloudModeButton();
 resize();
 renderBoard();

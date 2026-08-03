@@ -5,6 +5,7 @@
 //   node xiangqi-live-check.mjs
 //   node xiangqi-live-check.mjs --url https://example.com/chess-cloud/
 //   node xiangqi-live-check.mjs --port 9334
+//   node xiangqi-live-check.mjs --shot out.png
 //
 // 默认自建静态服务器，从根首页实际点击进入两个棋种。所有页面数量都从 DOM
 // 当前渲染对象读取，再由 Node 端 xiangqi-engine.js 独立重放，不信任页面自报数字。
@@ -36,6 +37,7 @@ const arg = (name, fallback = null) => {
 
 let cdpPort = Number(arg('--port', '0'));
 let requestedUrl = arg('--url');
+const SHOT = arg('--shot', path.join(os.tmpdir(), 'xiangqi-cloud-shot.png'));
 let server = null;
 let chrome = null;
 let chromeProfile = null;
@@ -44,7 +46,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 64;
+const EXPECTED_RESULTS = 65;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -3399,6 +3401,43 @@ async function rafAndErrorAudit() {
   );
 }
 
+async function phaseOnePaletteAudit() {
+  await setViewport(1440, 900);
+  await evaluate(`window.__futureTest.setMode('overview-3d')`);
+  await sleep(80);
+  const visual = await evaluate(`typeof window.__futureTest.visualFx === 'function'
+    ? window.__futureTest.visualFx()
+    : null`);
+  record(
+    visual?.mode === 'overview-3d'
+      && visual?.threeResources === 0
+      && visual?.palette?.background === 'deep-space-blue-violet'
+      && visual?.palette?.rootLuminance > visual?.palette?.optionLuminance
+      && visual?.palette?.optionBlue > visual?.palette?.optionRed
+      && visual?.roles?.selected === 'blue'
+      && visual?.roles?.suggested === 'gold'
+      && visual?.paths > 0
+      && visual?.nodes > 0,
+    'Phase 1 中国象棋全景同步深空层次且继续保持零 Three.js、蓝选路与金建议',
+    visual
+      ? `mode=${visual.mode}｜three=${visual.threeResources}`
+        + `｜root/option=${visual.palette.rootLuminance.toFixed(3)}/${visual.palette.optionLuminance.toFixed(3)}`
+        + `｜roles=${visual.roles.selected}/${visual.roles.suggested}`
+        + `｜paths/nodes=${visual.paths}/${visual.nodes}`
+      : '旧实现没有 Phase 1 配色真值钩子',
+  );
+  const desktopShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(SHOT, Buffer.from(desktopShot.data, 'base64'));
+  await setViewport(390, 844);
+  await sleep(80);
+  const mobileShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-mobile.png'),
+    Buffer.from(mobileShot.data, 'base64'),
+  );
+  await setViewport(1440, 900);
+}
+
 async function cleanup() {
   try {
     if (socket?.readyState === WebSocket.OPEN) socket.close();
@@ -3446,6 +3485,7 @@ async function main() {
   for (const [width, height] of [[1440, 900], [390, 844], [667, 375]]) {
     await viewportAudit(width, height);
   }
+  await phaseOnePaletteAudit();
   await rafAndErrorAudit();
 
   // initialFen 是从页面实际读取的值；这里再明确防止初始节点换局面但仍有 44 个 DOM。

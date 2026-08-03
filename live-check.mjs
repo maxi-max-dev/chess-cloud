@@ -1,7 +1,8 @@
 // live-check.mjs —— 无头 Chrome + CDP 真机验收（本地或线上都能跑）
-// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333]
+// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333] [--headed] [--phase-one-only]
 // 默认自动选空闲 CDP/静态服务端口；只有需要并行复现某次运行时才显式传 --port。
 // 不给 --url 就自己起一个静态服务器伺候 chess.html；线上可传站点根目录或 chess.html。
+// --headed 使用本机 Chrome/GPU 做视觉复核；默认仍是 CI 同口径的 headless + SwiftShader。
 
 import http from 'node:http';
 import net from 'node:net';
@@ -19,6 +20,8 @@ const argv = process.argv.slice(2);
 const arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : d; };
 let PORT = Number(arg('--port', '0'));
 const SHOT = arg('--shot', path.join(os.tmpdir(), 'chess-cloud-shot.png'));
+const HEADED = argv.includes('--headed');
+const PHASE_ONE_ONLY = argv.includes('--phase-one-only');
 let URL_ = arg('--url', null);
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
@@ -105,14 +108,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function launchChrome() {
   const bin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   chromeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chess-cloud-chrome-'));
-  const p = spawn(bin, [
-    '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${chromeDir}`,
+  const chromeArgs = [
+    `--remote-debugging-port=${PORT}`, `--user-data-dir=${chromeDir}`,
     '--window-size=1440,900',
-    // 无头下 WebGL：走 angle+swiftshader，别用 --disable-gpu（会出合成伪影/黑画布）
-    '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
     '--no-first-run', '--no-default-browser-check', '--disable-extensions',
     'about:blank',
-  ], { stdio: 'ignore', detached: false });
+  ];
+  if (!HEADED) {
+    // 无头下 WebGL：走 angle+swiftshader，别用 --disable-gpu（会出合成伪影/黑画布）
+    chromeArgs.unshift('--headless=new', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader');
+  }
+  const p = spawn(bin, chromeArgs, { stdio: 'ignore', detached: false });
   for (let i = 0; i < 80; i++) {
     if (PORT === 0) {
       try {
@@ -951,7 +957,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 102;
+const EXPECTED_RESULTS = 106;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -3639,6 +3645,171 @@ async function runPvGuideChecks() {
   }
 }
 
+async function runPhaseOneVisualChecks() {
+  await send('Emulation.setDeviceMetricsOverride', {
+    width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
+    screenWidth: 1440, screenHeight: 900,
+  });
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await evalJs('window.__test.reset()');
+  await waitCloudPreview();
+  const fullCloud = await openCloudAndWait();
+  await waitCloudRenderIdle();
+
+  const visual = await evalJs(`typeof window.__test.phaseOneVisual === 'function'
+    ? window.__test.phaseOneVisual()
+    : null`);
+  record(
+    visual?.composerCount === 1
+      && visual?.passes?.filter((pass) => pass === 'UnrealBloomPass').length === 1
+      && visual?.bloom?.enabled === true
+      && visual?.bloom?.layer === 1
+      && visual?.bloom?.eligibleObjects > 0
+      && visual?.bloom?.outsideLayer === 0
+      && visual?.dom?.labelsInWebgl === 0
+      && visual?.renderer?.preserveDrawingBuffer === false,
+    'Phase 1 单 Composer 选择性 bloom 只接管云线与“现在”节点',
+    visual
+      ? `composer=${visual.composerCount}｜passes=${visual.passes.join('/')}`
+        + `｜layer=${visual.bloom.layer}｜eligible/outside=${visual.bloom.eligibleObjects}/${visual.bloom.outsideLayer}`
+        + `｜preserve=${visual.renderer.preserveDrawingBuffer}`
+      : '旧实现没有 Phase 1 渲染真值钩子',
+  );
+  record(
+    visual?.materials?.cloudLineObjects > 0
+      && visual?.materials?.additiveObjects === visual.materials.cloudLineObjects
+      && visual?.now?.objects === 1
+      && visual?.now?.countedInCloudStats === false
+      && visual?.palette?.depths?.length === 5
+      && visual.palette.depths.every((entry, index, list) =>
+        index === 0 || entry.luminance <= list[index - 1].luminance + 0.001)
+      && visual.palette.warm.r > visual.palette.warm.b
+      && visual.palette.cold.b > visual.palette.cold.r
+      && fullCloud.nodes === count(fullCloud.fen, fullCloud.depth),
+    'Phase 1 加法混合、逐层降亮与暖白/冷蓝语义不污染路径真值',
+    visual
+      ? `additive=${visual.materials.additiveObjects}/${visual.materials.cloudLineObjects}`
+        + `｜now=${visual.now.objects}/${visual.now.countedInCloudStats}`
+        + `｜L=${visual.palette.depths.map((entry) => entry.luminance.toFixed(3)).join('→')}`
+        + `｜nodes=${fullCloud.nodes}`
+      : '旧实现仍是 NormalBlending 且没有独立“现在”节点',
+  );
+
+  let bloomDiff = null;
+  let bloomImageStats = null;
+  let bloomRestored = false;
+  if (visual && typeof visual.bloom?.enabled === 'boolean') {
+    const bloomOnFile = SHOT.replace(/\.png$/i, '-phase1-bloom-on.png');
+    const bloomOffFile = SHOT.replace(/\.png$/i, '-phase1-bloom-off.png');
+    await evalJs('window.__test.setBloomEnabled(true)');
+    await settleLayout();
+    const bloomOn = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(bloomOnFile, Buffer.from(bloomOn.data, 'base64'));
+    await evalJs('window.__test.setBloomEnabled(false)');
+    await settleLayout();
+    const bloomOff = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(bloomOffFile, Buffer.from(bloomOff.data, 'base64'));
+    bloomRestored = await evalJs('window.__test.setBloomEnabled(true)');
+    await settleLayout();
+    const skyRect = await evalJs('window.__test.skyRect()');
+    bloomDiff = cloudPathPixelDiff(bloomOnFile, bloomOffFile, skyRect, 1);
+    bloomImageStats = shotStats(bloomOnFile, skyRect);
+  }
+  record(
+    bloomRestored
+      && bloomDiff?.changedRatio > 0.0001
+      && bloomDiff?.changedRatio < 0.25
+      && bloomDiff?.spanX > 0.08
+      && bloomDiff?.spanY > 0.10
+      && bloomImageStats?.brightRatio < 0.20,
+    'Phase 1 bloom 开关在真实截图的密集云区产生克制像素差',
+    bloomDiff
+      ? `changed=${bloomDiff.changed}/${bloomDiff.total} (${bloomDiff.changedRatio})`
+        + `｜span=${bloomDiff.spanX}/${bloomDiff.spanY}`
+        + `｜bright=${bloomImageStats?.brightRatio}｜restored=${bloomRestored}`
+      : '旧实现没有可对撞的 bloom 开关',
+  );
+
+  const cinemaUrl = new URL(URL_);
+  cinemaUrl.searchParams.set('cinema', '1');
+  await send('Page.navigate', { url: cinemaUrl.href });
+  let cinemaReady = false;
+  for (let i = 0; i < 200; i++) {
+    try {
+      cinemaReady = await evalJs('typeof window.__test === "object"');
+      if (cinemaReady) break;
+    } catch {}
+    await sleep(25);
+  }
+  await send('Page.bringToFront');
+  let cinema = null;
+  if (cinemaReady) {
+    const hasVisualHook = await evalJs('typeof window.__test.phaseOneVisual === "function"');
+    if (hasVisualHook) {
+      await waitCloud();
+      await waitCloudRenderIdle();
+    } else {
+      await sleep(700);
+    }
+    cinema = await evalJs(`(() => {
+      const visible = (selector) => {
+        const element = document.querySelector(selector);
+        if (!element) return false;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return style.display !== 'none' && style.visibility !== 'hidden'
+          && Number(style.opacity) > 0 && rect.width > 0 && rect.height > 0;
+      };
+      const canvas = document.getElementById('sky').getBoundingClientRect();
+      const cloud = window.__cloudStats();
+      return {
+        visual: typeof window.__test.phaseOneVisual === 'function'
+          ? window.__test.phaseOneVisual() : null,
+        cloud,
+        legend: document.getElementById('cloudLayerLegend').textContent.trim(),
+        visible: {
+          canvas: visible('#sky'), legend: visible('#cloudLayerLegend'),
+          product: visible('#productBar'), board: visible('#boardPanel'), stage: visible('#stage'),
+          controls: visible('#cloudControls'), explorer: visible('#cloudExplorer'),
+          labels: visible('#cloudLabels'), hint: visible('#skyHint'), cloudTitle: visible('#cloudPanel > h1'),
+        },
+        canvas: { x: canvas.x, y: canvas.y, w: canvas.width, h: canvas.height },
+        viewport: { w: innerWidth, h: innerHeight },
+      };
+    })()`);
+    const cinemaShot = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(
+      SHOT.replace(/\.png$/i, '-phase1-cinema.png'),
+      Buffer.from(cinemaShot.data, 'base64'),
+    );
+  }
+  const hiddenUi = cinema && Object.entries(cinema.visible)
+    .filter(([name]) => !['canvas', 'legend'].includes(name))
+    .every(([, visible]) => !visible);
+  const expectedLegend = cinema?.cloud?.layers
+    ?.map((layer) => `${layer.depth === 0 ? '现在' : `${layer.depth}步后`} ${layer.nodes.toLocaleString('en-US')}`)
+    .join('　·　');
+  record(
+    cinema?.visual?.cinema?.enabled === true
+      && cinema?.visual?.cinema?.full === true
+      && cinema?.cloud?.depth === 4
+      && cinema?.cloud?.growing === false
+      && cinema?.visible?.canvas
+      && cinema?.visible?.legend
+      && hiddenUi
+      && cinema?.legend === expectedLegend
+      && cinema?.canvas?.x <= 1 && cinema?.canvas?.y <= 1
+      && Math.abs(cinema.canvas.w - cinema.viewport.w) <= 2
+      && Math.abs(cinema.canvas.h - cinema.viewport.h) <= 2,
+    'Phase 1 ?cinema=1 只保留全屏云图与真实层数行',
+    cinema
+      ? `depth=${cinema.cloud.depth}｜legend=${cinema.legend}`
+        + `｜canvas=${Math.round(cinema.canvas.w)}×${Math.round(cinema.canvas.h)}`
+        + `｜hidden=${hiddenUi}`
+      : '影院模式未就绪',
+  );
+}
+
 async function main() {
   if (PORT > 0) {
     if (await portInUse(PORT)) throw new Error(`CDP 端口 ${PORT} 已被占用，请换一个 --port`);
@@ -3688,6 +3859,13 @@ async function main() {
   }
   if (!ready) throw new Error('页面自检钩子未就绪');
   await send('Page.bringToFront');
+
+  if (PHASE_ONE_ONLY) {
+    await runPhaseOneVisualChecks();
+    record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
+    await finishRun(5);
+    return;
+  }
 
   // 用户不会等第四层云长满才落子：首屏一能操作就立刻走，AI 仍必须守住 3 秒。
   const coldStartedAt = Date.now();
@@ -5740,14 +5918,19 @@ async function main() {
   await runTree2dChecks();
   await runMobileChecks();
   await runPvGuideChecks();
+  await runPhaseOneVisualChecks();
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
 
-  if (results.length !== EXPECTED_RESULTS) {
+  await finishRun(EXPECTED_RESULTS);
+}
+
+async function finishRun(expectedResults) {
+  if (results.length !== expectedResults) {
     record(
       false,
       '验收项总数没有静默缩水或意外膨胀',
-      `运行到 ${results.length} 项，应为固定 ${EXPECTED_RESULTS} 项`);
+      `运行到 ${results.length} 项，应为固定 ${expectedResults} 项`);
   }
 
   console.log('');

@@ -233,3 +233,18 @@ P0.3 只改变中国象棋的默认入口：首次加载或 reset 后，候选 W
 直接终止旧 Worker；回包继续匹配 `requestId + positionId + positionKey`，坐标串与索引坐标在 Worker
 边界规范化。国际象棋沿用本地浅层排序并以 line token 隔离。固定裁判现为门户 **27/27**、国际真机
 **102/102**、中国真机 **64/64**。
+
+## 25. Phase 1 辉光必须是单 Composer、独立真值且能彻底停下（已解决，2026-08-03）
+
+国际象棋只建一个 `EffectComposer`，顺序固定为 `RenderPass → UnrealBloomPass → OutputPass`；云线、
+用户选路线与“现在”节点进入 bloom layer，SAN 标签和页面 UI 留在 DOM，不做第二遍全场景渲染。
+线云使用 `AdditiveBlending`，让重叠密度自然变亮；bloom 只接住密集峰值，不能把全屏抬成白雾。
+当前像素裁判同时设下限和上限：要看得到辉光，又不允许改变超过 25% 画面或让亮部超过 20%。
+
+“现在”节点、后续粒子、光管或涟漪都不得进入 `__cloudStats()`；路径数继续只从真实非索引
+`LineSegments.position.count / 2` 求和。`?cinema=1` 只是展示壳，层数行仍来自同一份几何真值。
+中国象棋继续使用 SVG / CSS，不得为统一观感引入 Three.js。
+
+Phase 1 没有持续时间轴。普通静置 700ms 后仍须 rAF +0、WebGL frame +0，后台暂停和
+`prefers-reduced-motion` 口径不变。后续 Phase 2 若加入流动 / 脉冲，必须由有限活动窗口驱动并在
+静置后完全停下；不得以“宇宙应该一直流动”为理由删除零帧裁判。
