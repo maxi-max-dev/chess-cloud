@@ -320,6 +320,15 @@
   }
   #cloudMapHud b { color: #edf3ff; font-size: 12px; }
   #cloudLayerLegend { margin-top: 5px; font-size: 10.5px; color: #778198; font-variant-numeric: tabular-nums; }
+  .cloud-count-reveal { display: inline-block; transform-origin: 50% 60%; }
+  .cloud-count-reveal.is-converging {
+    animation: future-count-converge 300ms cubic-bezier(.2,.75,.24,1) both;
+  }
+  @keyframes future-count-converge {
+    0% { opacity: .12; filter: blur(5px); transform: translateY(-.38em) scale(.94); letter-spacing: .16em; }
+    58% { opacity: .78; filter: blur(.8px); transform: translateY(.05em) scale(1.015); letter-spacing: .035em; }
+    100% { opacity: 1; filter: blur(0); transform: none; letter-spacing: inherit; }
+  }
   #cloudChoice { margin-top: 5px; min-height: 17px; color: #9edcff; font-size: 11px; }
   #cloudControls {
     display: flex; position: absolute; z-index: 7;
@@ -1055,6 +1064,7 @@
   @media (prefers-reduced-motion: reduce) {
     #board .coach-path, #board .coach-target { animation: none !important; opacity: .82; stroke-dashoffset: 0; }
     .cloud-label { transition: none; }
+    .cloud-count-reveal.is-converging { animation: none !important; }
   }
 
   #productBar {
@@ -1493,8 +1503,15 @@ const BATCH_PARENTS = 400; // L4 渐进回传；完成后合并为一个真实 g
 const ROOT_FAN = 0.34;      // 第一层只向「未来」方向张开，不再围成球壳
 const CLOUD_TARGET_X = 8.2; // 镜头看树体中段，让「现在」留在画面左边
 const CLOUD_LABELS_MAX = 8; // 只标少量真实走法，不能给几十万条路径造 DOM
-const CINEMA_MODE = new URLSearchParams(location.search).get('cinema') === '1';
+const PAGE_QUERY = new URLSearchParams(location.search);
+const CINEMA_MODE = PAGE_QUERY.get('cinema') === '1';
 const BLOOM_LAYER = 1;
+const COLLAPSE_SECONDS = Number(PAGE_QUERY.get('collapse'));
+const CLOUD_COLLAPSE_MS = Number.isFinite(COLLAPSE_SECONDS)
+  ? Math.max(600, Math.min(1200, COLLAPSE_SECONDS * 1000))
+  : 600;
+const CLOUD_REBIRTH_MS = Math.min(600, CLOUD_COLLAPSE_MS);
+const CLOUD_FLOW_ACTIVE_MS = 520;
 
 const COLS = 5;                    // 分叉图往前排几步
 const SHOW = [7, 6, 5, 4, 4];      // 每列先列出几条（其余折起来）
@@ -1550,13 +1567,70 @@ composer.addPass(renderPass);
 composer.addPass(bloomPass);
 composer.addPass(outputPass);
 
-const lineMaterials = EDGE_OPAC.map((opacity) => new THREE.LineBasicMaterial({
-  vertexColors: true,
-  transparent: true,
-  opacity,
-  depthWrite: false,
-  blending: THREE.AdditiveBlending,
-}));
+function createCloudLineMaterial(opacity) {
+  const material = new THREE.ShaderMaterial({
+    uniforms: THREE.UniformsUtils.merge([THREE.UniformsLib.fog, {
+      uOpacity: { value: opacity },
+      uFlowOffset: { value: 0 },
+      uFlowAmount: { value: 0 },
+      uCollapseProgress: { value: 0 },
+      uCollapseOpacity: { value: 1 },
+      uCollapseTarget: { value: new THREE.Vector3(1, 0, 0) },
+      uRebirthProgress: { value: 1 },
+      uRebirthOrigin: { value: new THREE.Vector3() },
+    }]),
+    vertexShader: `
+      attribute vec3 color;
+      attribute float aFlow;
+      varying vec3 vCloudColor;
+      varying float vCloudFlow;
+      uniform float uCollapseProgress;
+      uniform vec3 uCollapseTarget;
+      uniform float uRebirthProgress;
+      uniform vec3 uRebirthOrigin;
+      #include <fog_pars_vertex>
+      void main() {
+        vCloudColor = color;
+        vCloudFlow = aFlow;
+        vec3 transformed = position;
+        vec3 collapseAxis = normalize(uCollapseTarget + vec3(.000001, 0., 0.));
+        float collapseDistance = max(0., dot(transformed, collapseAxis));
+        vec3 collapsed = collapseAxis * collapseDistance;
+        transformed = mix(transformed, collapsed, uCollapseProgress);
+        transformed = mix(uRebirthOrigin, transformed, uRebirthProgress);
+        vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.);
+        gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
+      }
+    `,
+    fragmentShader: `
+      varying vec3 vCloudColor;
+      varying float vCloudFlow;
+      uniform float uOpacity;
+      uniform float uFlowOffset;
+      uniform float uFlowAmount;
+      uniform float uCollapseOpacity;
+      #include <fog_pars_fragment>
+      void main() {
+        float phase = fract(vCloudFlow - uFlowOffset + 1.);
+        float dash = smoothstep(.67, .84, phase) * (1. - smoothstep(.96, 1., phase));
+        float gain = 1. + dash * uFlowAmount * .78;
+        gl_FragColor = vec4(vCloudColor * gain, uOpacity * uCollapseOpacity);
+        #include <fog_fragment>
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    fog: true,
+  });
+  material.userData = { kind: 'cloud-flow-material', opacity };
+  return material;
+}
+
+const lineMaterials = EDGE_OPAC.map(createCloudLineMaterial);
 const cloudRouteMaterial = new THREE.LineBasicMaterial({
   color: 0x8fd8ff, transparent: true, opacity: 0.92,
   depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
@@ -1687,17 +1761,21 @@ function mergeCloudLayer(depth) {
   if (positionCount === 0) return false;
   const positions = new Float32Array(positionCount * 3);
   const colors = new Uint8Array(positionCount * 3);
+  const flows = new Float32Array(positionCount);
   let offset = 0;
   for (const obj of rec.objects) {
     const position = obj.geometry.getAttribute('position');
     const color = obj.geometry.getAttribute('color');
+    const flow = obj.geometry.getAttribute('aFlow');
     positions.set(position.array, offset * 3);
     colors.set(color.array, offset * 3);
+    if (flow) flows.set(flow.array, offset);
     offset += position.count;
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.Uint8BufferAttribute(colors, 3, true));
+  geometry.setAttribute('aFlow', new THREE.BufferAttribute(flows, 1));
   const merged = markBloomObject(new THREE.LineSegments(
     geometry,
     lineMaterials[Math.min(depth, lineMaterials.length - 1)],
@@ -1759,6 +1837,17 @@ function hash01(n) {
   return s - Math.floor(s);
 }
 
+function attachCloudFlowAttribute(geometry) {
+  const count = geometry.getAttribute('position')?.count || 0;
+  const flow = new Float32Array(count);
+  for (let index = 0; index < count; index += 2) {
+    flow[index] = 0;
+    if (index + 1 < count) flow[index + 1] = 1;
+  }
+  geometry.setAttribute('aFlow', new THREE.BufferAttribute(flow, 1));
+  return geometry;
+}
+
 function addRoot(score) {
   // 用一条很短的“过去 → 现在”线表示根；终点严格是原点，2 个顶点 = 1 个真实根节点。
   const pos = new Float32Array([0, 0, 0]);
@@ -1769,11 +1858,13 @@ function addRoot(score) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
   geo.setAttribute('color', new THREE.Uint8BufferAttribute(edgeCol, 3, true));
+  attachCloudFlowAttribute(geo);
   const obj = markBloomObject(new THREE.LineSegments(geo, lineMaterials[0]));
   obj.userData = { kind: 'cloud-links', depth: 0 };
   obj.frustumCulled = false;
   cloudGroup.add(obj);
   layers.set(0, { objects: [obj], pos, dir: new Float32Array([1, 0, 0]) });
+  activateCloudFlow();
 }
 
 /**
@@ -1847,6 +1938,7 @@ function appendLayer(depth, parents, scores) {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3));
   geo.setAttribute('color', new THREE.Uint8BufferAttribute(edgeCol, 3, true));
+  attachCloudFlowAttribute(geo);
   const obj = markBloomObject(new THREE.LineSegments(
     geo,
     lineMaterials[Math.min(depth, lineMaterials.length - 1)],
@@ -1859,6 +1951,7 @@ function appendLayer(depth, parents, scores) {
   if (!rec) { rec = { objects: [], pos: null, dir: null }; layers.set(depth, rec); }
   rec.objects.push(obj);
   if (keepLayout) { rec.pos = pos; rec.dir = dir; }
+  activateCloudFlow();
   requestCloudRender();
 }
 
@@ -2053,6 +2146,8 @@ function prepareCloud({ preserveExplorer = false } = {}) {
   if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }
   cloudWorkerTargetDepth = 0;
   clearCloud();
+  cloudLegendRevealedDepths.clear();
+  cloudLayerLegendEl.replaceChildren();
   cloudTarget.set(CLOUD_TARGET_X, 0, 0);
   cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
 
@@ -2308,6 +2403,8 @@ function onAiMove(result) {
   clearAiWatchdog();
   aiPending = null;
   thinking = false;
+  stopThinkingPulse();
+  completeCloudCollapse();
   if (!result) {
     clearPvGuide();
     forkStale = false;
@@ -2374,6 +2471,7 @@ function onAiMove(result) {
   installPvGuide(fullPv, pending?.fen || '', pending?.id ?? -1, result.depth);
   renderBoard();
   const cloudGen = prepareCloud();
+  startCloudRebirth();
   pendingCoachOutcome = coachPrediction ? {
     prediction: coachPrediction,
     actual: {
@@ -2427,6 +2525,7 @@ function tryMove(from, to, promotion) {
     setStatus(describeEnd());
     return true;
   }
+  startCloudCollapse(mv);
   prepareCloud();    // 只清掉旧局面；思考时不做任何注定会被应手替换的云计算
   markForkStale();
   setStatus(game.isGameOver() ? describeEnd() : `你走 <b>${mv.san}</b>，黑方在想…`);
@@ -2955,6 +3054,48 @@ boardEl.addEventListener('keydown', (ev) => {
 function setStatus(html) { document.getElementById('status').innerHTML = html; }
 function setStatusText(text) { document.getElementById('status').textContent = text; }
 
+const cloudLegendRevealedDepths = new Set();
+
+/**
+ * 顶部层数只呈现已经落到 geometry 的真值。所谓“收敛”是字形从虚到实，
+ * 不是先编一个随机数字再改口；data-value 也直接来自 position.count / 2。
+ */
+function renderCloudLayerLegend() {
+  const depths = builtDepths();
+  const existing = new Map(
+    [...cloudLayerLegendEl.querySelectorAll('[data-source="geometry-position-count"]')]
+      .map((span) => [Number(span.dataset.depth), span]),
+  );
+  let structureChanged = existing.size !== depths.length;
+  const spans = [];
+  for (const depth of depths) {
+    const value = nodesAt(depth);
+    let span = existing.get(depth);
+    if (!span) {
+      structureChanged = true;
+      span = document.createElement('span');
+      span.className = 'cloud-count-reveal';
+      if (!reducedMotion && !cloudLegendRevealedDepths.has(depth)) {
+        span.classList.add('is-converging');
+      }
+    }
+    span.dataset.depth = String(depth);
+    span.dataset.value = String(value);
+    span.dataset.source = 'geometry-position-count';
+    span.textContent = `${depth === 0 ? '现在' : `${depth}步后`} ${value.toLocaleString('en-US')}`;
+    cloudLegendRevealedDepths.add(depth);
+    spans.push(span);
+  }
+  if (structureChanged) {
+    const parts = [];
+    for (const [index, span] of spans.entries()) {
+      if (index > 0) parts.push(document.createTextNode('　·　'));
+      parts.push(span);
+    }
+    cloudLayerLegendEl.replaceChildren(...parts);
+  }
+}
+
 function updateHud() {
   let total = 0;
   for (const d of builtDepths()) total += nodesAt(d);
@@ -2991,9 +3132,7 @@ function updateHud() {
       `路径网计算失败 · 已保留真实绘制到第 <b>${cloudState.depth}</b> 层`;
     document.getElementById('cloudCount').innerHTML =
       `<span class="grow">计算中断：${esc(cloudState.error)}</span> · 已绘制 ${total.toLocaleString('en-US')} 条真实路径`;
-    cloudLayerLegendEl.textContent = builtDepths()
-      .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
-      .join('　·　');
+    renderCloudLayerLegend();
     return;
   }
   document.getElementById('cloudStats').innerHTML =
@@ -3005,9 +3144,7 @@ function updateHud() {
     : fastPreview
       ? `快速预览 ${cloudState.depth} 步 · ${deepest.toLocaleString('en-US')} 条真实路径`
       : `${cloudState.depth} 步后 ${deepest.toLocaleString('en-US')} 条路径 · 共绘制 ${total.toLocaleString('en-US')} 条`;
-  cloudLayerLegendEl.textContent = builtDepths()
-    .map((d) => `${d === 0 ? '现在' : `${d}步后`} ${nodesAt(d).toLocaleString('en-US')}`)
-    .join('　·　');
+  renderCloudLayerLegend();
 }
 
 // ─────────────────────────────────────────────── 主舞台：平面分叉图
@@ -5502,6 +5639,348 @@ const cloudTargetGoal = new THREE.Vector3(CLOUD_TARGET_X, 0, 0);
 let renderFrameId = 0;
 let cruiseTimer = 0;
 
+const cloudNarrative = {
+  flowStartedAt: 0,
+  flowUntil: 0,
+  collapse: null,
+  rebirth: null,
+  pulseLine: null,
+  pulseStartedAt: 0,
+  lastEndpoint: new THREE.Vector3(7.5, 0, 0),
+  events: [],
+  pauseReasons: new Set(),
+  pausedAt: 0,
+  searchStartedAt: 0,
+  collapseStartedAt: 0,
+  geometryWritesPerFrame: 0,
+};
+
+function narrativeNow() {
+  return cloudNarrative.pauseReasons.size > 0
+    ? cloudNarrative.pausedAt
+    : performance.now();
+}
+
+function recordCloudNarrative(type, detail = {}) {
+  cloudNarrative.events.push({ type, at: performance.now(), ...detail });
+  if (cloudNarrative.events.length > 32) cloudNarrative.events.shift();
+}
+
+function narrativePaused() {
+  return cloudNarrative.pauseReasons.size > 0;
+}
+
+function setCloudNarrativePaused(reason, paused) {
+  const hadPause = narrativePaused();
+  if (paused) cloudNarrative.pauseReasons.add(reason);
+  else cloudNarrative.pauseReasons.delete(reason);
+  const hasPause = narrativePaused();
+  if (!hadPause && hasPause) {
+    cloudNarrative.pausedAt = performance.now();
+  } else if (hadPause && !hasPause) {
+    const delta = performance.now() - cloudNarrative.pausedAt;
+    cloudNarrative.flowStartedAt += delta;
+    cloudNarrative.flowUntil += delta;
+    cloudNarrative.pulseStartedAt += delta;
+    if (cloudNarrative.collapse) {
+      cloudNarrative.collapse.startedAt += delta;
+      cloudNarrative.collapse.endsAt += delta;
+    }
+    if (cloudNarrative.rebirth) {
+      cloudNarrative.rebirth.startedAt += delta;
+      cloudNarrative.rebirth.endsAt += delta;
+    }
+    cloudNarrative.pausedAt = 0;
+    requestCloudRender();
+  }
+}
+
+function activateCloudFlow(duration = CLOUD_FLOW_ACTIVE_MS) {
+  if (reducedMotion) {
+    for (const material of lineMaterials) {
+      material.uniforms.uFlowAmount.value = 0;
+      material.uniforms.uFlowOffset.value = 0;
+    }
+    return false;
+  }
+  const now = narrativeNow();
+  cloudNarrative.flowStartedAt = now;
+  cloudNarrative.flowUntil = Math.max(cloudNarrative.flowUntil, now + duration);
+  for (const material of lineMaterials) material.uniforms.uFlowAmount.value = 1;
+  requestCloudRender();
+  return true;
+}
+
+function cloudMoveEndpoint(move) {
+  const depthOne = layers.get(1);
+  const index = cloudFirstMoves.findIndex((candidate) =>
+    candidate.from === move.from
+    && candidate.to === move.to
+    && (candidate.promotion || '') === (move.promotion || ''));
+  if (index >= 0 && depthOne?.pos?.length >= index * 3 + 3) {
+    return new THREE.Vector3(
+      depthOne.pos[index * 3],
+      depthOne.pos[index * 3 + 1],
+      depthOne.pos[index * 3 + 2],
+    );
+  }
+  return new THREE.Vector3(8.2, 0, 0);
+}
+
+function createNarrativeLine(points, color, kind) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
+  const material = new THREE.LineBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.94,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const line = markBloomObject(new THREE.Line(geometry, material));
+  line.userData = { kind };
+  line.frustumCulled = false;
+  line.renderOrder = 18;
+  return line;
+}
+
+function createThinkingPulse(endpoint) {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
+    0, 0, 0, endpoint.x, endpoint.y, endpoint.z,
+  ]), 3));
+  geometry.setAttribute('aFlow', new THREE.BufferAttribute(new Float32Array([0, 1]), 1));
+  const material = new THREE.ShaderMaterial({
+    uniforms: { uPulse: { value: 0 } },
+    vertexShader: `
+      attribute float aFlow;
+      varying float vFlow;
+      void main() {
+        vFlow = aFlow;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.);
+      }
+    `,
+    fragmentShader: `
+      varying float vFlow;
+      uniform float uPulse;
+      void main() {
+        float distanceToPulse = abs(fract(vFlow - uPulse + 1.) - .5);
+        float glow = 1. - smoothstep(.04, .26, distanceToPulse);
+        gl_FragColor = vec4(vec3(1., .72, .22) * (1. + glow * 1.8), .28 + glow * .72);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const line = markBloomObject(new THREE.Line(geometry, material));
+  line.userData = { kind: 'thinking-pulse' };
+  line.frustumCulled = false;
+  line.renderOrder = 19;
+  return line;
+}
+
+function disposeNarrativeObject(object) {
+  if (!object) return;
+  object.parent?.remove(object);
+  object.geometry?.dispose();
+  if (Array.isArray(object.material)) object.material.forEach((material) => material.dispose());
+  else object.material?.dispose();
+}
+
+function disposeCloudCollapse(shouldRecord = true) {
+  const collapse = cloudNarrative.collapse;
+  if (!collapse) return false;
+  for (const object of [...collapse.group.children]) disposeNarrativeObject(object);
+  collapse.group.parent?.remove(collapse.group);
+  collapse.progress = 1;
+  if (shouldRecord) recordCloudNarrative('collapse_completed', {
+    snapshotEdges: collapse.snapshotEdges,
+  });
+  cloudNarrative.collapse = null;
+  return true;
+}
+
+function completeCloudCollapse() {
+  return disposeCloudCollapse(true);
+}
+
+function stopThinkingPulse(shouldRecord = true) {
+  if (!cloudNarrative.pulseLine) return false;
+  disposeNarrativeObject(cloudNarrative.pulseLine);
+  cloudNarrative.pulseLine = null;
+  if (shouldRecord) recordCloudNarrative('thinking_pulse_stopped');
+  return true;
+}
+
+function startCloudCollapse(move) {
+  if (reducedMotion || cloudViewMode !== '3d' || layers.size === 0) return false;
+  disposeCloudCollapse(false);
+  stopThinkingPulse(false);
+  const endpoint = cloudMoveEndpoint(move);
+  cloudNarrative.lastEndpoint.copy(endpoint);
+  const group = new THREE.Group();
+  group.userData = { kind: 'collapse-snapshot' };
+  let snapshotEdges = 0;
+  const snapshotMaterials = [];
+  for (const record of layers.values()) {
+    for (const object of record.objects) {
+      snapshotEdges += object.geometry.getAttribute('position').count / 2;
+      const material = object.material.clone();
+      material.uniforms.uCollapseTarget.value.copy(endpoint);
+      object.material = material;
+      snapshotMaterials.push(material);
+      group.add(object);
+    }
+  }
+  layers.clear();
+  cloudGroup.add(group);
+  const selectedLine = createNarrativeLine(
+    [0, 0, 0, endpoint.x, endpoint.y, endpoint.z],
+    0xf3c86a,
+    'collapse-selected-line',
+  );
+  group.add(selectedLine);
+  const now = narrativeNow();
+  cloudNarrative.collapse = {
+    group,
+    snapshotMaterials,
+    selectedLine,
+    selectedLineVisible: true,
+    snapshotEdges,
+    configuredMs: CLOUD_COLLAPSE_MS,
+    startedAt: now,
+    endsAt: now + CLOUD_COLLAPSE_MS,
+    progress: 0,
+  };
+  cloudNarrative.searchStartedAt = aiClock;
+  cloudNarrative.collapseStartedAt = performance.now();
+  recordCloudNarrative('collapse_started', { snapshotEdges });
+
+  const pulse = createThinkingPulse(endpoint);
+  cloudNarrative.pulseLine = pulse;
+  cloudNarrative.pulseStartedAt = now;
+  cloudGroup.add(pulse);
+  recordCloudNarrative('thinking_pulse_started');
+  requestCloudRender();
+  return true;
+}
+
+function startCloudRebirth(origin = cloudNarrative.lastEndpoint) {
+  if (reducedMotion || cloudViewMode !== '3d') {
+    for (const material of lineMaterials) material.uniforms.uRebirthProgress.value = 1;
+    cloudNowNode.position.set(0, 0, 0);
+    return false;
+  }
+  const now = narrativeNow();
+  cloudNarrative.rebirth = {
+    origin: origin.clone(),
+    startedAt: now,
+    endsAt: now + CLOUD_REBIRTH_MS,
+    progress: 0,
+  };
+  for (const material of lineMaterials) {
+    material.uniforms.uRebirthOrigin.value.copy(origin);
+    material.uniforms.uRebirthProgress.value = 0;
+  }
+  cloudNowNode.position.copy(origin);
+  recordCloudNarrative('rebirth_started');
+  requestCloudRender();
+  return true;
+}
+
+function resetCloudNarrative({ clearEvents = true } = {}) {
+  disposeCloudCollapse(false);
+  stopThinkingPulse(false);
+  cloudNarrative.rebirth = null;
+  cloudNarrative.flowStartedAt = 0;
+  cloudNarrative.flowUntil = 0;
+  cloudNarrative.pulseStartedAt = 0;
+  cloudNarrative.searchStartedAt = 0;
+  cloudNarrative.collapseStartedAt = 0;
+  if (clearEvents) cloudNarrative.events = [];
+  for (const material of lineMaterials) {
+    material.uniforms.uFlowOffset.value = 0;
+    material.uniforms.uFlowAmount.value = 0;
+    material.uniforms.uCollapseProgress.value = 0;
+    material.uniforms.uCollapseOpacity.value = 1;
+    material.uniforms.uRebirthProgress.value = 1;
+  }
+  cloudNowNode.position.set(0, 0, 0);
+}
+
+function finishCloudNarrativeInstant() {
+  for (const material of lineMaterials) {
+    material.uniforms.uFlowOffset.value = 0;
+    material.uniforms.uFlowAmount.value = 0;
+    material.uniforms.uRebirthProgress.value = 1;
+  }
+  cloudNarrative.flowUntil = 0;
+  completeCloudCollapse();
+  stopThinkingPulse();
+  if (cloudNarrative.rebirth) recordCloudNarrative('rebirth_completed');
+  cloudNarrative.rebirth = null;
+  cloudNowNode.position.set(0, 0, 0);
+}
+
+function cloudNarrativeIsActive(now = narrativeNow()) {
+  if (reducedMotion || narrativePaused()) return false;
+  return now < cloudNarrative.flowUntil
+    || !!cloudNarrative.collapse
+    || !!cloudNarrative.pulseLine
+    || !!cloudNarrative.rebirth;
+}
+
+function updateCloudNarrative(now) {
+  if (reducedMotion || narrativePaused()) return false;
+  const flowActive = now < cloudNarrative.flowUntil;
+  const flowElapsed = Math.max(0, now - cloudNarrative.flowStartedAt);
+  for (const material of lineMaterials) {
+    material.uniforms.uFlowOffset.value = flowActive ? (flowElapsed / 920) % 1 : 0;
+    material.uniforms.uFlowAmount.value = flowActive ? 1 : 0;
+  }
+
+  const collapse = cloudNarrative.collapse;
+  if (collapse) {
+    const linear = Math.max(0, Math.min(1,
+      (now - collapse.startedAt) / Math.max(1, collapse.configuredMs)));
+    const eased = 1 - Math.pow(1 - linear, 3);
+    collapse.progress = linear;
+    for (const material of collapse.snapshotMaterials) {
+      material.uniforms.uCollapseProgress.value = eased;
+      material.uniforms.uCollapseOpacity.value = Math.max(0, 1 - linear * 1.08);
+    }
+    collapse.selectedLine.material.opacity = Math.min(1, 0.66 + linear * 0.34);
+    if (linear >= 1) disposeCloudCollapse(true);
+  }
+
+  if (cloudNarrative.pulseLine) {
+    cloudNarrative.pulseLine.material.uniforms.uPulse.value =
+      ((now - cloudNarrative.pulseStartedAt) / 760) % 1;
+  }
+
+  const rebirth = cloudNarrative.rebirth;
+  if (rebirth) {
+    const linear = Math.max(0, Math.min(1,
+      (now - rebirth.startedAt) / Math.max(1, CLOUD_REBIRTH_MS)));
+    const eased = 1 - Math.pow(1 - linear, 3);
+    rebirth.progress = linear;
+    for (const material of lineMaterials) material.uniforms.uRebirthProgress.value = eased;
+    cloudNowNode.position.copy(rebirth.origin).multiplyScalar(1 - eased);
+    if (linear >= 1) {
+      for (const material of lineMaterials) material.uniforms.uRebirthProgress.value = 1;
+      cloudNowNode.position.set(0, 0, 0);
+      cloudNarrative.rebirth = null;
+      recordCloudNarrative('rebirth_completed');
+    }
+  }
+  return cloudNarrativeIsActive(now);
+}
+
 function updateMotionButton() {
   const button = document.getElementById('cloudMotion');
   if (!button) return;
@@ -5553,6 +6032,7 @@ function setCloudViewMode(mode) {
   }
   cloudViewMode = next;
   const tree = next === '2d';
+  setCloudNarrativePaused('view-mode', tree);
   document.body.classList.toggle('cloud-view-2d', tree);
   cloudTree2dEl.setAttribute('aria-hidden', String(!tree));
   cloudTree2dEl.inert = !tree || thinking;
@@ -5675,7 +6155,10 @@ addEventListener('keydown', (event) => {
 });
 motionPreference.addEventListener('change', (event) => {
   reducedMotion = event.matches;
-  if (reducedMotion) setCloudMotion(false);
+  if (reducedMotion) {
+    setCloudMotion(false);
+    finishCloudNarrativeInstant();
+  }
   if (
     reducedMotion
     && futurePreviewIsActive()
@@ -5742,7 +6225,8 @@ if (window.visualViewport) window.visualViewport.addEventListener('resize', sche
 let cloudInView = true;
 if ('IntersectionObserver' in window) {
   const cloudObserver = new IntersectionObserver((entries) => {
-    cloudInView = entries.some((entry) => entry.isIntersecting);
+    cloudInView = entries.some((entry) => entry.isIntersecting) || skyIsVisibleNow();
+    setCloudNarrativePaused('offscreen', !cloudInView);
     if (cloudInView) {
       maybeStartDeepCloud();
       requestCloudRender();
@@ -5770,6 +6254,7 @@ if ('IntersectionObserver' in window) {
 }
 
 document.addEventListener('visibilitychange', () => {
+  setCloudNarrativePaused('hidden', document.hidden);
   if (document.hidden) {
     if (renderFrameId) {
       cancelAnimationFrame(renderFrameId);
@@ -5809,6 +6294,13 @@ document.addEventListener('visibilitychange', () => {
 });
 
 function requestCloudRender() {
+  // Headless Chrome may deliver IntersectionObserver's first zero-sized sample before
+  // the fixed panel has completed layout. Reconcile that sample against the live rect;
+  // a genuinely scrolled-away/offscreen board still remains paused.
+  if (cloudNarrative.pauseReasons.has('offscreen') && skyIsVisibleNow()) {
+    cloudInView = true;
+    setCloudNarrativePaused('offscreen', false);
+  }
   if (cloudViewMode !== '3d' || renderFrameId || document.hidden) return false;
   renderFrameId = requestAnimationFrame(renderCloudFrame);
   return true;
@@ -5821,6 +6313,7 @@ function renderCloudFrame() {
     && (cloudInView || document.body.classList.contains('cloud-full'));
   if (!active) return;
   let settling = false;
+  const narrativeActive = updateCloudNarrative(performance.now());
   const targetDelta = cloudTarget.distanceToSquared(cloudTargetGoal);
   if (targetDelta > 0.0004) {
     if (reducedMotion) cloudTarget.copy(cloudTargetGoal);
@@ -5844,7 +6337,7 @@ function renderCloudFrame() {
     composer.render();
     positionCloudLabels();
   }
-  if (settling) requestCloudRender();
+  if (settling || narrativeActive) requestCloudRender();
 }
 requestCloudRender();
 
@@ -6423,6 +6916,92 @@ function phaseOneVisualSnapshot() {
   };
 }
 
+function phaseTwoVisualSnapshot() {
+  const cloudObjects = [...layers.values()].flatMap((record) => record.objects);
+  let directionPairsExact = true;
+  let progressAttributes = 0;
+  for (const object of cloudObjects) {
+    const flow = object.geometry.getAttribute('aFlow');
+    if (!flow) {
+      directionPairsExact = false;
+      continue;
+    }
+    progressAttributes++;
+    for (let index = 0; index < flow.count; index += 2) {
+      if (Math.abs(flow.getX(index)) > 1e-7
+        || (index + 1 < flow.count && Math.abs(flow.getX(index + 1) - 1) > 1e-7)) {
+        directionPairsExact = false;
+        break;
+      }
+    }
+  }
+  const now = narrativeNow();
+  const numberSpans = [...cloudLayerLegendEl.querySelectorAll('[data-source="geometry-position-count"]')];
+  const collapse = cloudNarrative.collapse;
+  const rebirth = cloudNarrative.rebirth;
+  const pulseObjects = cloudGroup.children.filter((object) =>
+    object.userData.kind === 'thinking-pulse');
+  return {
+    reducedMotion,
+    flow: {
+      shaderMaterials: lineMaterials.filter((material) => material.isShaderMaterial).length,
+      cloudObjects: cloudObjects.length,
+      progressAttributes,
+      directionPairsExact,
+      geometryWritesPerFrame: cloudNarrative.geometryWritesPerFrame,
+      active: !reducedMotion && !narrativePaused() && now < cloudNarrative.flowUntil,
+    },
+    collapse: collapse ? {
+      active: true,
+      snapshotEdges: collapse.snapshotEdges,
+      selectedLine: collapse.selectedLineVisible,
+      configuredMs: collapse.configuredMs,
+      progress: collapse.progress,
+    } : {
+      active: false,
+      snapshotEdges: 0,
+      selectedLine: false,
+      configuredMs: CLOUD_COLLAPSE_MS,
+      progress: 1,
+    },
+    pulse: {
+      active: !!cloudNarrative.pulseLine && !narrativePaused() && !reducedMotion,
+      objects: pulseObjects.length,
+    },
+    rebirth: rebirth ? {
+      active: true,
+      progress: rebirth.progress,
+      origin: rebirth.origin.toArray(),
+    } : { active: false, progress: 1, origin: null },
+    narrative: {
+      active: cloudNarrativeIsActive(now),
+      paused: narrativePaused(),
+      pauseReasons: [...cloudNarrative.pauseReasons],
+    },
+    numbers: {
+      source: 'geometry-position-count',
+      items: numberSpans.map((span) => {
+        const depth = Number(span.dataset.depth);
+        const value = Number(span.dataset.value);
+        return {
+          depth,
+          value,
+          exact: value === nodesAt(depth),
+          converging: span.classList.contains('is-converging'),
+          animationName: getComputedStyle(span).animationName,
+        };
+      }),
+      activeAnimations: numberSpans.reduce((count, span) => count
+        + span.getAnimations().filter((animation) => animation.playState === 'running').length, 0),
+    },
+    timing: {
+      searchStartedAt: cloudNarrative.searchStartedAt,
+      collapseStartedAt: cloudNarrative.collapseStartedAt,
+    },
+    events: cloudNarrative.events.map((event) => ({ ...event })),
+  };
+}
+
 function setBloomEnabled(enabled) {
   bloomPass.enabled = !!enabled;
   requestCloudRender();
@@ -6585,6 +7164,9 @@ function resetGame(fen = null) {
   if (fen) {
     try { new Chess(fen); } catch { return false; }
   }
+  // CDP/WebKit may coalesce media-query change events while a tab is backgrounded;
+  // reset is a lifecycle boundary, so re-read the authoritative media query here.
+  reducedMotion = motionPreference.matches;
   aiRequestId++;
   presentationGen++;
   clearAiWatchdog();
@@ -6606,6 +7188,7 @@ function resetGame(fen = null) {
   hoverPreviewLineCache.clear();
   lastAi = null;
   thinking = false;
+  resetCloudNarrative();
   clearPvGuide();
   branchPath = [];
   expanded = [];
@@ -6790,6 +7373,7 @@ window.__test = {
   tree2d: tree2dSnapshot,
   renderStats: renderStatsSnapshot,
   phaseOneVisual: phaseOneVisualSnapshot,
+  phaseTwoVisual: phaseTwoVisualSnapshot,
   setBloomEnabled,
   setCloudVisible: (visible) => {
     cloudGroup.visible = !!visible;

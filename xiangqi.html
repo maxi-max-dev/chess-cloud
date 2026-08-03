@@ -667,6 +667,14 @@
     border: 1px solid rgba(242, 189, 99, .20); border-radius: 10px;
     color: #c3ae81; background: rgba(44, 34, 18, .62); font-size: 11px;
   }
+  .future-count-converge {
+    display: inline-block;
+    animation: future-count-converge 300ms cubic-bezier(.2,.75,.24,1) both;
+  }
+  @keyframes future-count-converge {
+    from { opacity: .18; filter: blur(3px); }
+    to { opacity: 1; filter: blur(0); }
+  }
 
   .fatal {
     position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 24px;
@@ -787,6 +795,7 @@
     .last-move-trace.is-new, .last-move-target.is-new {
       animation: none !important;
     }
+    .future-count-converge { animation: none !important; }
     .piece.just-moved, .piece.future-preview-piece { will-change: auto; }
     .threat-flow { opacity: .42; stroke-dasharray: .12 .88; }
   }
@@ -1387,6 +1396,7 @@ let futureMode = 'tree-2d';
 let overviewYaw = -.18;
 let overviewPitch = .06;
 let overviewDrag = null;
+let overviewCountRevealPending = false;
 const futureNodeCache = new Map();
 
 function positionKeyFor(fen) {
@@ -2819,6 +2829,10 @@ function renderOverview() {
     ? activeOverview.dataset.overviewKey || ''
     : '';
   const moves = orderedFutureMoves();
+  const revealCounts = overviewCountRevealPending
+    && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  overviewCountRevealPending = false;
+  const revealClass = revealCounts ? ' class="future-count-converge"' : '';
   const selectedKey = previewLine?.node ? futureMoveKey(previewLine.move) : '';
   const paths = [];
   const nodes = [];
@@ -2903,7 +2917,9 @@ function renderOverview() {
     + `<g class="overview-root" data-depth="0"><rect x="34" y="288" width="116" height="44" rx="22"`
     + ` fill="#1d2741" stroke="#eadfca"/>`
     + `<text x="92" y="306" text-anchor="middle" font-size="12" font-weight="800">现在</text>`
-    + `<text x="92" y="321" text-anchor="middle" font-size="9" fill="#9ab4b2">${moves.length} 个真实下一步</text></g>`
+    + `<text x="92" y="321" text-anchor="middle" font-size="9" fill="#9ab4b2">`
+    + `<tspan data-overview-count data-count="${moves.length}"${revealClass}>${moves.length}</tspan>`
+    + `<tspan> 个真实下一步</tspan></text></g>`
     + nodes.join('')
     + replyMarkup;
   if (activeOverviewKey) {
@@ -2911,13 +2927,16 @@ function renderOverview() {
       .find((node) => node.dataset.overviewKey === activeOverviewKey);
     replacement?.focus({ preventScroll: true });
   }
-  els.overviewFact.textContent =
-    `${moves.length} 条第一层真实路线 · 更深层用节点上的真实分叉数表示`;
+  const renderedPathCount = paths.length + (replyMarkup ? 1 : 0);
+  els.overviewFact.innerHTML =
+    `<span data-overview-fact-count data-count="${renderedPathCount}"${revealClass}>`
+    + `${renderedPathCount}</span> 条已绘制真实路线 · 更深层用节点上的真实分叉数表示`;
 }
 
 function setFutureMode(mode) {
   futureMode = mode === 'overview-3d' ? 'overview-3d' : 'tree-2d';
   const overview = futureMode === 'overview-3d';
+  if (overview) overviewCountRevealPending = true;
   els.overviewMode.setAttribute('aria-pressed', String(overview));
   els.treeMode.setAttribute('aria-pressed', String(!overview));
   els.zoomOut.disabled = overview;
@@ -4308,6 +4327,12 @@ function overviewVisualSnapshot() {
   const styles = getComputedStyle(document.documentElement);
   const selectedColor = styles.getPropertyValue('--future-blue').trim().toLowerCase();
   const suggestedColor = styles.getPropertyValue('--future-gold').trim().toLowerCase();
+  const rootCount = els.overviewSvg.querySelector('[data-overview-count]');
+  const factCount = els.overviewFact.querySelector('[data-overview-fact-count]');
+  const rootValue = Number(rootCount?.dataset.count);
+  const factValue = Number(factCount?.dataset.count);
+  const nodeCount = els.overviewSvg.querySelectorAll('.overview-node').length;
+  const pathCount = els.overviewSvg.querySelectorAll('[data-overview-edge]').length;
   return Object.freeze({
     mode: futureMode,
     threeResources: performance.getEntriesByType('resource')
@@ -4323,8 +4348,17 @@ function overviewVisualSnapshot() {
       selected: selectedColor === '#79e6db' ? 'blue' : selectedColor,
       suggested: suggestedColor === '#f1c66b' ? 'gold' : suggestedColor,
     }),
-    paths: els.overviewSvg.querySelectorAll('[data-overview-edge]').length,
-    nodes: els.overviewSvg.querySelectorAll('.overview-node').length,
+    paths: pathCount,
+    nodes: nodeCount,
+    numbers: Object.freeze({
+      source: 'ordered-legal-moves',
+      rootValue,
+      factValue,
+      rootExact: rootValue === nodeCount,
+      factExact: factValue === pathCount,
+      activeAnimations: [rootCount, factCount].filter(Boolean).reduce((count, element) => count
+        + element.getAnimations().filter((animation) => animation.playState === 'running').length, 0),
+    }),
   });
 }
 

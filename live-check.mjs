@@ -1,5 +1,5 @@
 // live-check.mjs —— 无头 Chrome + CDP 真机验收（本地或线上都能跑）
-// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333] [--headed] [--phase-one-only]
+// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333] [--headed] [--phase-one-only|--phase-two-only]
 // 默认自动选空闲 CDP/静态服务端口；只有需要并行复现某次运行时才显式传 --port。
 // 不给 --url 就自己起一个静态服务器伺候 chess.html；线上可传站点根目录或 chess.html。
 // --headed 使用本机 Chrome/GPU 做视觉复核；默认仍是 CI 同口径的 headless + SwiftShader。
@@ -22,6 +22,7 @@ let PORT = Number(arg('--port', '0'));
 const SHOT = arg('--shot', path.join(os.tmpdir(), 'chess-cloud-shot.png'));
 const HEADED = argv.includes('--headed');
 const PHASE_ONE_ONLY = argv.includes('--phase-one-only');
+const PHASE_TWO_ONLY = argv.includes('--phase-two-only');
 let URL_ = arg('--url', null);
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
@@ -957,7 +958,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 106;
+const EXPECTED_RESULTS = 110;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -3645,6 +3646,159 @@ async function runPvGuideChecks() {
   }
 }
 
+async function runPhaseTwoNarrativeChecks() {
+  await send('Emulation.clearDeviceMetricsOverride');
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await evalJs(`document.getElementById('cloudPanel').scrollIntoView({ block: 'center' })`);
+  await sleep(120);
+  await evalJs('window.__test.reset()');
+  await sleep(32);
+  const initial = await evalJs(`typeof window.__test.phaseTwoVisual === 'function'
+    ? window.__test.phaseTwoVisual()
+    : null`);
+  if (!initial) {
+    record(false, 'Phase 2 云线流动由共享 uniform 驱动且几何只增加方向属性', '旧实现没有 Phase 2 真值钩子');
+    record(false, 'Phase 2 落子坍缩与 AI 搜索并行，旧云几何在动画期间守恒', '旧实现没有坍缩状态');
+    record(false, 'Phase 2 思考脉冲按搜索生命周期启停并从选线末端重生新云', '旧实现没有脉冲 / 重生事件');
+    record(false, 'Phase 2 数字只揭示真实值，减少动态与静置状态均完全停下', '旧实现没有数字收敛与停帧真值');
+    return;
+  }
+
+  const earlyNumbers = initial.numbers;
+  await waitCloudPreview();
+  await waitCloudRenderIdle(8000);
+  const stable = await evalJs('window.__test.phaseTwoVisual()');
+  record(
+    stable?.flow?.shaderMaterials === 5
+      && stable?.flow?.cloudObjects > 0
+      && stable?.flow?.progressAttributes === stable.flow.cloudObjects
+      && stable?.flow?.directionPairsExact === true
+      && stable?.flow?.geometryWritesPerFrame === 0
+      && stable?.flow?.active === false,
+    'Phase 2 云线流动由共享 uniform 驱动且几何只增加方向属性',
+    stable
+      ? `shader=${stable.flow.shaderMaterials}｜objects/progress=${stable.flow.cloudObjects}/${stable.flow.progressAttributes}`
+        + `｜pairs=${stable.flow.directionPairsExact}｜frameWrites=${stable.flow.geometryWritesPerFrame}`
+        + `｜active=${stable.flow.active}`
+      : 'Phase 2 状态缺失',
+  );
+
+  const before = await evalJs('window.__cloudStats()');
+  const started = await evalJs(`(() => {
+    const played = window.__test.tryMove('e2', 'e4');
+    return {
+      played,
+      pending: window.__test.aiPending(),
+      visual: window.__test.phaseTwoVisual(),
+      cloud: window.__cloudStats(),
+    };
+  })()`);
+  await sleep(40);
+  const mid = await evalJs('({ visual: window.__test.phaseTwoVisual(), cloud: window.__cloudStats() })');
+  if (PHASE_TWO_ONLY) {
+    const collapseShot = await send('Page.captureScreenshot', { format: 'png' });
+    fs.writeFileSync(SHOT, Buffer.from(collapseShot.data, 'base64'));
+  }
+  record(
+    started.played
+      && !!started.pending
+      && started.visual?.collapse?.active === true
+      && started.visual?.collapse?.snapshotEdges === before.totalNodes
+      && started.visual?.collapse?.selectedLine === true
+      && started.visual?.collapse?.configuredMs >= 580
+      && started.visual?.collapse?.configuredMs <= 1220
+      && started.visual?.timing?.searchStartedAt > 0
+      && started.visual?.timing?.collapseStartedAt >= started.visual.timing.searchStartedAt
+      && started.visual.timing.collapseStartedAt - started.visual.timing.searchStartedAt < 80
+      && mid.visual?.collapse?.progress >= 0
+      && mid.visual?.collapse?.progress < 1
+      && mid.visual?.collapse?.snapshotEdges === before.totalNodes,
+    'Phase 2 落子坍缩与 AI 搜索并行，旧云几何在动画期间守恒',
+    `played=${started.played}｜pending=${!!started.pending}`
+      + `｜snapshot=${started.visual?.collapse?.snapshotEdges}/${before.totalNodes}`
+      + `｜progress=${mid.visual?.collapse?.progress?.toFixed?.(3) ?? '无'}`
+      + `｜paused=${started.visual?.narrative?.paused}:${started.visual?.narrative?.pauseReasons?.join(',') || '-'} reduced=${started.visual?.reducedMotion}`
+      + `｜search→collapse=${Math.round((started.visual?.timing?.collapseStartedAt || 0) - (started.visual?.timing?.searchStartedAt || 0))}ms`
+      + `｜duration=${started.visual?.collapse?.configuredMs ?? '无'}ms`,
+  );
+
+  const immediatePulse = started.visual?.pulse;
+  for (let i = 0; i < 160; i++) {
+    const done = await evalJs('window.__test.state().history.length >= 2 && !window.__test.state().thinking');
+    if (done) break;
+    await sleep(40);
+  }
+  let narrativeDone = false;
+  for (let i = 0; i < 160; i++) {
+    narrativeDone = await evalJs(`(() => {
+      const visual = window.__test.phaseTwoVisual();
+      return !visual.narrative.active && visual.events.some((event) => event.type === 'rebirth_completed');
+    })()`);
+    if (narrativeDone) break;
+    await sleep(40);
+  }
+  const finished = await evalJs('window.__test.phaseTwoVisual()');
+  const eventTypes = finished.events.map((event) => event.type);
+  record(
+    immediatePulse?.active === true
+      && immediatePulse?.objects === 1
+      && finished.pulse.active === false
+      && finished.pulse.objects === 0
+      && eventTypes.includes('thinking_pulse_started')
+      && eventTypes.includes('thinking_pulse_stopped')
+      && eventTypes.includes('collapse_completed')
+      && eventTypes.includes('rebirth_started')
+      && eventTypes.includes('rebirth_completed')
+      && eventTypes.indexOf('thinking_pulse_started') < eventTypes.indexOf('thinking_pulse_stopped')
+      && eventTypes.indexOf('rebirth_started') < eventTypes.indexOf('rebirth_completed')
+      && narrativeDone,
+    'Phase 2 思考脉冲按搜索生命周期启停并从选线末端重生新云',
+    `pulse=${immediatePulse?.active}/${finished.pulse.active}`
+      + `｜objects=${immediatePulse?.objects}/${finished.pulse.objects}`
+      + `｜events=${eventTypes.join('→')}｜done=${narrativeDone}`,
+  );
+
+  await send('Emulation.setEmulatedMedia', {
+    media: 'screen',
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  await sleep(100);
+  await evalJs('window.__test.reset()');
+  await sleep(40);
+  const reducedEarly = await evalJs('window.__test.phaseTwoVisual()');
+  await waitCloudPreview();
+  await waitCloudRenderIdle(8000);
+  const idleBefore = await evalJs('({ raf: window.__rafAudit.read(), visual: window.__test.phaseTwoVisual() })');
+  await sleep(700);
+  const idleAfter = await evalJs('({ raf: window.__rafAudit.read(), visual: window.__test.phaseTwoVisual() })');
+  record(
+    earlyNumbers?.source === 'geometry-position-count'
+      && earlyNumbers?.items?.length > 0
+      && earlyNumbers.items.every((item) => item.exact === true)
+      && earlyNumbers.items.some((item) =>
+        item.converging === true && item.animationName === 'future-count-converge')
+      && reducedEarly?.reducedMotion === true
+      && reducedEarly?.numbers?.activeAnimations === 0
+      && reducedEarly?.numbers?.items?.every((item) => item.converging === false)
+      && reducedEarly?.narrative?.active === false
+      && idleAfter.raf.fired === idleBefore.raf.fired
+      && idleAfter.visual.narrative.active === false,
+    'Phase 2 数字只揭示真实值，减少动态与静置状态均完全停下',
+    `numbers=${earlyNumbers?.items?.map((item) => `${item.depth}:${item.value}/${item.exact}/${item.converging}/${item.animationName}`).join(',') || '无'}`
+      + `｜animations=${earlyNumbers?.activeAnimations ?? '无'}→${reducedEarly?.numbers?.activeAnimations ?? '无'}`
+      + `｜reduced=${reducedEarly?.reducedMotion}｜700ms rAF ${idleBefore.raf.fired}→${idleAfter.raf.fired}`,
+  );
+  await send('Emulation.setEmulatedMedia', {
+    media: 'screen',
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
+  await sleep(100);
+  await evalJs('window.__test.reset()');
+  await waitCloudPreview();
+  await waitCloudRenderIdle(8000);
+  await evalJs('window.scrollTo({ top: 0, behavior: "instant" })');
+}
+
 async function runPhaseOneVisualChecks() {
   await send('Emulation.setDeviceMetricsOverride', {
     width: 1440, height: 900, deviceScaleFactor: 1, mobile: false,
@@ -3862,6 +4016,12 @@ async function main() {
 
   if (PHASE_ONE_ONLY) {
     await runPhaseOneVisualChecks();
+    record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
+    await finishRun(5);
+    return;
+  }
+  if (PHASE_TWO_ONLY) {
+    await runPhaseTwoNarrativeChecks();
     record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
     await finishRun(5);
     return;
@@ -5918,6 +6078,7 @@ async function main() {
   await runTree2dChecks();
   await runMobileChecks();
   await runPvGuideChecks();
+  await runPhaseTwoNarrativeChecks();
   await runPhaseOneVisualChecks();
 
   record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');

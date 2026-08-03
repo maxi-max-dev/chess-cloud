@@ -46,7 +46,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 65;
+const EXPECTED_RESULTS = 66;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -3425,6 +3425,21 @@ async function phaseOnePaletteAudit() {
         + `｜roles=${visual.roles.selected}/${visual.roles.suggested}`
         + `｜paths/nodes=${visual.paths}/${visual.nodes}`
       : '旧实现没有 Phase 1 配色真值钩子',
+  );
+  record(
+    visual?.numbers?.source === 'ordered-legal-moves'
+      && visual?.numbers?.rootValue === visual?.nodes
+      && visual?.numbers?.factValue === visual?.paths
+      && visual?.numbers?.rootExact === true
+      && visual?.numbers?.factExact === true
+      && visual?.numbers?.activeAnimations > 0,
+    'Phase 2 中国象棋数字以真实合法着为源并只做一次收敛揭示',
+    visual?.numbers
+      ? `source=${visual.numbers.source}`
+        + `｜root=${visual.numbers.rootValue}/${visual.nodes}/${visual.numbers.rootExact}`
+        + `｜fact=${visual.numbers.factValue}/${visual.paths}/${visual.numbers.factExact}`
+        + `｜animations=${visual.numbers.activeAnimations}`
+      : '旧实现没有数字收敛真值',
   );
   const desktopShot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(SHOT, Buffer.from(desktopShot.data, 'base64'));
