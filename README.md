@@ -1,5 +1,9 @@
 # 棋云 · 棋局未来地图（chess-cloud）
 
+[![棋云宣传片](promo-cover.jpg)](https://maxi-max-dev.github.io/chess-cloud/promo.html)
+
+**▶ [观看 60 秒宣传片](https://maxi-max-dev.github.io/chess-cloud/promo.html)** · 走一步棋之前，看到所有可能的未来
+
 一个产品，两套真实棋核，一张统一的棋局未来地图。首页先选**国际象棋**或**中国象棋**；进入后
 都用同一套视觉与交互语言，一眼查看当前全部真实下一步。中国象棋会零点击选中分析主线并连续云演
 默认 4 ply；两种棋都可在 1–10 ply 间选择预演深度，候选支持鼠标悬停或键盘聚焦后自动连演。点击仍用于明确选线或真正下棋，

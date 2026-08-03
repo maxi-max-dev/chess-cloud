@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>棋云 · 宣传片</title>
+<meta name="description" content="走一步棋之前，看到所有可能的未来。棋云 Chess Cloud 宣传片。">
+<style>
+  :root { --ink: #071017; --cream: #f3f7f5; --cyan: #79e6db; --hint: #afb7b6; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--ink); color: var(--cream); min-height: 100dvh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-family: "Songti SC", "Noto Serif SC", serif; padding: 4vmin; gap: 3.2vmin;
+  }
+  h1 { font-size: clamp(28px, 5vmin, 52px); font-weight: 900; letter-spacing: 0.08em; }
+  h1 .en { color: var(--cyan); }
+  .tagline { color: var(--hint); font-size: clamp(13px, 1.9vmin, 17px); letter-spacing: 0.14em; }
+  .player { width: min(1200px, 94vw); aspect-ratio: 16 / 9; background: #000; border: 1px solid rgba(202, 224, 218, .17); }
+  video { width: 100%; height: 100%; display: block; }
+  .enter {
+    color: var(--ink); background: var(--cyan); text-decoration: none;
+    font-size: clamp(14px, 2vmin, 17px); font-weight: 700; letter-spacing: 0.12em;
+    padding: 1.4vmin 3.2vmin; border-radius: 3px;
+  }
+  .enter:hover { filter: brightness(1.08); }
+  footer { color: rgba(175, 183, 182, .5); font-size: 11px; letter-spacing: 0.05em; font-family: ui-monospace, monospace; text-align: center; line-height: 1.7; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+  <h1>棋云 <span class="en">Chess Cloud</span></h1>
+  <div class="tagline">走一步棋之前，看到所有可能的未来</div>
+  <div class="player">
+    <video src="promo.mp4" poster="promo-cover.jpg" controls autoplay muted loop playsinline></video>
+  </div>
+  <a class="enter" href="./">进入棋云 →</a>
+  <footer>
+    BGM: "Voxel Revolution" Kevin MacLeod (<a href="https://incompetech.com">incompetech.com</a>)<br>
+    Licensed under Creative Commons: By Attribution 4.0
+  </footer>
+</body>
+</html>
