@@ -567,17 +567,17 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 中国 10 局自走（本次实测） | 794 plies / 794 searches / 1,493 PV 节点；6 终局 / 4 capped；五类错误全 0；最大搜索 33.9ms |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-当前“棋局未来地图”运行源码冻结于 commit `060220e`。以下 SHA-256 已在 GitHub Pages
+当前“棋局未来地图”运行源码冻结于 commit `882d329`。以下 SHA-256 已在 GitHub Pages
 逐文件下载并与本地逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
-| `index.html` | `5909c17a139c2e2eb2e6a3859710e0b4e44821fec9eaf76da848f12ef07735ed` |
+| `index.html` | `34fff9a3824ad3ee0d86a5ef7d80ed0c1eb27af4641860a93a00d140817067f7` |
 | `future-map.css` | `29eaab29b216c8259316dc3407168cb17c36848738779718c2817c3ee6fb5525` |
-| `chess.html` | `6bdb6120fffa5bdae99920322aa1578c06a0b97a770cd0220600d922650b04c1` |
+| `chess.html` | `70eb85e36b504d8b3383962cc0afc2889887821bc52d70c375863d8aaeee6910` |
 | `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
 | `worker.js` | `a065d664f7bbbf3e67f9ac5b3ea546e11cc94db4c36a2d00a30d4d4b1b1d9aed` |
-| `xiangqi.html` | `e8f38649eab9568119c1cce7aa5d1224278f17b3cebeabc8b28f4d0a133fd7aa` |
+| `xiangqi.html` | `7581a0941c604428e1a2612f2a39075d0ac32a4eedf2ae6862f5db046c1a1eff` |
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `7110025786591dd8739ba51e48e9387948c609f0c161a179d14fc702196aac07` |
 
@@ -585,11 +585,13 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 
 - `node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**102/102**；
 - `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**64/64**；
-- 线上中国象棋零点击云演 **3,917ms** 完成 4 ply，国际象棋真实 AI 应手 **1,064ms**，分别低于
+- 线上中国象棋零点击云演 **3,482ms** 完成 4 ply，国际象棋首屏真实 AI 应手 **1,753ms**，分别低于
   8 秒 / 3 秒硬线；
 - `positionKey / positionId / requestId / runId`、四拍提交→脉冲→威胁顺序、暂停继续、reset 旧 run
   拒绝与 reduced-motion 均在线上真 Chrome 通过；
 - 两种棋的鼠标悬停与键盘聚焦都在线上安装合法 4 ply，`selectedPath` 保持为空，实战局面不变；
+- 两页预演中同屏只有一个“采纳首步继续”；中国象棋威胁条使用“黑车5 → 红车五、红车九保护”
+  一类原生路数，用户文案不再暴露 ICCS 英文坐标；三页均内嵌站点图标，不再请求缺失图标；
 - 中国象棋全景大拖动后仍 **44/44** 节点可见，两页桌面、手机竖屏与短横屏均无根横向溢出；
 - 8 个运行文件均已从 Pages 下载并与本地 SHA-256 逐字节对账；页面 JS 错误为 0。
 
