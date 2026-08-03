@@ -668,24 +668,54 @@ async function autoplayAudit() {
         detail: document.getElementById('xqFutureDetail').textContent,
         coach: document.getElementById('coach').textContent,
       },
+      playBridge: {
+        hidden: document.getElementById('xqPlayBridge').hidden,
+        title: document.getElementById('xqPlayBridgeTitle').textContent,
+        returnLabel: document.getElementById('xqReturnToPlay').textContent,
+        adoptLabel: document.getElementById('xqAdoptPreview').textContent,
+        returnDisabled: document.getElementById('xqReturnToPlay').disabled,
+        adoptDisabled: document.getElementById('xqAdoptPreview').disabled,
+      },
       runEvents,
+    };
+  })()`);
+  const returnedToPlay = await evaluate(`(() => {
+    document.getElementById('xqReturnToPlay').click();
+    return {
+      phase: window.__futureTest.snapshot().preview.phase,
+      bridgeHidden: document.getElementById('xqPlayBridge').hidden,
+      playableSquares: [...document.querySelectorAll('#board .square')]
+        .filter((square) => !square.disabled).length,
+      boardFocused: document.activeElement?.classList.contains('square') || false,
+      liveFen: window.__xiangqiTest.fen,
     };
   })()`);
   record(
     sameFen(completed.liveFen, START_FEN)
       && completed.pathLength === 0
-      && completed.selectedPath.length === 2
-      && completed.board.stepCount === 2
+      && completed.selectedPath.length === 4
+      && completed.board.stepCount === 4
       && completed.board.stage === 'settled'
       && ['conditional-settled', 'conditional-static'].includes(completed.board.phase)
-      && sameFen(completed.board.committedFen, completed.selectedPath[1].afterFen)
-      && sameFen(completed.board.displayFen, completed.selectedPath[1].afterFen)
-      && completed.copy.title.includes('云演主线')
-      && completed.copy.detail.includes('自动选入')
+      && sameFen(completed.board.committedFen, completed.selectedPath[3].afterFen)
+      && sameFen(completed.board.displayFen, completed.selectedPath[3].afterFen)
+      && completed.copy.title.includes('云演 4 步')
+      && completed.copy.detail.includes('自动接续')
       && completed.copy.coach.includes('自动选入')
       && !completed.copy.detail.includes('你明确选择')
+      && !completed.playBridge.hidden
+      && completed.playBridge.title.includes('推演了 4 步')
+      && completed.playBridge.returnLabel.includes('返回棋盘自己下')
+      && completed.playBridge.adoptLabel.includes('采纳首步')
+      && !completed.playBridge.returnDisabled
+      && !completed.playBridge.adoptDisabled
+      && returnedToPlay.phase === 'idle'
+      && returnedToPlay.bridgeHidden
+      && returnedToPlay.playableSquares === 16
+      && returnedToPlay.boardFocused
+      && sameFen(returnedToPlay.liveFen, START_FEN)
       && completed.autoplay.elapsedMs <= 8000,
-    '首次加载/重置后零点击自动选主线并连续播放 2 ply，8 秒内停在稳定条件局面',
+    '首次加载/重置后零点击自动演 4 ply，并明确提供采纳首步或返回棋盘的下棋入口',
     `phase=${completed.board.phase}/${completed.board.stage}`
       + `｜ply=${completed.selectedPath.length}`
       + `｜elapsed=${completed.autoplay.elapsedMs}ms`
@@ -693,7 +723,7 @@ async function autoplayAudit() {
       + `｜实战未变=${sameFen(completed.liveFen, START_FEN)}`,
   );
 
-  const sequenceOk = [1, 2].every((ply) => {
+  const sequenceOk = [1, 2, 3, 4].every((ply) => {
     const commit = completed.runEvents.findIndex((event) => event.type === 'motion_committed' && event.ply === ply);
     const impact = completed.runEvents.findIndex((event) => event.type === 'landing_impact' && event.ply === ply);
     const threat = completed.runEvents.findIndex((event) => event.type === 'threats_revealed' && event.ply === ply);
@@ -756,7 +786,7 @@ async function autoplayAudit() {
       && paused.pauseReason === '棋盘已离开视口'
       && paused.resume
       && resumed.autoplay.phase === 'complete'
-      && resumed.selectedPath.length === 2,
+      && resumed.selectedPath.length === 4,
     '云演可暂停/继续，离开视口暂停期间不提交下一拍',
     `paused=${paused.phase}/${paused.previewPhase}`
       + `｜reason=${paused.pauseReason}`
@@ -826,11 +856,11 @@ async function autoplayAudit() {
   record(
     reduced.phase === 'conditional-static'
       && reduced.stage === 'settled'
-      && reduced.depth === 2
+      && reduced.depth === 4
       && reduced.elapsed <= 8000
       && reduced.skipped
       && reduced.motions === 0,
-    'prefers-reduced-motion 直接显示可理解的两拍静态结果且不创建运动棋子',
+    'prefers-reduced-motion 直接显示可理解的四拍静态结果且不创建运动棋子',
     `phase=${reduced.phase}/${reduced.stage}`
       + `｜depth=${reduced.depth}｜elapsed=${reduced.elapsed}ms｜motions=${reduced.motions}`,
   );

@@ -2,6 +2,7 @@
 
 import {
   START_FEN,
+  applyMove,
   parseFen,
   generateLegalMoves,
   getGameStatus,
@@ -9,7 +10,34 @@ import {
   moveToNotation,
   rankMoves,
   search,
+  toFen,
 } from './xiangqi-engine.js';
+
+function sameMove(left, right) {
+  return !!left && !!right && left.from === right.from && left.to === right.to;
+}
+
+function buildAutoplayLine(fen, rootBranches, maxPly = 4) {
+  let position = parseFen(fen);
+  let ranked = rootBranches;
+  const line = [];
+  while (line.length < maxPly && ranked.length) {
+    const candidate = ranked[0];
+    const legalMove = generateLegalMoves(position).find((move) => sameMove(move, candidate));
+    if (!legalMove) break;
+    position = applyMove(position, legalMove, { validate: false });
+    line.push({ ...candidate, after: toFen(position) });
+    if (line.length >= maxPly || !candidate.reply) break;
+
+    const legalReply = generateLegalMoves(position).find((move) => sameMove(move, candidate.reply));
+    if (!legalReply) break;
+    position = applyMove(position, legalReply, { validate: false });
+    line.push({ ...candidate.reply, after: toFen(position) });
+    if (line.length >= maxPly) break;
+    ranked = rankMoves(toFen(position));
+  }
+  return line;
+}
 
 self.onmessage = (event) => {
   const message = event.data || {};
@@ -71,10 +99,11 @@ self.onmessage = (event) => {
   if (message.type === 'branches') {
     try {
       const branches = rankMoves(message.fen || START_FEN);
+      const autoplayLine = buildAutoplayLine(message.fen || START_FEN, branches);
       self.postMessage({
         type: 'branchesDone',
         id: message.id,
-        result: { branchCount: branches.length, branches },
+        result: { branchCount: branches.length, branches, autoplayLine },
       });
     } catch (error) {
       self.postMessage({

@@ -57,7 +57,7 @@ record(
 );
 record(
   (xiangqi.includes("from './xiangqi-engine.js'") || xiangqi.includes("import('./xiangqi-engine.js')"))
-    && xiangqi.includes("new Worker('./xiangqi-worker.js'"),
+    && xiangqi.includes("new Worker('./xiangqi-worker.js?v=p0.3.1'"),
   '中国象棋独立页面接自己的棋核与 Worker',
 );
 record(
@@ -149,6 +149,7 @@ record(
 
 record(
   xiangqi.includes('AUTOPLAY_BUDGET_MS = 8000')
+    && xiangqi.includes('AUTOPLAY_PLY = 4')
     && xiangqi.includes("recordAutoplayEvent('motion_committed'")
     && xiangqi.includes("recordAutoplayEvent('landing_impact'")
     && xiangqi.includes("recordAutoplayEvent('threats_revealed'")
@@ -156,8 +157,10 @@ record(
     && xiangqi.includes('IntersectionObserver')
     && xiangqi.includes("event.key === ' '")
     && xiangqi.includes("event.key === 'Escape'")
-    && xiangqi.includes('touchGuard'),
-  '零点击云演包含 8 秒预算、原子时序、可见性暂停、键盘与移动端误触保护',
+    && xiangqi.includes('touchGuard')
+    && xiangqi.includes('id="xqReturnToPlay"')
+    && xiangqi.includes('id="xqAdoptPreview"'),
+  '零点击云演包含 4 ply、8 秒预算、原子时序、下棋入口、键盘与移动端保护',
 );
 
 const forbidden = ['8902', '197281'];
