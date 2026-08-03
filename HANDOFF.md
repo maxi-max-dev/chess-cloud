@@ -594,37 +594,30 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 中国 10 局自走（本次实测） | 833 plies / 833 searches / 1,550 PV 节点；5 终局 / 5 capped；五类错误全 0；最大搜索 29.9ms |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
-当前 Phase 1 运行源码冻结于 commit `f51131f`。以下 SHA-256 已在 GitHub Pages
+当前 Phase 3 运行源码冻结于 commit `c261223`。以下 SHA-256 已在 GitHub Pages
 逐文件下载并与本地逐字节核对：
 
 | 运行文件 | SHA-256 |
 |---|---|
 | `index.html` | `34fff9a3824ad3ee0d86a5ef7d80ed0c1eb27af4641860a93a00d140817067f7` |
 | `future-map.css` | `0b37f982f6028289dc0805e05bcc3b45e6adfc8cba6183fcf5a071899423ba14` |
-| `chess.html` | `f537951c26f51384ada2a2052ccfee925da2d45e9e8f3d7d0cbf6b062326acfd` |
+| `chess.html` | `471b3a1165b914e06e0dfcf86732dd1eaf467550df3d279adb6ed5596f9a7657` |
 | `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
 | `worker.js` | `1ae0ea3c78d63aff081b1abb2bb41155d8d2bca1c82c2945f5745df94e35e520` |
-| `xiangqi.html` | `251a1a5efdd2418459b02a59aa29ada703a474d328eb968efecb8314abbf77a5` |
+| `xiangqi.html` | `676ad57d87bc3d320f158174296fa2e306bbb25e200abbc73287429bc29847c8` |
 | `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
 | `xiangqi-worker.js` | `9dc7d9314231c76418a35e3a9e1e01b665a9aa31efa215a9a7cb19323e7f874e` |
 
 线上行为复验：
 
 - Pages workflow
-  [`30794908423`](https://github.com/maxi-max-dev/chess-cloud/actions/runs/30794908423) 成功发布
-  `f51131f`；
-- `node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**106/106**；
-- `node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/`：**65/65**；
-- 线上中国象棋零点击云演 **3,639ms** 完成 4 ply，10 ply **7,003ms**；国际象棋首屏真实 AI 应手
-  **1,565ms**，4× 慢速手机 **1,137ms**，分别低于 8 秒 / 3 秒硬线；
-- `positionKey / positionId / requestId / runId`、四拍提交→脉冲→威胁顺序、暂停继续、reset 旧 run
-  拒绝与 reduced-motion 均在线上真 Chrome 通过；
-- 两种棋的鼠标悬停与键盘聚焦都在线上安装合法 4 ply，`selectedPath` 保持为空，实战局面不变；
-- Phase 1 单 Composer / bloom layer / 加法混合 / 路径真值隔离在线上通过；bloom 像素改变
-  **1.213%**、亮部 **2.55%**，影院模式画布 **1440×900** 且数字行与真实 L0–L4 一致；
-- 两页预演中同屏只有一个“采纳首步继续”；中国象棋威胁条使用“黑车5 → 红车五、红车九保护”
-  一类原生路数，用户文案不再暴露 ICCS 英文坐标；三页均内嵌站点图标，不再请求缺失图标；
-- 中国象棋全景大拖动后仍 **44/44** 节点可见，两页桌面、手机竖屏与短横屏均无根横向溢出；
+  [`30800342436`](https://github.com/maxi-max-dev/chess-cloud/actions/runs/30800342436) 成功发布
+  `c261223`；
+- Phase 3 线上专项：国际象棋 **6/6**、中国象棋 **9/9**；本地完整真机为 **115/115 + 71/71**；
+- Phase 3 线上实测运动完成 → 涟漪 → 10 粒碎裂顺序、500ms 清理、2 秒有限选中呼吸、200ms
+  面板扫描、逐 ply 悬停传导与 reduced-motion 全部通过；页面 JS 错误为 0；
+- 当前本地完整计时：国际首屏并发 **2,210ms**、4× 慢速手机 **1,155ms**、普通应手
+  **1,086ms**；中国 4 ply **3,695ms**、10 ply **7,664ms**、真实 AI 应手 **1,205ms**；
 - 8 个运行文件均已从 Pages 下载并与本地 SHA-256 逐字节对账；页面 JS 错误为 0。
 
 ---
