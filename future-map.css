@@ -329,6 +329,23 @@ button.future-commit:disabled {
   background: var(--future-blue-soft);
 }
 
+.future-effects[data-reveal-state="hidden"] {
+  visibility: hidden;
+}
+
+.future-effects[data-reveal-state="revealing"] .future-effect {
+  animation: future-effect-reveal .24s cubic-bezier(.2, .76, .26, 1) both;
+}
+
+.future-effects[data-reveal-state="revealing"] .future-effect:nth-child(2) { animation-delay: 70ms; }
+.future-effects[data-reveal-state="revealing"] .future-effect:nth-child(3) { animation-delay: 140ms; }
+.future-effects[data-reveal-state="revealing"] .future-effect:nth-child(4) { animation-delay: 210ms; }
+
+@keyframes future-effect-reveal {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /*
  * 第一步是用户已经选定的动作；从第二步开始只能是条件分支。回应条完整列出
  * 第一步走后局面的全部合法着，金色只标引擎建议，蓝色才表示用户明确选中。
@@ -520,5 +537,9 @@ button.future-commit:disabled {
     animation: none !important;
     transition: none !important;
     will-change: auto;
+  }
+
+  .future-effects[data-reveal-state="revealing"] .future-effect {
+    animation: none !important;
   }
 }

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const EXPECTED_RESULTS = 25;
+const EXPECTED_RESULTS = 27;
 const results = [];
 
 function record(ok, name, detail = '') {
@@ -116,7 +116,7 @@ record(
       && /(?:可能|假设)回应/.test(source))
     && sharedUi.includes('data-future-reply-list')
     && sharedUi.includes('data-future-reply-option'),
-  '两页共用“先走一步、再显式选择可能回应”的不确定分支协议',
+  '两页都完整保留不确定回应协议，国际显式选线、中国可由零点击主线先演后接管',
 );
 
 const xiangqiFutureNode = xiangqi.match(
@@ -136,6 +136,28 @@ record(
     && !xiangqiReplyBuilder.includes('applyOn(parent, move)')
     && /api\.applyMove\(positionBefore, legalMove, \{ validate: false \}\)/.test(xiangqiKnownLegal),
   '中国象棋节点和回应批量复用已校验合法着，不在主线程重复生成同一父局面',
+);
+
+record(
+  ['positionKey', 'positionId', 'requestId', 'runId'].every((name) => xiangqi.includes(name))
+    && xiangqi.includes('dataset.previewPositionId')
+    && xiangqi.includes('dataset.previewRunId')
+    && xiangqi.includes('playback.positionId === Number(expectedPositionId)')
+    && xiangqi.includes('playback.runId === Number(expectedRunId)'),
+  '中国象棋云演显式区分四种身份，动画回调同时校验 positionId + runId',
+);
+
+record(
+  xiangqi.includes('AUTOPLAY_BUDGET_MS = 8000')
+    && xiangqi.includes("recordAutoplayEvent('motion_committed'")
+    && xiangqi.includes("recordAutoplayEvent('landing_impact'")
+    && xiangqi.includes("recordAutoplayEvent('threats_revealed'")
+    && xiangqi.includes("document.addEventListener('visibilitychange'")
+    && xiangqi.includes('IntersectionObserver')
+    && xiangqi.includes("event.key === ' '")
+    && xiangqi.includes("event.key === 'Escape'")
+    && xiangqi.includes('touchGuard'),
+  '零点击云演包含 8 秒预算、原子时序、可见性暂停、键盘与移动端误触保护',
 );
 
 const forbidden = ['8902', '197281'];

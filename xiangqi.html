@@ -139,7 +139,7 @@
   .square {
     position: absolute; width: 12.1%; height: 10.8%; padding: 0;
     transform: translate(-50%, -50%); border: 0; border-radius: 50%;
-    background: transparent; cursor: pointer;
+    background: transparent; cursor: pointer; user-select: none; touch-action: pan-y;
   }
   .square::after {
     content: ""; position: absolute; left: 50%; top: 50%;
@@ -164,6 +164,20 @@
   .square.preview-you::before { content: "1"; }
   .square.preview-reply::before {
     content: "2"; top: auto; bottom: 1%; background: var(--blue);
+  }
+  .square.preview-impact::after {
+    content: ""; position: absolute; z-index: 6; inset: 7%;
+    width: auto; aspect-ratio: auto; opacity: 1;
+    transform: none; border: 2px solid rgba(121, 230, 219, .92); border-radius: 50%;
+    background: transparent;
+    box-shadow: 0 0 0 0 rgba(121, 230, 219, .42), 0 0 18px rgba(121, 230, 219, .34);
+    pointer-events: none;
+    animation: future-preview-impact .2s ease-out 1 both;
+  }
+  @keyframes future-preview-impact {
+    0% { opacity: .18; transform: scale(.62); box-shadow: 0 0 0 0 rgba(121, 230, 219, .44); }
+    72% { opacity: 1; }
+    100% { opacity: .7; transform: scale(1.04); box-shadow: 0 0 0 10px rgba(121, 230, 219, 0); }
   }
   .piece {
     --piece-rim: #654226;
@@ -269,6 +283,10 @@
     font: 700 10px/1.2 system-ui; pointer-events: none;
   }
   .preview-status b { color: #8ff4e9; font-weight: 800; }
+  .preview-status[data-paused="true"] {
+    border-color: rgba(241, 198, 107, .7); color: #f6e8c2;
+  }
+  .preview-status[data-paused="true"] b { color: var(--gold); }
   .preview-step {
     display: inline-flex; align-items: center; gap: 3px; color: #c7d9d6;
     font-size: 9px;
@@ -692,6 +710,20 @@
       width: 171px; border-width: 4px;
       box-shadow: 0 16px 42px rgba(0, 0, 0, .58), 0 0 0 1px rgba(121, 230, 219, .36);
     }
+    body.xq-preview-active .board-frame .piece {
+      border-width: 1px;
+      font-size: 12px;
+      box-shadow:
+        inset 0 1px 1px rgba(255, 255, 244, .72),
+        inset 0 -2px 3px rgba(82, 43, 19, .18),
+        0 1px 0 var(--piece-edge),
+        0 2px 4px rgba(55, 30, 12, .28);
+    }
+    body.xq-preview-active .board-frame .piece.red::before,
+    body.xq-preview-active .board-frame .piece.black::before {
+      border-width: .7px;
+      box-shadow: none;
+    }
     body.xq-preview-active .preview-status {
       bottom: 1.5%; gap: 3px; max-width: 96%; padding: 4px 5px; font-size: 8px;
     }
@@ -725,7 +757,7 @@
   @media (prefers-reduced-motion: reduce) {
     * { scroll-behavior: auto !important; }
     .threat-ring, .threat-path, .threat-flow, .threat-impact,
-    .piece.just-moved, .piece.future-preview-piece,
+    .piece.just-moved, .piece.future-preview-piece, .square.preview-impact::after,
     .last-move-trace.is-new, .last-move-target.is-new {
       animation: none !important;
     }
@@ -906,8 +938,10 @@
           </svg>
           <div id="board" data-xq-board data-future-preview="idle"
                data-preview-phase="idle" data-preview-root-fen=""
-               data-preview-display-fen="" data-preview-line-id=""
+               data-preview-display-fen="" data-preview-committed-fen=""
+               data-preview-line-id="" data-preview-stage="idle"
                data-preview-step-index="0" data-preview-step-count="0"
+               data-position-key="" data-position-id="0" data-run-id="0"
                role="grid" aria-label="九路十行中国象棋棋盘">
             <svg id="previewOverlay" viewBox="0 0 80 90" aria-hidden="true">
               <defs>
@@ -1022,6 +1056,7 @@
           <span id="xqFutureEffects" class="future-effects" aria-label="这条路线的直接后果"></span>
         </div>
         <div class="future-context-actions">
+          <button id="xqAutoplayToggle" type="button" disabled aria-pressed="false">云演待机</button>
           <button id="xqClearPreview" type="button" disabled>回到现在</button>
           <button id="xqCommit" type="button" disabled>走这步</button>
         </div>
@@ -1083,6 +1118,7 @@ const els = Object.freeze({
   futureTitle: document.getElementById('xqFutureTitle'),
   futureDetail: document.getElementById('xqFutureDetail'),
   futureEffects: document.getElementById('xqFutureEffects'),
+  autoplayToggle: document.getElementById('xqAutoplayToggle'),
   futureCommit: document.getElementById('xqCommit'),
   futureClear: document.getElementById('xqClearPreview'),
   overviewMode: document.getElementById('xqOverviewMode'),
@@ -1238,25 +1274,148 @@ let thinking = false;
 let gameOver = false;
 let searchWorker = null;
 let branchWorker = null;
+let searchRequestId = 0;
 let requestId = 0;
-let branchRequestId = 0;
 let branchRequestFen = '';
+let requestPositionId = 0;
+let requestPositionKey = '';
 let rankedBranches = [];
 let lastSearchMs = 0;
 let lastSearchDepth = 0;
 let zoom = 1;
 let previewLine = null;
 let previewPlayback = null;
-let previewEpoch = 0;
-let previewFallbackTimer = 0;
+let positionId = 0;
+let positionKey = '';
+let runId = 0;
+let previewTimer = 0;
+let autoplayScheduleTimer = 0;
+let autoplayBudgetTimer = 0;
+let autoplayEnabled = true;
+let autoplayPhase = 'waiting';
+let autoplayPauseReason = '';
+let autoplayStartedAt = 0;
+let autoplayCompletedAt = 0;
+let autoplayEligiblePositionId = 0;
+let lastUserInteractionAt = performance.now();
+let boardVisible = true;
+let touchGuard = null;
+const autoplayHistory = [];
+const AUTOPLAY_IDLE_MS = 600;
+const AUTOPLAY_REVEAL_MS = 420;
+const AUTOPLAY_BUDGET_MS = 8000;
 let futureMode = 'tree-2d';
 let overviewYaw = -.18;
 let overviewPitch = .06;
 let overviewDrag = null;
 const futureNodeCache = new Map();
 
+function positionKeyFor(fen) {
+  const [board = '', side = ''] = String(fen || '').trim().split(/\s+/);
+  return `${board} ${side}`.trim();
+}
+
+function renewPositionIdentity(reason, { autoplay = false } = {}) {
+  positionId += 1;
+  positionKey = positionKeyFor(currentFen);
+  autoplayEligiblePositionId = autoplay ? positionId : 0;
+  autoplayPhase = autoplay && autoplayEnabled ? 'waiting' : 'idle';
+  autoplayPauseReason = '';
+  autoplayStartedAt = 0;
+  autoplayCompletedAt = 0;
+  els.board.dataset.positionReason = reason;
+  els.board.dataset.positionId = String(positionId);
+  els.board.dataset.positionKey = positionKey;
+  return { positionKey, positionId };
+}
+
+function syncAutoplayControl() {
+  const playback = activePreviewPlayback();
+  const paused = !!playback?.paused;
+  els.autoplayToggle.hidden = !autoplayEnabled;
+  els.autoplayToggle.setAttribute('aria-pressed', String(paused));
+  if (!autoplayEnabled) {
+    els.autoplayToggle.disabled = true;
+    els.autoplayToggle.textContent = '云演已关闭';
+  } else if (paused) {
+    els.autoplayToggle.disabled = false;
+    els.autoplayToggle.textContent = '继续云演';
+  } else if (playback && playback.stage !== 'settled') {
+    els.autoplayToggle.disabled = false;
+    els.autoplayToggle.textContent = playback.autoplay ? '暂停云演' : '暂停预演';
+  } else if (autoplayPhase === 'complete') {
+    els.autoplayToggle.disabled = !rankedBranches.length;
+    els.autoplayToggle.textContent = '重播主线';
+  } else if (['waiting', 'candidates'].includes(autoplayPhase)) {
+    els.autoplayToggle.disabled = true;
+    els.autoplayToggle.textContent = autoplayPhase === 'candidates' ? '主线凝聚中' : '云演待机';
+  } else {
+    els.autoplayToggle.disabled = !rankedBranches.length;
+    els.autoplayToggle.textContent = '播放主线';
+  }
+  els.autoplayToggle.title = paused && autoplayPauseReason
+    ? `已暂停：${autoplayPauseReason}`
+    : '空格键可暂停或继续，Esc 回到当前局面';
+  els.futureMap.dataset.autoplayPhase = autoplayPhase;
+  els.futureMap.dataset.autoplayEnabled = String(autoplayEnabled);
+  els.futureMap.dataset.positionKey = positionKey;
+  els.futureMap.dataset.positionId = String(positionId);
+  els.futureMap.dataset.requestId = String(requestId);
+  els.futureMap.dataset.runId = String(playback?.runId ?? runId);
+}
+
+function setAutoplayPhase(phase, reason = '') {
+  autoplayPhase = phase;
+  autoplayPauseReason = reason;
+  syncAutoplayControl();
+}
+
+function recordAutoplayEvent(type, playback = activePreviewPlayback(), detail = {}) {
+  const event = Object.freeze({
+    type,
+    at: performance.now(),
+    positionKey,
+    positionId,
+    requestId,
+    runId: playback?.runId ?? runId,
+    ply: playback ? playback.index + 1 : 0,
+    ...detail,
+  });
+  autoplayHistory.push(event);
+  if (autoplayHistory.length > 80) autoplayHistory.shift();
+  window.dispatchEvent(new CustomEvent(`chesscloud:${type}`, { detail: event }));
+  return event;
+}
+
+function clearPreviewTimer({ preserveTask = false } = {}) {
+  if (previewTimer) clearTimeout(previewTimer);
+  previewTimer = 0;
+  if (!preserveTask && previewPlayback) previewPlayback.pendingTask = null;
+}
+
+function clearAutoplayTimers() {
+  if (autoplayScheduleTimer) clearTimeout(autoplayScheduleTimer);
+  if (autoplayBudgetTimer) clearTimeout(autoplayBudgetTimer);
+  autoplayScheduleTimer = 0;
+  autoplayBudgetTimer = 0;
+}
+
 function activePreviewPlayback() {
-  return previewPlayback && previewPlayback.rootFen === currentFen ? previewPlayback : null;
+  return previewPlayback
+    && previewPlayback.rootFen === currentFen
+    && previewPlayback.positionId === positionId
+    && previewPlayback.positionKey === positionKey
+    ? previewPlayback
+    : null;
+}
+
+function playbackMatches(token, expectedPositionId, expectedRunId) {
+  const playback = activePreviewPlayback();
+  return !!playback
+    && playback.token === token
+    && playback.positionId === Number(expectedPositionId)
+    && playback.runId === Number(expectedRunId)
+    && playback.routeKey === previewRouteKey(previewLine);
 }
 
 function cancelPreviewMotionAnimations() {
@@ -1266,13 +1425,15 @@ function cancelPreviewMotionAnimations() {
   }
 }
 
-function cancelPreviewPlayback() {
-  previewEpoch++;
-  if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
-  previewFallbackTimer = 0;
+function cancelPreviewPlayback(nextPhase = null) {
+  runId += 1;
+  clearPreviewTimer();
+  if (autoplayBudgetTimer) clearTimeout(autoplayBudgetTimer);
+  autoplayBudgetTimer = 0;
   cancelPreviewMotionAnimations();
   previewPlayback = null;
   document.body.classList.remove('xq-preview-active');
+  if (nextPhase) setAutoplayPhase(nextPhase);
 }
 
 function buildPreviewFrames(line) {
@@ -1309,14 +1470,23 @@ function canChooseFutureReply(line = previewLine, playback = activePreviewPlayba
     && ['conditional-playing', 'conditional-settled', 'conditional-static'].includes(playback.phase);
 }
 
-function schedulePreviewFallback(playback) {
-  if (!playback || !['playing', 'conditional-playing'].includes(playback.phase)) return;
-  if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
-  const token = playback.token;
-  previewFallbackTimer = window.setTimeout(() => advancePreviewPlayback(token), 520);
+function schedulePreviewTask(playback, task, delay) {
+  if (!playback || playback.paused || !playbackMatches(
+    playback.token,
+    playback.positionId,
+    playback.runId,
+  )) return;
+  clearPreviewTimer();
+  playback.pendingTask = { task, remaining: delay, dueAt: performance.now() + delay };
+  previewTimer = window.setTimeout(() => runPreviewTask(
+    playback.token,
+    playback.positionId,
+    playback.runId,
+    task,
+  ), delay);
 }
 
-function startPreviewPlayback(line) {
+function startPreviewPlayback(line, { autoplay = false, fromBeginning = false } = {}) {
   cancelPreviewPlayback();
   const frames = buildPreviewFrames(line);
   if (!frames.length) {
@@ -1328,38 +1498,196 @@ function startPreviewPlayback(line) {
   threatPulseSquares.clear();
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const conditional = !!line.reply;
-  const token = `xq-preview-${previewEpoch}-${futureMoveKey(line.move)}-${futureMoveKey(line.reply)}`;
+  const activeRunId = runId;
+  const token = `xq-preview-${positionId}-${activeRunId}-${futureMoveKey(line.move)}-${futureMoveKey(line.reply)}`;
+  const startIndex = fromBeginning ? 0 : conditional ? frames.length - 1 : 0;
   previewPlayback = {
     token,
     rootFen: currentFen,
+    positionId,
+    positionKey,
+    runId: activeRunId,
     routeKey: previewRouteKey(line),
     frames,
-    // 选择可能回应时，从已经停住的第一步局面继续，只播放新选中的条件边。
-    index: conditional ? frames.length - 1 : 0,
-    phase: reduceMotion
-      ? settledPreviewPhase(line, true)
-      : conditional ? 'conditional-playing' : 'playing',
+    autoplay,
+    index: reduceMotion ? frames.length - 1 : startIndex,
+    committedIndex: reduceMotion ? frames.length - 1 : startIndex - 1,
+    committedFen: reduceMotion
+      ? frames.at(-1).fen
+      : startIndex > 0 ? frames[startIndex - 1].fen : currentFen,
+    stage: reduceMotion ? 'settled' : 'moving',
+    phase: reduceMotion ? settledPreviewPhase(line, true)
+      : startIndex > 0 ? 'conditional-playing' : 'playing',
+    paused: false,
+    pauseReason: '',
+    pendingTask: null,
   };
   document.body.classList.add('xq-preview-active');
   render();
-  if (!reduceMotion) schedulePreviewFallback(previewPlayback);
+  if (reduceMotion) {
+    recordAutoplayEvent('motion_skipped', previewPlayback, { reducedMotion: true });
+    if (autoplay) {
+      const { token, positionId: playbackPositionId, runId: playbackRunId } = previewPlayback;
+      window.queueMicrotask(() => {
+        if (playbackMatches(token, playbackPositionId, playbackRunId)) {
+          completeAutoplay(activePreviewPlayback());
+        }
+      });
+    }
+  } else {
+    schedulePreviewTask(previewPlayback, 'motion', 680);
+  }
   return true;
 }
 
-function advancePreviewPlayback(token) {
+function commitPreviewMotion(token, expectedPositionId, expectedRunId) {
+  if (!playbackMatches(token, expectedPositionId, expectedRunId)) return false;
   const playback = activePreviewPlayback();
-  if (!playback || playback.token !== token || playback.routeKey !== previewRouteKey(previewLine)) return false;
-  if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
-  previewFallbackTimer = 0;
+  if (playback.paused || playback.stage !== 'moving') return false;
+  clearPreviewTimer();
+  const frame = playback.frames[playback.index];
+  playback.committedIndex = playback.index;
+  playback.committedFen = frame.fen;
+  playback.stage = 'impact';
+  playback.phase = 'impact';
+  recordAutoplayEvent('motion_committed', playback, { fen: frame.fen, role: frame.role });
+  recordAutoplayEvent('landing_impact', playback, { square: coord(moveTo(frame.move)) });
+  render();
+  schedulePreviewTask(playback, 'impact', 210);
+  return true;
+}
+
+function revealPreviewThreats(token, expectedPositionId, expectedRunId) {
+  if (!playbackMatches(token, expectedPositionId, expectedRunId)) return false;
+  const playback = activePreviewPlayback();
+  if (playback.paused || playback.stage !== 'impact') return false;
+  clearPreviewTimer();
+  playback.stage = 'threats';
+  playback.phase = 'revealing';
+  recordAutoplayEvent('threats_revealed', playback, {
+    effectCount: futureEffectsForPreview(previewLine).length,
+  });
+  render();
+  schedulePreviewTask(playback, 'threats', 280);
+  return true;
+}
+
+function finishPreviewStep(token, expectedPositionId, expectedRunId) {
+  if (!playbackMatches(token, expectedPositionId, expectedRunId)) return false;
+  const playback = activePreviewPlayback();
+  if (playback.paused || playback.stage !== 'threats') return false;
+  clearPreviewTimer();
   if (playback.index < playback.frames.length - 1) {
-    playback.index++;
-    playback.phase = previewLine?.reply ? 'conditional-playing' : 'playing';
+    playback.index += 1;
+    playback.stage = 'moving';
+    playback.phase = playback.frames[playback.index].role === 'reply'
+      ? 'conditional-playing'
+      : 'playing';
     render();
-    schedulePreviewFallback(playback);
+    schedulePreviewTask(playback, 'motion', 680);
   } else {
+    playback.stage = 'settled';
     playback.phase = settledPreviewPhase(previewLine);
     render();
+    if (playback.autoplay) completeAutoplay(playback);
   }
+  return true;
+}
+
+function runPreviewTask(token, expectedPositionId, expectedRunId, task) {
+  if (task === 'motion') return commitPreviewMotion(token, expectedPositionId, expectedRunId);
+  if (task === 'impact') return revealPreviewThreats(token, expectedPositionId, expectedRunId);
+  if (task === 'threats') return finishPreviewStep(token, expectedPositionId, expectedRunId);
+  return false;
+}
+
+function advancePreviewPlayback(token, expectedPositionId = positionId, expectedRunId = runId) {
+  return commitPreviewMotion(token, expectedPositionId, expectedRunId);
+}
+
+function completeAutoplay(playback, { forced = false } = {}) {
+  if (!playbackMatches(playback?.token, playback?.positionId, playback?.runId)) return false;
+  if (autoplayBudgetTimer) clearTimeout(autoplayBudgetTimer);
+  autoplayBudgetTimer = 0;
+  autoplayCompletedAt = performance.now();
+  setAutoplayPhase('complete');
+  recordAutoplayEvent('autoplay_completed', playback, {
+    forced,
+    elapsedMs: Math.round(autoplayCompletedAt - autoplayStartedAt),
+    committedPly: playback.committedIndex + 1,
+  });
+  return true;
+}
+
+function scheduleAutoplayBudget(playback, delay = AUTOPLAY_BUDGET_MS - 120) {
+  if (!playback?.autoplay || playback.paused || playback.stage === 'settled') return;
+  if (autoplayBudgetTimer) clearTimeout(autoplayBudgetTimer);
+  playback.budgetRemaining = Math.max(1, delay);
+  playback.budgetDueAt = performance.now() + playback.budgetRemaining;
+  autoplayBudgetTimer = window.setTimeout(() => forceAutoplayStable(
+    playback.token,
+    playback.positionId,
+    playback.runId,
+  ), playback.budgetRemaining);
+}
+
+function forceAutoplayStable(token, expectedPositionId, expectedRunId) {
+  if (!playbackMatches(token, expectedPositionId, expectedRunId)) return false;
+  const playback = activePreviewPlayback();
+  clearPreviewTimer();
+  cancelPreviewMotionAnimations();
+  playback.index = playback.frames.length - 1;
+  playback.committedIndex = playback.index;
+  playback.committedFen = playback.frames.at(-1).fen;
+  playback.stage = 'settled';
+  playback.phase = settledPreviewPhase(previewLine, true);
+  render();
+  return completeAutoplay(playback, { forced: true });
+}
+
+function pausePreviewPlayback(reason = '用户暂停') {
+  const playback = activePreviewPlayback();
+  if (!playback || playback.paused || playback.stage === 'settled') return false;
+  playback.paused = true;
+  playback.pauseReason = reason;
+  if (playback.pendingTask) {
+    playback.pendingTask.remaining = Math.max(1, playback.pendingTask.dueAt - performance.now());
+  }
+  if (playback.autoplay && autoplayBudgetTimer) {
+    playback.budgetRemaining = Math.max(1, playback.budgetDueAt - performance.now());
+    clearTimeout(autoplayBudgetTimer);
+    autoplayBudgetTimer = 0;
+  }
+  clearPreviewTimer({ preserveTask: true });
+  for (const piece of els.board.querySelectorAll('[data-future-motion-piece="true"]')) {
+    for (const animation of piece.getAnimations()) animation.pause();
+  }
+  setAutoplayPhase('paused', reason);
+  syncPreviewProtocol(playback, playback.frames[playback.index].fen);
+  renderStatus();
+  for (const piece of els.board.querySelectorAll('[data-future-motion-piece="true"]')) {
+    for (const animation of piece.getAnimations()) animation.pause();
+  }
+  return true;
+}
+
+function resumePreviewPlayback() {
+  const playback = activePreviewPlayback();
+  if (!playback || !playback.paused) return false;
+  playback.paused = false;
+  playback.pauseReason = '';
+  setAutoplayPhase(playback.autoplay ? 'playing' : 'manual');
+  for (const piece of els.board.querySelectorAll('[data-future-motion-piece="true"]')) {
+    for (const animation of piece.getAnimations()) animation.play();
+  }
+  const pending = playback.pendingTask;
+  if (pending) schedulePreviewTask(playback, pending.task, pending.remaining || 1);
+  if (playback.autoplay && playback.budgetRemaining) {
+    scheduleAutoplayBudget(playback, playback.budgetRemaining);
+  }
+  syncPreviewProtocol(playback, playback.frames[playback.index].fen);
+  renderStatus();
+  syncAutoplayControl();
   return true;
 }
 
@@ -1367,12 +1695,18 @@ function syncPreviewProtocol(playback, displayFen) {
   const active = !!playback;
   const frame = active ? playback.frames[playback.index] : null;
   els.board.dataset.futurePreview = active ? 'active' : 'idle';
-  els.board.dataset.previewPhase = active ? playback.phase : 'idle';
+  els.board.dataset.previewPhase = active ? (playback.paused ? 'paused' : playback.phase) : 'idle';
   els.board.dataset.previewRootFen = active ? playback.rootFen : currentFen;
   els.board.dataset.previewDisplayFen = displayFen;
+  els.board.dataset.previewCommittedFen = active ? playback.committedFen : currentFen;
   els.board.dataset.previewLineId = active ? playback.token : '';
+  els.board.dataset.previewStage = active ? playback.stage : 'idle';
   els.board.dataset.previewStepIndex = active ? String(playback.index + 1) : '0';
   els.board.dataset.previewStepCount = active ? String(playback.frames.length) : '0';
+  els.board.dataset.positionKey = positionKey;
+  els.board.dataset.positionId = String(positionId);
+  els.board.dataset.runId = String(active ? playback.runId : runId);
+  els.board.dataset.previewPaused = String(!!playback?.paused);
   document.body.classList.toggle('xq-preview-active', active);
   els.previewStatus.hidden = !active;
   if (!active) {
@@ -1381,7 +1715,10 @@ function syncPreviewProtocol(playback, displayFen) {
     els.board.setAttribute('aria-label', '九路十行中国象棋棋盘');
     return;
   }
-  const status = playback.phase === 'playing'
+  els.previewStatus.dataset.paused = String(!!playback.paused);
+  const status = playback.paused
+    ? `已暂停 · ${playback.pauseReason || '点继续恢复'}`
+    : playback.phase === 'playing'
     ? `第 ${playback.index + 1}/${playback.frames.length} 拍`
     : playback.phase === 'await-reply'
       ? '等待选择可能回应'
@@ -1389,6 +1726,10 @@ function syncPreviewProtocol(playback, displayFen) {
         ? '正在播放假设回应'
       : playback.phase === 'conditional-static'
           ? '静态条件结果'
+          : playback.phase === 'impact'
+            ? '棋子落定 · 落点脉冲'
+            : playback.phase === 'revealing'
+              ? '威胁正在展开'
           : playback.phase === 'terminal'
             ? '终局：对方没有合法回应'
             : '条件预演结果';
@@ -1550,6 +1891,7 @@ function futureEffectsForPreview(line) {
 function renderFutureContext() {
   const line = previewLine;
   const suggested = rankedBranches[0] || null;
+  const playback = activePreviewPlayback();
   if (!line?.node) {
     els.futureTitle.textContent = suggested
       ? `建议先看：${moveLabel(suggested)}`
@@ -1558,16 +1900,21 @@ function renderFutureContext() {
       ? '金色只表示浅层排序靠前；点任一节点后才会出现蓝色预演路线。'
       : '先选你的一步；对方实际会怎么走未知，再点一条可能回应继续分析。';
     els.futureEffects.replaceChildren();
+    els.futureEffects.dataset.revealState = 'hidden';
     els.futureCommit.disabled = true;
     els.futureClear.disabled = true;
     return;
   }
   const replyCount = line.replies?.length || 0;
   if (line.reply) {
-    els.futureTitle.textContent = `条件分析：${line.node.label} → 假设 ${moveLabel(line.reply)}`;
-    els.futureDetail.textContent =
-      `第二步是你明确选择的可能回应；它不是对真人或 AI 下一步的预测。`
-      + (sameMove(line.reply, line.suggestedReply) ? ' 这条同时也是引擎建议优先检查的应对。' : '');
+    const autoRoute = !!playback?.autoplay;
+    els.futureTitle.textContent = autoRoute
+      ? `云演主线：${line.node.label} → 分析回应 ${moveLabel(line.reply)}`
+      : `条件分析：${line.node.label} → 假设 ${moveLabel(line.reply)}`;
+    els.futureDetail.textContent = autoRoute
+      ? `第二步由分析建议自动选入，只用于展示一种可能结果；它不是对真人或 AI 下一步的预测。`
+      : `第二步是你明确选择的可能回应；它不是对真人或 AI 下一步的预测。`
+        + (sameMove(line.reply, line.suggestedReply) ? ' 这条同时也是引擎建议优先检查的应对。' : '');
   } else if (replyCount) {
     els.futureTitle.textContent = `假设你走 ${line.node.label} · 等待选择回应`;
     els.futureDetail.textContent =
@@ -1579,17 +1926,24 @@ function renderFutureContext() {
       ? '这是将死终局；预演只有你选择的第一步。'
       : '这是无合法着法的终局；预演只有你选择的第一步。';
   }
-  els.futureEffects.innerHTML = futureEffectsForPreview(line).map(futureEffectHtml).join('');
+  const revealState = !playback || playback.stage === 'settled'
+    ? 'settled'
+    : playback.stage === 'threats' ? 'revealing' : 'hidden';
+  els.futureEffects.dataset.revealState = revealState;
+  els.futureEffects.innerHTML = revealState === 'hidden'
+    ? ''
+    : futureEffectsForPreview(line).map(futureEffectHtml).join('');
   els.futureCommit.disabled = thinking || gameOver || fenSide(currentFen) !== 'red';
   els.futureClear.disabled = thinking;
 }
 
 function updateFutureMapState() {
+  const playback = activePreviewPlayback();
   els.futureMap.dataset.mode = futureMode;
   els.futureMap.dataset.phase = thinking ? 'thinking' : branchRequestFen === currentFen && !rankedBranches.length
     ? 'syncing'
     : gameOver ? 'gameover' : 'ready';
-  els.futureMap.dataset.routeOwner = previewLine ? 'user' : 'none';
+  els.futureMap.dataset.routeOwner = playback?.autoplay ? 'autoplay' : previewLine ? 'user' : 'none';
   els.futureMap.dataset.rootFen = currentFen;
   els.futureRoot.dataset.fen = currentFen;
   els.futureRoot.dataset.depth = '0';
@@ -1730,7 +2084,8 @@ function renderBoard() {
   const legalTargets = new Map(selectedMoves.map((move) => [moveTo(move), move]));
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const previewMotion = previewing
-    && ['playing', 'conditional-playing'].includes(playback.phase)
+    && playback.stage === 'moving'
+    && !playback.paused
     && !reduceMotion
     ? { move: previewFrame.move, fen: displayFen, token: playback.token, role: previewFrame.role }
     : null;
@@ -1759,6 +2114,8 @@ function renderBoard() {
     if (!previewing && lastMove && square === moveTo(lastMove)) squareEl.classList.add('last-to');
     if (previewLine && square === moveTo(previewLine.move)) squareEl.classList.add('preview-you');
     if (previewLine?.reply && square === moveTo(previewLine.reply)) squareEl.classList.add('preview-reply');
+    if (previewing && playback.stage === 'impact'
+      && square === moveTo(previewFrame?.move)) squareEl.classList.add('preview-impact');
     if (threat) {
       squareEl.classList.add('threatened');
       squareEl.dataset.threatened = 'true';
@@ -1829,6 +2186,8 @@ function renderBoard() {
       renderedDisk.classList.add('future-preview-piece');
       renderedDisk.setAttribute('data-future-motion-piece', 'true');
       renderedDisk.dataset.previewLineId = previewMotion.token;
+      renderedDisk.dataset.previewPositionId = String(playback.positionId);
+      renderedDisk.dataset.previewRunId = String(playback.runId);
       renderedDisk.dataset.previewStep = previewMotion.role;
       renderedDisk.dataset.previewFrom = coord(animatedFrom);
       renderedDisk.dataset.previewTo = coord(animatedTo);
@@ -1856,6 +2215,8 @@ function renderBoard() {
       delete renderedDisk.dataset.motionRole;
       renderedDisk.removeAttribute('data-future-motion-piece');
       delete renderedDisk.dataset.previewLineId;
+      delete renderedDisk.dataset.previewPositionId;
+      delete renderedDisk.dataset.previewRunId;
       delete renderedDisk.dataset.previewStep;
       delete renderedDisk.dataset.previewFrom;
       delete renderedDisk.dataset.previewTo;
@@ -1886,6 +2247,7 @@ function renderPreviewOverlay() {
   if (!playback) return;
   const namespace = 'http://www.w3.org/2000/svg';
   playback.frames.forEach((frame, index) => {
+    if (index > playback.index) return;
     const from = moveFrom(frame.move);
     const to = moveTo(frame.move);
     const source = boardPoint(from);
@@ -1904,6 +2266,8 @@ function renderPreviewOverlay() {
     line.setAttribute('y2', String(target.y - yUnit * padding));
     line.dataset.futurePreviewStep = frame.role;
     line.dataset.previewLineId = playback.token;
+    line.dataset.previewPositionId = String(playback.positionId);
+    line.dataset.previewRunId = String(playback.runId);
     line.dataset.previewFrom = coord(from);
     line.dataset.previewTo = coord(to);
     line.dataset.previewStepIndex = String(index + 1);
@@ -2234,14 +2598,21 @@ function renderStatus() {
     els.coach.innerHTML = '<strong>黑方正在计算</strong><p>搜索在独立 Worker 中进行；棋盘保持可读，完成后一次落子。</p>';
   } else if (playback) {
     const frame = playback.frames[playback.index];
-    const phaseCopy = playback.phase === 'playing'
-      ? '正在播放你选择的第一步'
+    const autoRoute = !!playback.autoplay;
+    const phaseCopy = playback.paused
+      ? `已暂停：${playback.pauseReason || '点继续恢复'}`
+      : playback.phase === 'playing'
+      ? autoRoute ? '正在播放自动选中的分析首步' : '正在播放你选择的第一步'
       : playback.phase === 'await-reply'
         ? previewLine?.replies?.length
           ? `第一步已停住；从 ${previewLine.replies.length} 种可能回应中选择一条`
           : '第一步已停住；当前没有可供选择的合法回应'
       : playback.phase === 'conditional-playing'
-          ? '正在播放你选中的假设回应'
+          ? autoRoute ? '正在播放分析主线的可能回应' : '正在播放你选中的假设回应'
+          : playback.phase === 'impact'
+            ? '棋子已经原子落定，正在播放落点脉冲'
+            : playback.phase === 'revealing'
+              ? '落点脉冲完成，正在展开威胁与路线后果'
           : playback.phase === 'conditional-static'
             ? '已按减少动态设置显示条件结果'
             : playback.phase === 'terminal'
@@ -2249,7 +2620,13 @@ function renderStatus() {
               : '已停在所选条件结果';
     els.coach.dataset.tone = 'normal';
     els.coach.innerHTML = `<strong>路线预演 · 未落子：${escapeHtml(phaseCopy)}</strong>`
-      + `<p>${frame?.role === 'reply' ? '蓝色 2 是你明确选择的假设回应，不是预测。' : '蓝色 1 是你选择的第一步；对方实际回应仍未知。'}`
+      + `<p>${autoRoute
+        ? frame?.role === 'reply'
+          ? '蓝色 2 是分析建议自动选入的一种可能回应，不是预测。'
+          : '蓝色 1 是系统自动选中的分析首步；你仍可随时换线。'
+        : frame?.role === 'reply'
+          ? '蓝色 2 是你明确选择的假设回应，不是预测。'
+          : '蓝色 1 是你选择的第一步；对方实际回应仍未知。'}`
       + '当前 FEN、实战路径和上一步都没有改变；点“走这步”才确认。</p>';
   } else if (checked) {
     els.coach.innerHTML = `<strong>将军：必须先解围</strong><p>当前只有 ${currentMoves.length} 条真实合法应手。</p>`;
@@ -2374,7 +2751,9 @@ function renderOverview() {
     const lineColor = explicit ? '#79e6db' : '#f1c66b';
     const fillColor = explicit ? '#173b3d' : '#352c18';
     const copy = explicit
-      ? `已选假设回应${sameMove(overviewReply, previewLine.suggestedReply) ? ' · 同时为建议' : ''}`
+      ? activePreviewPlayback()?.autoplay
+        ? '主线自动选入 · 可换线'
+        : `已选假设回应${sameMove(overviewReply, previewLine.suggestedReply) ? ' · 同时为建议' : ''}`
       : '建议先检查 · 尚未选择';
     replyMarkup =
       `<path data-future-edge data-selected="${explicit}" data-suggested="${!explicit}"`
@@ -2456,7 +2835,9 @@ function renderFutureReplyList() {
     const key = futureMoveKey(reply);
     const suggested = key === suggestedKey;
     const selected = key === selectedKey;
-    const optionState = selected ? '已选假设回应' : suggested ? '建议先检查' : '可能回应';
+    const optionState = selected
+      ? activePreviewPlayback()?.autoplay ? '主线自动选入' : '已选假设回应'
+      : suggested ? '建议先检查' : '可能回应';
     const effects = [
       reply.captured ? 'capture' : '',
       reply.givesCheck ? 'check' : '',
@@ -2544,7 +2925,9 @@ function renderTree() {
       const node = futureNodeData(move, ranked);
       const selected = !!previewLine && sameMove(previewLine.move, move);
       const copy = selected
-        ? `已选第一步 · ${node.branchCount} 种可能回应`
+        ? activePreviewPlayback()?.autoplay
+          ? `主线自动选入 · ${node.branchCount} 种回应`
+          : `已选第一步 · ${node.branchCount} 种可能回应`
         : index === 0 && ranked
           ? `建议先看 · 走后 ${node.branchCount} 种回应`
         : ranked
@@ -2602,10 +2985,118 @@ function render() {
   updateFutureMapState();
   renderFutureContext();
   if (futureMode === 'overview-3d') renderOverview();
+  syncAutoplayControl();
+}
+
+function mainAutoplayLine() {
+  const move = rankedBranches[0] || currentMoves[0] || null;
+  if (!move) return null;
+  const ranked = rankedForMove(move) || move;
+  const node = futureNodeData(move, ranked);
+  const replies = buildFutureReplyOptions(node);
+  const suggestedReply = ranked?.reply
+    ? replies.find((reply) => sameMove(reply, ranked.reply)) || null
+    : null;
+  return {
+    move: ranked,
+    reply: suggestedReply || replies[0] || null,
+    suggestedReply,
+    replies,
+    node,
+  };
+}
+
+function beginAutoplay(expectedPositionId = positionId, expectedRequestId = requestId) {
+  if (!autoplayEnabled
+    || autoplayEligiblePositionId !== positionId
+    || positionId !== expectedPositionId
+    || requestId !== expectedRequestId
+    || document.hidden
+    || !boardVisible
+    || thinking
+    || gameOver
+    || previewLine) return false;
+  const idleFor = performance.now() - lastUserInteractionAt;
+  if (idleFor < AUTOPLAY_IDLE_MS) {
+    scheduleAutoplay();
+    return false;
+  }
+  const line = mainAutoplayLine();
+  if (!line) return false;
+  autoplayEligiblePositionId = 0;
+  previewLine = line;
+  autoplayStartedAt = performance.now();
+  autoplayCompletedAt = 0;
+  setAutoplayPhase('playing');
+  if (!startPreviewPlayback(previewLine, { autoplay: true, fromBeginning: true })) return false;
+  const playback = activePreviewPlayback();
+  recordAutoplayEvent('autoplay_started', playback, {
+    budgetMs: AUTOPLAY_BUDGET_MS,
+    candidateCount: rankedBranches.length || currentMoves.length,
+  });
+  scheduleAutoplayBudget(playback);
+  return true;
+}
+
+function scheduleAutoplay() {
+  if (autoplayScheduleTimer) clearTimeout(autoplayScheduleTimer);
+  autoplayScheduleTimer = 0;
+  if (!autoplayEnabled
+    || autoplayEligiblePositionId !== positionId
+    || !rankedBranches.length
+    || thinking
+    || gameOver
+    || previewLine) return false;
+  if (document.hidden || !boardVisible) {
+    setAutoplayPhase('waiting');
+    return false;
+  }
+  setAutoplayPhase('candidates');
+  const idleRemaining = Math.max(0, AUTOPLAY_IDLE_MS - (performance.now() - lastUserInteractionAt));
+  const delay = Math.max(AUTOPLAY_REVEAL_MS, idleRemaining);
+  const expectedPositionId = positionId;
+  const expectedRequestId = requestId;
+  autoplayScheduleTimer = window.setTimeout(() => {
+    autoplayScheduleTimer = 0;
+    beginAutoplay(expectedPositionId, expectedRequestId);
+  }, delay);
+  return true;
+}
+
+function noteUserInteraction() {
+  lastUserInteractionAt = performance.now();
+  if (['waiting', 'candidates'].includes(autoplayPhase)) scheduleAutoplay();
+}
+
+function setAutoplayEnabled(enabled) {
+  autoplayEnabled = !!enabled;
+  if (autoplayScheduleTimer) clearTimeout(autoplayScheduleTimer);
+  autoplayScheduleTimer = 0;
+  if (!autoplayEnabled) {
+    autoplayEligiblePositionId = 0;
+    if (activePreviewPlayback()?.autoplay) {
+      cancelPreviewPlayback('idle');
+      previewLine = null;
+      render();
+    } else {
+      setAutoplayPhase('idle');
+    }
+    return false;
+  }
+  if (!previewLine && !thinking && !gameOver) {
+    autoplayEligiblePositionId = positionId;
+    setAutoplayPhase('waiting');
+    scheduleAutoplay();
+  }
+  return true;
 }
 
 function focusMove(move, ranked = null) {
   if (!move || thinking || gameOver) return;
+  autoplayEligiblePositionId = 0;
+  if (autoplayScheduleTimer) clearTimeout(autoplayScheduleTimer);
+  autoplayScheduleTimer = 0;
+  setAutoplayPhase('manual');
   selectedSquare = -1;
   const node = futureNodeData(move, ranked);
   const replies = buildFutureReplyOptions(node);
@@ -2627,6 +3118,8 @@ function chooseFutureReply(move) {
   if (!canChooseFutureReply(previewLine)) return false;
   const reply = previewLine.replies.find((candidate) => sameMove(candidate, move));
   if (!reply) return false;
+  autoplayEligiblePositionId = 0;
+  setAutoplayPhase('manual');
   previewLine = { ...previewLine, reply };
   return startPreviewPlayback(previewLine);
 }
@@ -2666,12 +3159,14 @@ function applyKnownLegal(positionBefore, legalMove) {
 
 function play(move, actor) {
   cancelPreviewPlayback();
+  clearAutoplayTimers();
   const beforeCount = currentMoves.length;
   const label = moveLabel(move, position);
   const result = applyOn(position, move);
   position = result.position;
   currentFen = result.fen;
   currentMoves = api.legalMoves(position);
+  renewPositionIdentity('real-move');
   futureNodeCache.clear();
   const step = {
     move: result.move,
@@ -2732,22 +3227,24 @@ function makeBranchWorker() {
 function requestAiMove() {
   if (thinking || gameOver) return;
   thinking = true;
-  const id = ++requestId;
+  const id = ++searchRequestId;
   const fen = currentFen;
   els.searchFact.textContent = '计算中';
   render();
   if (!searchWorker) makeSearchWorker();
   searchWorker.postMessage({ type: 'search', id, fen, timeMs: 1100, timeBudgetMs: 1100, maxDepth: 5 });
   window.setTimeout(() => {
-    if (thinking && id === requestId && currentFen === fen) fallbackAi('搜索超时');
+    if (thinking && id === searchRequestId && currentFen === fen) fallbackAi('搜索超时');
   }, 2800);
 }
 
 function requestBranches() {
   if (thinking || gameOver || fenSide(currentFen) !== 'red') return;
   if (!branchWorker) makeBranchWorker();
-  const id = ++branchRequestId;
+  const id = ++requestId;
   branchRequestFen = currentFen;
+  requestPositionId = positionId;
+  requestPositionKey = positionKey;
   branchWorker.postMessage({ type: 'branches', id, fen: currentFen });
 }
 
@@ -2761,10 +3258,13 @@ function onWorkerMessage(event) {
   const message = event.data || {};
   if (message.type === 'pong') return;
   if (message.type === 'branchesDone') {
-    if (Number(message.id) !== branchRequestId || currentFen !== branchRequestFen || thinking) return;
+    if (Number(message.id) !== requestId
+      || currentFen !== branchRequestFen
+      || positionId !== requestPositionId
+      || positionKey !== requestPositionKey
+      || thinking) return;
     rankedBranches = Array.isArray(message.result?.branches) ? message.result.branches : [];
-    // Worker 晚到只补充“建议优先检查”的标记；不能把建议写成用户已选回应，
-    // 更不能自动启动第二拍。
+    // 手动接管中的 Worker 晚到只补建议；零点击路径则在候选稳定后单独启动两拍 run。
     const selectedMove = previewLine?.move
       ? currentMoves.find((candidate) => sameMove(candidate, previewLine.move))
       : null;
@@ -2791,11 +3291,12 @@ function onWorkerMessage(event) {
       return;
     }
     render();
+    scheduleAutoplay();
     return;
   }
   if (message.type === 'branchesError') return;
   const payload = message.result || message;
-  if (!thinking || Number(message.id ?? payload.id) !== requestId) return;
+  if (!thinking || Number(message.id ?? payload.id) !== searchRequestId) return;
   if (message.type === 'searchError' || message.type === 'error') {
     fallbackAi(message.message || '搜索出错');
     return;
@@ -2859,7 +3360,8 @@ function fallbackAi(reason) {
 
 function resetGame() {
   cancelPreviewPlayback();
-  requestId++;
+  clearAutoplayTimers();
+  searchRequestId++;
   thinking = false;
   selectedSquare = -1;
   previewLine = null;
@@ -2873,6 +3375,7 @@ function resetGame() {
   position = api.parseFen(currentFen);
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
+  renewPositionIdentity('reset', { autoplay: true });
   refreshThreatened(currentFen);
   gameOver = currentMoves.length === 0;
   snapshots = [{ fen: currentFen, pathLength: 0, legalCount: currentMoves.length }];
@@ -2890,7 +3393,7 @@ function resetGame() {
 function undoRound() {
   if (thinking || path.length < 2) return;
   cancelPreviewPlayback();
-  requestId++;
+  searchRequestId++;
   path = path.slice(0, -2);
   snapshots = snapshots.slice(0, -2);
   const snapshot = snapshots.at(-1);
@@ -2898,6 +3401,7 @@ function undoRound() {
   position = api.parseFen(currentFen);
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
+  renewPositionIdentity('undo');
   refreshThreatened(currentFen);
   selectedSquare = -1;
   previewLine = null;
@@ -2932,17 +3436,42 @@ reducedMotionPreference.addEventListener?.('change', (event) => {
   const playback = activePreviewPlayback();
   if (!playback) return;
   if (event.matches) {
-    if (previewFallbackTimer) clearTimeout(previewFallbackTimer);
-    previewFallbackTimer = 0;
+    clearPreviewTimer();
     cancelPreviewMotionAnimations();
     playback.index = playback.frames.length - 1;
+    playback.committedIndex = playback.index;
+    playback.committedFen = playback.frames.at(-1).fen;
+    playback.stage = 'settled';
     playback.phase = settledPreviewPhase(previewLine, true);
     render();
+    if (playback.autoplay) completeAutoplay(playback);
     return;
   }
   if (playback.phase === 'conditional-static') {
     playback.phase = 'conditional-settled';
     render();
+  }
+});
+els.autoplayToggle.addEventListener('click', () => {
+  const playback = activePreviewPlayback();
+  if (playback?.paused) {
+    resumePreviewPlayback();
+  } else if (playback && playback.stage !== 'settled') {
+    pausePreviewPlayback('用户暂停');
+  } else {
+    const line = mainAutoplayLine();
+    if (!line) return;
+    previewLine = line;
+    autoplayStartedAt = performance.now();
+    setAutoplayPhase('playing');
+    if (startPreviewPlayback(previewLine, { autoplay: true, fromBeginning: true })) {
+      const nextPlayback = activePreviewPlayback();
+      recordAutoplayEvent('autoplay_started', nextPlayback, {
+        budgetMs: AUTOPLAY_BUDGET_MS,
+        replay: true,
+      });
+      scheduleAutoplayBudget(nextPlayback);
+    }
   }
 });
 els.futureReplyList.addEventListener('click', (event) => {
@@ -2958,7 +3487,8 @@ els.futureReplyList.addEventListener('click', (event) => {
 els.futureClear.addEventListener('click', () => {
   if (thinking) return;
   const clearedMoveKey = futureMoveKey(previewLine?.move);
-  cancelPreviewPlayback();
+  autoplayEligiblePositionId = 0;
+  cancelPreviewPlayback('idle');
   selectedSquare = -1;
   previewLine = null;
   render();
@@ -3048,15 +3578,82 @@ els.attackerChips.addEventListener('click', (event) => {
   threatOverlayKey = '';
   render();
 });
+document.addEventListener('pointerdown', noteUserInteraction, { capture: true, passive: true });
+document.addEventListener('wheel', noteUserInteraction, { capture: true, passive: true });
+document.addEventListener('keydown', (event) => {
+  const interactive = event.target instanceof Element
+    && !!event.target.closest('button, a, input, select, textarea, [contenteditable="true"]');
+  if (event.key === 'Escape' && previewLine) {
+    if (!els.futureClear.disabled) els.futureClear.click();
+    event.preventDefault();
+    return;
+  }
+  if (event.key === ' ' && !interactive && activePreviewPlayback()) {
+    const playback = activePreviewPlayback();
+    if (playback.paused) resumePreviewPlayback();
+    else pausePreviewPlayback('键盘暂停');
+    event.preventDefault();
+    return;
+  }
+  noteUserInteraction();
+}, { capture: true });
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    pausePreviewPlayback('页面已隐藏');
+  } else if (!activePreviewPlayback() && ['waiting', 'candidates'].includes(autoplayPhase)) {
+    scheduleAutoplay();
+  }
+});
+
+if ('IntersectionObserver' in window) {
+  const boardObserver = new IntersectionObserver((entries) => {
+    const entry = entries.at(-1);
+    if (!entry) return;
+    boardVisible = entry.isIntersecting && entry.intersectionRatio >= .6;
+    if (!boardVisible) {
+      pausePreviewPlayback('棋盘已离开视口');
+    } else if (!activePreviewPlayback() && ['waiting', 'candidates'].includes(autoplayPhase)) {
+      scheduleAutoplay();
+    }
+  }, { threshold: [0, .6, 1] });
+  boardObserver.observe(els.board);
+}
+
+els.board.addEventListener('pointerdown', (event) => {
+  if (event.pointerType !== 'touch') return;
+  touchGuard = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false, suppressUntil: 0 };
+}, { capture: true, passive: true });
+els.board.addEventListener('pointermove', (event) => {
+  if (!touchGuard || touchGuard.id !== event.pointerId) return;
+  if (Math.hypot(event.clientX - touchGuard.x, event.clientY - touchGuard.y) > 10) {
+    touchGuard.moved = true;
+  }
+}, { capture: true, passive: true });
+els.board.addEventListener('pointerup', (event) => {
+  if (!touchGuard || touchGuard.id !== event.pointerId) return;
+  if (touchGuard.moved) touchGuard.suppressUntil = performance.now() + 450;
+  else touchGuard = null;
+}, { capture: true, passive: true });
+els.board.addEventListener('pointercancel', () => { touchGuard = null; }, { capture: true, passive: true });
+els.board.addEventListener('click', (event) => {
+  if (!touchGuard?.moved || performance.now() > touchGuard.suppressUntil) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  touchGuard = null;
+}, { capture: true });
+
 els.board.addEventListener('animationend', (event) => {
   if (!(event.target instanceof Element)) return;
   if (event.target.classList.contains('future-preview-piece')
     && event.animationName === 'future-preview-piece-arrive') {
     const token = event.target.dataset.previewLineId || '';
+    const callbackPositionId = Number(event.target.dataset.previewPositionId);
+    const callbackRunId = Number(event.target.dataset.previewRunId);
     event.target.classList.remove('future-preview-piece');
     event.target.style.removeProperty('--move-dx');
     event.target.style.removeProperty('--move-dy');
-    advancePreviewPlayback(token);
+    advancePreviewPlayback(token, callbackPositionId, callbackRunId);
     return;
   }
   if (event.target.classList.contains('just-moved') && event.animationName === 'piece-arrive') {
@@ -3080,8 +3677,8 @@ resetGame();
 
 function loadFenForTest(fen) {
   cancelPreviewPlayback();
-  requestId++;
-  branchRequestId++;
+  clearAutoplayTimers();
+  searchRequestId++;
   thinking = false;
   selectedSquare = -1;
   previewLine = null;
@@ -3096,6 +3693,7 @@ function loadFenForTest(fen) {
   position = api.parseFen(fen);
   currentFen = api.toFen(position);
   currentMoves = api.legalMoves(position);
+  renewPositionIdentity('test-load', { autoplay: true });
   refreshThreatened(currentFen);
   gameOver = currentMoves.length === 0;
   snapshots = [{ fen: currentFen, pathLength: 0, legalCount: currentMoves.length }];
@@ -3188,6 +3786,23 @@ function futureSnapshot() {
   return freezeFutureValue({
     schema: 1,
     game: 'xiangqi',
+    identity: {
+      positionKey,
+      positionId,
+      requestId,
+      runId: activePreviewPlayback()?.runId ?? runId,
+    },
+    autoplay: {
+      enabled: autoplayEnabled,
+      phase: autoplayPhase,
+      pauseReason: autoplayPauseReason,
+      startedAt: autoplayStartedAt,
+      completedAt: autoplayCompletedAt,
+      elapsedMs: autoplayStartedAt && autoplayCompletedAt
+        ? Math.round(autoplayCompletedAt - autoplayStartedAt)
+        : null,
+      history: autoplayHistory.slice(),
+    },
     phase: els.futureMap.dataset.phase,
     mode: futureMode,
     root: {
@@ -3212,6 +3827,8 @@ function futureSnapshot() {
       depth: previewPath.length,
       path: previewPath,
       phase: els.board.dataset.previewPhase,
+      stage: els.board.dataset.previewStage,
+      committedFen: els.board.dataset.previewCommittedFen,
     },
     enginePath: {
       verified: pv.length > 0,
@@ -3257,13 +3874,19 @@ window.__futureTest = Object.freeze({
   selectNode: selectFutureNode,
   rewind: () => {
     if (thinking) return false;
-    cancelPreviewPlayback();
+    autoplayEligiblePositionId = 0;
+    cancelPreviewPlayback('idle');
     selectedSquare = -1;
     previewLine = null;
     render();
     return true;
   },
   setMode: setFutureMode,
+  setAutoplay: setAutoplayEnabled,
+  pause: pausePreviewPlayback,
+  resume: resumePreviewPlayback,
+  attemptMotionCommit: ({ token, positionId: callbackPositionId, runId: callbackRunId }) =>
+    commitPreviewMotion(token, callbackPositionId, callbackRunId),
   commitSelected: () => {
     if (!previewLine || thinking || gameOver) return false;
     const move = currentMoves.find((candidate) => sameMove(candidate, previewLine.move));

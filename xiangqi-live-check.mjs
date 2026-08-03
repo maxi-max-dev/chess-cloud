@@ -44,7 +44,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 58;
+const EXPECTED_RESULTS = 63;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -575,6 +575,7 @@ async function portalAudit(rootUrl) {
 }
 
 async function initialAudit() {
+  await evaluate('window.__futureTest.setAutoplay(false)');
   await waitFor(
     `document.querySelectorAll('#branchGrid .branch-node').length === 44
       && [...document.querySelectorAll('#branchGrid .branch-node')]
@@ -629,6 +630,217 @@ async function initialAudit() {
     branchAudit.ok ? `${initial.branches.length} 条全部同源` : branchAudit.problems.slice(0, 4).join('；'),
   );
   return initial.fen;
+}
+
+async function autoplayAudit() {
+  await evaluate(`(() => {
+    window.__futureTest.setMode('tree-2d');
+    window.__futureTest.setAutoplay(true);
+    window.__xiangqiTest.reset();
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().autoplay.phase === 'complete'`,
+    12000,
+    '零点击云演完成',
+  );
+  const completed = await evaluate(`(() => {
+    const snapshot = window.__futureTest.snapshot();
+    const board = document.getElementById('board');
+    const runEvents = snapshot.autoplay.history.filter(
+      (event) => event.positionId === snapshot.identity.positionId
+        && event.runId === snapshot.identity.runId
+    );
+    return {
+      liveFen: window.__xiangqiTest.fen,
+      pathLength: window.__xiangqiTest.pathLength,
+      selectedPath: snapshot.selectedPath,
+      identity: snapshot.identity,
+      autoplay: snapshot.autoplay,
+      board: {
+        phase: board.dataset.previewPhase,
+        stage: board.dataset.previewStage,
+        committedFen: board.dataset.previewCommittedFen,
+        displayFen: board.dataset.previewDisplayFen,
+        stepCount: Number(board.dataset.previewStepCount),
+      },
+      copy: {
+        title: document.getElementById('xqFutureTitle').textContent,
+        detail: document.getElementById('xqFutureDetail').textContent,
+        coach: document.getElementById('coach').textContent,
+      },
+      runEvents,
+    };
+  })()`);
+  record(
+    sameFen(completed.liveFen, START_FEN)
+      && completed.pathLength === 0
+      && completed.selectedPath.length === 2
+      && completed.board.stepCount === 2
+      && completed.board.stage === 'settled'
+      && ['conditional-settled', 'conditional-static'].includes(completed.board.phase)
+      && sameFen(completed.board.committedFen, completed.selectedPath[1].afterFen)
+      && sameFen(completed.board.displayFen, completed.selectedPath[1].afterFen)
+      && completed.copy.title.includes('云演主线')
+      && completed.copy.detail.includes('自动选入')
+      && completed.copy.coach.includes('自动选入')
+      && !completed.copy.detail.includes('你明确选择')
+      && completed.autoplay.elapsedMs <= 8000,
+    '首次加载/重置后零点击自动选主线并连续播放 2 ply，8 秒内停在稳定条件局面',
+    `phase=${completed.board.phase}/${completed.board.stage}`
+      + `｜ply=${completed.selectedPath.length}`
+      + `｜elapsed=${completed.autoplay.elapsedMs}ms`
+      + `｜文案=${completed.copy.title}`
+      + `｜实战未变=${sameFen(completed.liveFen, START_FEN)}`,
+  );
+
+  const sequenceOk = [1, 2].every((ply) => {
+    const commit = completed.runEvents.findIndex((event) => event.type === 'motion_committed' && event.ply === ply);
+    const impact = completed.runEvents.findIndex((event) => event.type === 'landing_impact' && event.ply === ply);
+    const threat = completed.runEvents.findIndex((event) => event.type === 'threats_revealed' && event.ply === ply);
+    return commit >= 0 && impact > commit && threat > impact;
+  });
+  const sameIdentity = completed.runEvents.every((event) =>
+    event.positionId === completed.identity.positionId
+      && event.runId === completed.identity.runId
+      && event.positionKey === completed.identity.positionKey);
+  record(
+    completed.identity.positionKey === START_FEN.split(/\s+/).slice(0, 2).join(' ')
+      && completed.identity.positionId > 0
+      && completed.identity.requestId > 0
+      && completed.identity.runId > 0
+      && sequenceOk
+      && sameIdentity,
+    'positionKey / positionId / requestId / runId 同源，逐拍严格按提交→脉冲→威胁顺序',
+    `positionId=${completed.identity.positionId}`
+      + `｜requestId=${completed.identity.requestId}`
+      + `｜runId=${completed.identity.runId}`
+      + `｜events=${completed.runEvents.map((event) => `${event.ply}:${event.type}`).join(',')}`,
+  );
+
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(true);
+    window.__xiangqiTest.reset();
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().autoplay.phase === 'playing'
+      && window.__futureTest.snapshot().preview.stage === 'moving'`,
+    12000,
+    '云演进入运动阶段',
+  );
+  const pauseStart = await evaluate(`(() => {
+    const before = window.__futureTest.snapshot();
+    return {
+      paused: window.__futureTest.pause('棋盘已离开视口'),
+      committedFen: before.preview.committedFen,
+      identity: before.identity,
+    };
+  })()`);
+  await sleep(780);
+  const paused = await evaluate(`(() => {
+    const snapshot = window.__futureTest.snapshot();
+    return {
+      phase: snapshot.autoplay.phase,
+      previewPhase: snapshot.preview.phase,
+      committedFen: snapshot.preview.committedFen,
+      pauseReason: snapshot.autoplay.pauseReason,
+      resume: window.__futureTest.resume(),
+    };
+  })()`);
+  await waitFor(`window.__futureTest.snapshot().autoplay.phase === 'complete'`, 9000, '暂停后继续完成');
+  const resumed = await evaluate('window.__futureTest.snapshot()');
+  record(
+    pauseStart.paused
+      && paused.phase === 'paused'
+      && paused.previewPhase === 'paused'
+      && paused.committedFen === pauseStart.committedFen
+      && paused.pauseReason === '棋盘已离开视口'
+      && paused.resume
+      && resumed.autoplay.phase === 'complete'
+      && resumed.selectedPath.length === 2,
+    '云演可暂停/继续，离开视口暂停期间不提交下一拍',
+    `paused=${paused.phase}/${paused.previewPhase}`
+      + `｜reason=${paused.pauseReason}`
+      + `｜resume=${paused.resume}｜final=${resumed.autoplay.phase}`,
+  );
+
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(true);
+    window.__xiangqiTest.reset();
+  })()`);
+  await waitFor(
+    `window.__futureTest.snapshot().autoplay.phase === 'playing'
+      && window.__futureTest.snapshot().preview.stage === 'moving'`,
+    12000,
+    '旧 run 失效夹具启动',
+  );
+  const stale = await evaluate(`(() => {
+    const before = window.__futureTest.snapshot();
+    const token = document.getElementById('board').dataset.previewLineId;
+    const callback = { token, positionId: before.identity.positionId, runId: before.identity.runId };
+    window.__xiangqiTest.reset();
+    window.__futureTest.setAutoplay(false);
+    const after = window.__futureTest.snapshot();
+    return {
+      accepted: window.__futureTest.attemptMotionCommit(callback),
+      before: before.identity,
+      after: after.identity,
+      liveFen: window.__xiangqiTest.fen,
+      phase: after.autoplay.phase,
+    };
+  })()`);
+  record(
+    stale.accepted === false
+      && stale.after.positionId !== stale.before.positionId
+      && stale.after.runId !== stale.before.runId
+      && sameFen(stale.liveFen, START_FEN)
+      && stale.phase === 'idle',
+    '重置会换 positionId/runId，旧动画回调不能串入新局面',
+    `accepted=${stale.accepted}`
+      + `｜position=${stale.before.positionId}→${stale.after.positionId}`
+      + `｜run=${stale.before.runId}→${stale.after.runId}`,
+  );
+
+  await send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'reduce' }],
+  });
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(true);
+    window.__xiangqiTest.reset();
+  })()`);
+  await waitFor(`window.__futureTest.snapshot().autoplay.phase === 'complete'`, 12000, '减少动态云演完成');
+  const reduced = await evaluate(`(() => {
+    const snapshot = window.__futureTest.snapshot();
+    const runEvents = snapshot.autoplay.history.filter(
+      (event) => event.positionId === snapshot.identity.positionId
+        && event.runId === snapshot.identity.runId
+    );
+    return {
+      phase: snapshot.preview.phase,
+      stage: snapshot.preview.stage,
+      depth: snapshot.selectedPath.length,
+      elapsed: snapshot.autoplay.elapsedMs,
+      skipped: runEvents.some((event) => event.type === 'motion_skipped'),
+      motions: document.querySelectorAll('[data-future-motion-piece="true"]').length,
+    };
+  })()`);
+  record(
+    reduced.phase === 'conditional-static'
+      && reduced.stage === 'settled'
+      && reduced.depth === 2
+      && reduced.elapsed <= 8000
+      && reduced.skipped
+      && reduced.motions === 0,
+    'prefers-reduced-motion 直接显示可理解的两拍静态结果且不创建运动棋子',
+    `phase=${reduced.phase}/${reduced.stage}`
+      + `｜depth=${reduced.depth}｜elapsed=${reduced.elapsed}ms｜motions=${reduced.motions}`,
+  );
+  await send('Emulation.setEmulatedMedia', {
+    features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
+  });
+  await evaluate(`(() => {
+    window.__futureTest.setAutoplay(false);
+    window.__xiangqiTest.reset();
+  })()`);
 }
 
 async function futureContractAudit() {
@@ -2956,6 +3168,7 @@ async function main() {
 
   await portalAudit(rootUrl);
   const initialFen = await initialAudit();
+  await autoplayAudit();
   await futureRaceAndOverviewAudit();
   await futureContractAudit();
   await uncertainReplyAudit();

@@ -95,6 +95,31 @@ record(
   cannonMoves.map((move) => `${move.from}-${move.to}${move.captured ? `x${move.captured}` : ''}`).join(' '),
 );
 
+const demoRoot = parseFen(START_FEN);
+const centralCannon = generateLegalMoves(demoRoot)
+  .find((move) => moveToNotation(demoRoot, move) === '炮二平五');
+const demoAfter = centralCannon
+  ? applyMove(demoRoot, centralCannon, { validate: false })
+  : null;
+const demoReplies = demoAfter ? generateLegalMoves(demoAfter) : [];
+const fixedReplyFacts = [
+  ['马8进7', 'h9', 'g7'],
+  ['炮8平5', 'h7', 'e7'],
+  ['卒7进1', 'g6', 'g5'],
+];
+const fixedRepliesLegal = !!centralCannon && fixedReplyFacts.every(([notation, from, to]) => {
+  const reply = demoReplies.find((move) =>
+    move.from === from && move.to === to && moveToNotation(demoAfter, move) === notation);
+  if (!reply) return false;
+  const next = applyMove(demoAfter, reply, { validate: false });
+  return toFen(next) !== toFen(demoAfter) && generateLegalMoves(next).length > 0;
+});
+record(
+  fixedRepliesLegal,
+  '炮二平五后的马8进7、炮8平5、卒7进1三条固定演示分支均为真实合法事实',
+  fixedReplyFacts.map(([notation, from, to]) => `${notation} ${from}-${to}`).join('｜'),
+);
+
 const beforeRiver = moveSet(position({
   d9: 'k', e4: 'P', e0: 'K',
 }), 'e4');
