@@ -165,7 +165,9 @@ record(
         && source.includes("addEventListener('pointerover'")
         && source.includes("addEventListener('focusin'"))
     && chess.includes('id="chessReturnToPlay"')
-    && chess.includes('id="chessAdoptPreview"'),
+    && chess.includes('id="chessAdoptPreview"')
+    && [portal, chess, xiangqi].every((source) =>
+      source.includes('rel="icon" href="data:image/svg+xml')),
   '两棋种包含 4 ply 悬停连演、零点击云演、原子时序、下棋入口、键盘与移动端保护',
 );
 

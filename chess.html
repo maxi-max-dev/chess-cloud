@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#05060b" />
 <meta name="description" content="在一张可交互的棋局未来地图里查看国际象棋的真实下一步、可能回应与路线后果。" />
 <title>国际象棋 · 棋路未来地图</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23071017'/%3E%3Cpath d='M16 42L32 16l16 26M21 34h22' fill='none' stroke='%2379e6db' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='42' r='5' fill='%23ef665c'/%3E%3Ccircle cx='32' cy='16' r='5' fill='%23f1c66b'/%3E%3Ccircle cx='48' cy='42' r='5' fill='%2379e6db'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="./future-map.css" />
 <style>
   :root {
@@ -1115,6 +1116,8 @@
   .chess-play-bridge-actions .primary {
     color: #07151d; border-color: rgba(143,216,255,.8); background: #8fd8ff;
   }
+  #btnPlayLine,
+  body[data-future-board-preview="active"] #futureCommit { display: none; }
 
   /* 与中国象棋统一成“左棋盘、右推演、全景为次级入口”的主布局。 */
   body:not(.cloud-full) {
@@ -1360,7 +1363,7 @@
   <div id="status">正在算分叉…</div>
   <div class="row">
     <button id="btnReset">重开</button>
-    <button id="btnPlayLine">采纳首步继续</button>
+    <button id="btnPlayLine" hidden>采纳首步继续</button>
   </div>
 </div>
 

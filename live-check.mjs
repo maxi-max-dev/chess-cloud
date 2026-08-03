@@ -3948,6 +3948,14 @@ async function main() {
         title: document.getElementById('chessPlayBridgeTitle').textContent,
         detail: document.getElementById('chessPlayBridgeDetail').textContent,
       },
+      visibleAdoptButtons: [...document.querySelectorAll('button')].filter((button) => {
+        const style = getComputedStyle(button);
+        return button.textContent.trim() === '采纳首步继续'
+          && !button.hidden
+          && style.display !== 'none'
+          && style.visibility !== 'hidden'
+          && button.getClientRects().length > 0;
+      }).length,
     };
     fork.dispatchEvent(new PointerEvent('pointerleave', { pointerType: 'mouse' }));
     await new Promise((resolve) => setTimeout(resolve, 40));
@@ -3996,6 +4004,7 @@ async function main() {
     bridgeVisible: !hoverAuto.mouse.bridge.hidden,
     bridgeTitle: hoverAuto.mouse.bridge.title.includes('悬停连演'),
     bridgeDetail: hoverAuto.mouse.bridge.detail.includes('移到另一候选'),
+    oneVisibleAdopt: hoverAuto.mouse.visibleAdoptButtons === 1,
     legal: hoverReplayOk,
     sameFen: hoverAuto.mouse.state.fen === hoverAuto.liveBefore.fen,
     sameHistory: hoverAuto.mouse.state.history.length === hoverAuto.liveBefore.history.length,

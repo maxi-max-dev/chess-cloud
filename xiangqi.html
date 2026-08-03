@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#080b10" />
 <meta name="description" content="在一张可交互的棋局未来地图里查看中国象棋的真实下一步、可能回应与路线后果。" />
 <title>中国象棋 · 棋路未来地图</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23071017'/%3E%3Cpath d='M16 42L32 16l16 26M21 34h22' fill='none' stroke='%2379e6db' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='42' r='5' fill='%23ef665c'/%3E%3Ccircle cx='32' cy='16' r='5' fill='%23f1c66b'/%3E%3Ccircle cx='48' cy='42' r='5' fill='%2379e6db'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="./future-map.css" />
 <style>
   :root {
@@ -318,6 +319,7 @@
     border-color: rgba(121, 230, 219, .76); color: #061615; background: #79e6db;
     box-shadow: 0 7px 17px rgba(25, 122, 113, .24);
   }
+  body[data-future-board-preview="active"] #xqCommit { display: none; }
   .last-move-trace {
     fill: none; stroke: #f3c56e; stroke-width: 2.15;
     stroke-linecap: round; vector-effect: non-scaling-stroke;
@@ -1269,6 +1271,15 @@ function coord(square) {
   const row = Math.floor(square / 9), col = square % 9;
   return `${FILES[col]}${9 - row}`;
 }
+const RED_FILE_LABELS = Object.freeze(['', '一', '二', '三', '四', '五', '六', '七', '八', '九']);
+function pieceFileLabel(square, piece) {
+  const index = normalizeSquare(square);
+  if (index < 0) return '棋子';
+  if (!piece) return coord(index);
+  const col = index % 9;
+  const file = pieceIsRed(piece) ? RED_FILE_LABELS[9 - col] : String(col + 1);
+  return `${PIECE_NAMES[piece] || GLYPHS[piece] || '棋子'}${file}`;
+}
 function boardPoint(square) {
   return {
     x: (square % 9) * 10,
@@ -1908,7 +1919,7 @@ function futureEffectsForPreview(line) {
         kind: 'capture',
         evidence: index ? 'legal-continuation' : 'legal-move',
         targetSquare: coord(moveTo(move)),
-        text: `第 ${index + 1} 步可吃 ${PIECE_NAMES[move.captured] || '棋子'} · ${coord(moveTo(move))}`,
+        text: `第 ${index + 1} 步可吃 ${pieceFileLabel(moveTo(move), move.captured)}`,
       });
     }
     if (move.givesCheck) {
@@ -1929,7 +1940,7 @@ function futureEffectsForPreview(line) {
         kind: 'exposure',
         evidence: 'geometric',
         targetSquare: coord(detail.square),
-        text: `${PIECE_NAMES[consequenceBoard[detail.square]] || '棋子'} ${coord(detail.square)} 会进入攻击线`,
+        text: `${pieceFileLabel(detail.square, consequenceBoard[detail.square])}会进入攻击线`,
       });
       if (effects.length >= 4) break;
     }
@@ -2602,32 +2613,29 @@ function renderThreatStrip() {
     return;
   }
   const board = boardFromFen(currentFen);
-  const targetPiece = PIECE_NAMES[board[detail.square]] || '棋子';
-  const attackerCoords = detail.attackers.map(coord);
+  const targetPiece = pieceFileLabel(detail.square, board[detail.square]);
   const attackerNames = detail.attackers.map((square) =>
-    `${PIECE_NAMES[board[square]] || '对方棋子'} ${coord(square)}`);
+    pieceFileLabel(square, board[square]));
   const defenderNames = detail.defenders.map((square) =>
-    `${PIECE_NAMES[board[square]] || '己方棋子'} ${coord(square)}`);
+    pieceFileLabel(square, board[square]));
   const defenseCopy = defenderNames.length
     ? `${defenderNames.join('、')}保护`
     : '当前没有己方棋子保护';
   const activeIndex = Math.max(0, detail.attackers.indexOf(activeThreatAttacker));
-  const activeCoord = coord(detail.attackers[activeIndex]);
+  const activeLabel = attackerNames[activeIndex];
   els.threatHeadline.textContent =
-    `正在看第 ${activeIndex + 1}/${detail.attackers.length} 条：${activeCoord} 攻 → ${coord(detail.square)} 危`;
+    `正在看第 ${activeIndex + 1}/${detail.attackers.length} 条：${activeLabel} 攻 → ${targetPiece} 危`;
   els.threatDetail.textContent =
     `${attackerNames.join('、')}瞄准${targetPiece} · ${detail.attackers.length} 攻 / ${detail.defenders.length} 守 · ${defenseCopy}；只表示当前几何攻击线。`;
   els.threatChips.innerHTML = prioritizedThreats().map((item) => {
-    const piece = PIECE_NAMES[board[item.square]] || '棋子';
     return `<button class="threat-chip ${item.square === detail.square ? 'active' : ''}" type="button"`
-      + ` data-threat-square="${item.square}" aria-label="查看 ${coord(item.square)} ${escapeHtml(piece)} 的攻击线">`
-      + `<b>${coord(item.square)} ${escapeHtml(piece)}</b> · ${item.attackers.length}攻${item.defenders.length}守</button>`;
+      + ` data-threat-square="${item.square}" aria-label="查看 ${escapeHtml(pieceFileLabel(item.square, board[item.square]))} 的攻击线">`
+      + `<b>${escapeHtml(pieceFileLabel(item.square, board[item.square]))}</b> · ${item.attackers.length}攻${item.defenders.length}守</button>`;
   }).join('');
   els.attackerChips.innerHTML = detail.attackers.map((square, index) => {
-    const piece = PIECE_NAMES[board[square]] || '对方棋子';
     return `<button class="attacker-chip ${square === activeThreatAttacker ? 'active' : ''}" type="button"`
-      + ` data-attacker-square="${square}" aria-label="查看攻击者 ${coord(square)} 到 ${coord(detail.square)}">`
-      + `<b>攻击者 ${index + 1}/${detail.attackers.length}</b> · ${escapeHtml(piece)} ${coord(square)} → ${coord(detail.square)}</button>`;
+      + ` data-attacker-square="${square}" aria-label="查看攻击者 ${escapeHtml(pieceFileLabel(square, board[square]))} 到 ${escapeHtml(targetPiece)}">`
+      + `<b>攻击者 ${index + 1}/${detail.attackers.length}</b> · ${escapeHtml(pieceFileLabel(square, board[square]))} → ${escapeHtml(targetPiece)}</button>`;
   }).join('');
 }
 
@@ -2701,10 +2709,12 @@ function renderStatus() {
   } else if (selectedSquare >= 0) {
     const piece = board[selectedSquare];
     if (selectedThreat) {
-      const attackers = selectedThreat.attackers.map(coord).join('、');
-      const defenders = selectedThreat.defenders.map(coord).join('、') || '无';
+      const attackers = selectedThreat.attackers
+        .map((square) => pieceFileLabel(square, board[square])).join('、');
+      const defenders = selectedThreat.defenders
+        .map((square) => pieceFileLabel(square, board[square])).join('、') || '无';
       els.coach.innerHTML = `<strong>${PIECE_NAMES[piece] || '棋子'}被瞄准：${selectedThreat.attackers.length} 攻 / ${selectedThreat.defenders.length} 守</strong>`
-        + `<p>${escapeHtml(attackers)} → ${coord(selectedSquare)}；保护者 ${escapeHtml(defenders)}。红色攻击流只表示当前几何关系，不代表必然丢子。</p>`;
+        + `<p>${escapeHtml(attackers)} → ${escapeHtml(pieceFileLabel(selectedSquare, piece))}；保护者 ${escapeHtml(defenders)}。红色攻击流只表示当前几何关系，不代表必然丢子。</p>`;
     } else {
       els.coach.innerHTML = `<strong>${PIECE_NAMES[piece] || '棋子'}有 ${selectedMoves.length} 个合法去处</strong>`
         + '<p>点绿点落子；带红圈的目标是可以立即吃到的对方棋子。</p>';
@@ -2724,6 +2734,7 @@ function renderStatus() {
 function renderPlayBridge() {
   const playback = activePreviewPlayback();
   const active = !!previewLine?.move && !!playback;
+  document.body.dataset.futureBoardPreview = active ? 'active' : 'idle';
   els.playBridge.hidden = !active;
   if (!active) return;
   const total = playback.frames.length;

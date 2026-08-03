@@ -926,6 +926,14 @@ async function hoverAutoplayAudit() {
         title: document.getElementById('xqPlayBridgeTitle').textContent,
         detail: document.getElementById('xqPlayBridgeDetail').textContent,
       },
+      visibleAdoptButtons: [...document.querySelectorAll('button')].filter((button) => {
+        const style = getComputedStyle(button);
+        return button.textContent.trim() === '采纳首步继续'
+          && !button.hidden
+          && style.display !== 'none'
+          && style.visibility !== 'hidden'
+          && button.getClientRects().length > 0;
+      }).length,
     };
   })()`);
   const replayProblems = [];
@@ -985,6 +993,7 @@ async function hoverAutoplayAudit() {
       && !mouse.bridge.hidden
       && mouse.bridge.title.includes('悬停连演')
       && mouse.bridge.detail.includes('移到另一候选')
+      && mouse.visibleAdoptButtons === 1
       && replayProblems.length === 0
       && sameFen(mouse.liveFen, mouseStart.liveFen)
       && mouse.snapshot.identity.positionId === mouseStart.before.identity.positionId
@@ -2523,8 +2532,10 @@ async function threatAndZoomAudit() {
       && JSON.stringify(visual.defenders) === JSON.stringify(expectedTarget?.defenders.slice().sort() || [])
       && visual.badge === '危'
       && /攻击线/.test(visual.strip)
-      && /e9/.test(visual.strip)
-      && /e4/.test(visual.strip)
+      && /黑车5/.test(visual.strip)
+      && /红车五/.test(visual.strip)
+      && /红车九/.test(visual.strip)
+      && !/\b[a-i][0-9]\b/.test(visual.strip)
       && !/(必丢|必吃|概率|一定会被吃|下一手会吃)/.test(visual.strip),
     '点受攻棋后，真实攻击者、保护者、箭头和文字逐项同源',
     `线=${visualLineKeys.join(',')}｜几何可见=${lineGeometryOk}｜攻=${visual.attackers.join(',')}｜守=${visual.defenders.join(',')}｜徽标=${visual.badge}`,
