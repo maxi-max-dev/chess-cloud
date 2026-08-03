@@ -3943,6 +3943,16 @@ async function runPhaseThreeDetailChecks() {
     SHOT.replace(/\.png$/i, '-phase3-hover.png'),
     Buffer.from(propagationShot.data, 'base64'),
   );
+  await setViewport(390, 844, 'portraitPrimary');
+  await sleep(80);
+  const propagationMobileShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-phase3-hover-mobile.png'),
+    Buffer.from(propagationMobileShot.data, 'base64'),
+  );
+  await send('Emulation.clearDeviceMetricsOverride');
+  await send('Emulation.setTouchEmulationEnabled', { enabled: false, maxTouchPoints: 1 });
+  await settleLayout();
   record(
     propagation.propagation.kind === 'hover'
       && propagation.propagation.paths.length >= 4

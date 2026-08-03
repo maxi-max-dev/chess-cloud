@@ -3603,6 +3603,14 @@ async function phaseThreeDetailAudit() {
     SHOT.replace(/\.png$/i, '-phase3-hover.png'),
     Buffer.from(propagationShot.data, 'base64'),
   );
+  await setViewport(390, 844);
+  await sleep(80);
+  const propagationMobileShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-phase3-hover-mobile.png'),
+    Buffer.from(propagationMobileShot.data, 'base64'),
+  );
+  await setViewport(1440, 900);
   record(
     propagation.propagation.kind === 'hover'
       && observedOrders.length >= 2
