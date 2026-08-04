@@ -959,7 +959,7 @@ function boardPiecePixelStats(normalFile, blankFile, snapshot, viewport) {
 }
 
 // ─────────────────────────── 验收
-const EXPECTED_RESULTS = 115;
+const EXPECTED_RESULTS = 116;
 const results = [];
 function record(ok, label, detail) {
   results.push({ ok, label, detail });
@@ -2478,6 +2478,9 @@ async function runMobileChecks() {
   await evalJs('window.__futureTest.rewind(0)');
   await evalJs('document.getElementById("forkWrap").scrollIntoView({ block: "center", inline: "nearest" })');
   await settleLayout();
+  // rewind 会把选中卡平滑带回首列；等它彻底结束后再测用户手势，
+  // 否则两条真实滚动会互相覆盖，偶发读到 0 后又继续滚到 386px。
+  await sleep(360);
   const forkGesture = await evalJs(`(() => {
     const wrap = document.getElementById('forkWrap');
     wrap.scrollLeft = 0;
@@ -5684,6 +5687,52 @@ async function main() {
       + `｜回应 ${explorerAfterReply.choices.length}/${replyLegalCount}`
       + `｜route position.count=${explorerMapAfterReply.routePoints}`
       + `｜实战未变=${explorerAfterReply.gameFen === explorerRoot.gameFen}`);
+
+  // 跟随模式不是“相机靠近旧树”：云的真实根 FEN 必须等于正在看的局面；
+  // 切到全局总览后根回到实战 FEN，再切回来仍保持同一条条件路径。
+  const focusCloudContract = await evalJs(`(() => {
+    const follow = window.__test.cloudMap();
+    const explorerBefore = window.__test.explorer();
+    const overviewReturn = window.__test.setCloudFocusMode('overview');
+    const overview = window.__test.cloudMap();
+    const explorerOverview = window.__test.explorer();
+    const followReturn = window.__test.setCloudFocusMode('follow');
+    const restored = window.__test.cloudMap();
+    const explorerRestored = window.__test.explorer();
+    return {
+      follow, explorerBefore, overviewReturn, overview, explorerOverview,
+      followReturn, restored, explorerRestored,
+    };
+  })()`);
+  await sleep(180);
+  const focusCloudFile = SHOT.replace(/\.png$/i, '-rerooted-focus.png');
+  const focusCloudShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(focusCloudFile, Buffer.from(focusCloudShot.data, 'base64'));
+  record(
+    focusCloudContract.follow.focus.mode === 'follow'
+      && focusCloudContract.follow.focus.layout === 'time-corridor-bouquet'
+      && focusCloudContract.follow.rootFen === focusCloudContract.explorerBefore.renderedFen
+      && focusCloudContract.follow.liveFen === focusCloudContract.explorerBefore.gameFen
+      && focusCloudContract.follow.focus.depth === focusCloudContract.explorerBefore.path.length
+      && focusCloudContract.follow.focus.routeRole === 'focus-history'
+      && focusCloudContract.overviewReturn === 'overview'
+      && focusCloudContract.overview.focus.mode === 'overview'
+      && focusCloudContract.overview.rootFen === focusCloudContract.explorerBefore.gameFen
+      && focusCloudContract.followReturn === 'follow'
+      && focusCloudContract.restored.focus.mode === 'follow'
+      && focusCloudContract.restored.rootFen === focusCloudContract.explorerBefore.renderedFen
+      && JSON.stringify(focusCloudContract.explorerOverview.path)
+        === JSON.stringify(focusCloudContract.explorerBefore.path)
+      && JSON.stringify(focusCloudContract.explorerRestored.path)
+        === JSON.stringify(focusCloudContract.explorerBefore.path),
+    '② 3D 棋云会以正在看的局面真正重根，并可无损切回全局总览',
+    `跟随根=${focusCloudContract.follow.rootFen === focusCloudContract.explorerBefore.renderedFen}`
+      + `｜深度=${focusCloudContract.follow.focus.depth}`
+      + `｜layout=${focusCloudContract.follow.focus.layout}`
+      + `｜总览根=${focusCloudContract.overview.rootFen === focusCloudContract.explorerBefore.gameFen}`
+      + `｜恢复根=${focusCloudContract.restored.rootFen === focusCloudContract.explorerBefore.renderedFen}`
+      + `｜路径=${focusCloudContract.explorerRestored.path.map((move) => move.san).join('→')}`
+      + `｜截图 ${focusCloudFile}`);
 
   const explorerRootClicked = await clickSelector('#explorePath button[data-explore-depth="0"]');
   const explorerRewound = await evalJs('window.__test.explorer()');

@@ -32,6 +32,10 @@ reset 后自动选择金色分析主线、连续云演 4 ply 并停住。两种�
 换线会立刻接管。
 两页的确认动作仍只提交第一步，任何预演都不改变实战。
 
+国际象棋放大全景默认进入“跟随推演”：每选择一步，中央“正在看的局面”会成为新的几何根，从该
+FEN 重新展开真实未来；过去路径退到根后方作为面包屑。空间布局使用严格向前的时间走廊与逐父节点
+花束，不再把各层卷成同一团。顶部“全局总览”可随时切回以实战 FEN 为根，条件路径不会丢失。
+
 视觉 Phase 1 已把两页统一到深空蓝紫层次。国际象棋使用单 Composer 的选择性 bloom 与加法混合，
 只有真实线云和“现在”节点发光；`?cinema=1` 提供只留全屏云图与真值数字行的录屏模式。中国象棋
 仍完全使用 SVG / CSS，没有引入 Three.js。
@@ -96,7 +100,7 @@ node xiangqi-live-check.mjs
 
 当前本地期望：
 
-- 国际象棋：**115/115**
+- 国际象棋：**116/116**
 - 中国象棋：**71/71**
 
 两条脚本都会自己起本地静态服务和无头 Chrome。国际象棋脚本的本地目标已经改为
@@ -110,13 +114,13 @@ node self-play.mjs
 node xiangqi-self-play.mjs
 ```
 
-这两条是正确性 / 稳定性冒烟，**不是棋力基准**。最新国际象棋真实输出为 10 局 / 583 plies /
-543 次搜索，`abnormalGames / illegalMoves / fenMismatches / pvFailures / annotationFailures`
+这两条是正确性 / 稳定性冒烟，**不是棋力基准**。最新国际象棋真实输出为 10 局 / 767 plies /
+727 次搜索，`abnormalGames / illegalMoves / fenMismatches / pvFailures / annotationFailures`
 全为 0。
 最新中国象棋真实输出：
 
-- 10 局、833 plies、833 次搜索、1,550 个 PV 节点；
-- 5 局到真实终局，5 局达到 100 plies 测试上限并如实记作 `capped`；
+- 10 局、788 plies、788 次搜索、1,428 个 PV 节点；
+- 6 局到真实终局，4 局达到 100 plies 测试上限并如实记作 `capped`；
 - `illegalMoves=0`
 - `fenMismatches=0`
 - `pvFailures=0`
@@ -142,7 +146,7 @@ node xiangqi-self-play.mjs
 | `engine.js` | 国际象棋唯一评估函数、排序、威胁、搜索、PV 和路径展开 |
 | `worker.js` | 国际象棋 AI search Worker / cloud Worker 的共同入口 |
 | `verify.mjs` | 国际象棋 perft / 棋核裁判 |
-| `live-check.mjs` | 国际象棋 115 项真 Chrome 裁判；支持三阶段专项与 `--shot` 存档 |
+| `live-check.mjs` | 国际象棋 116 项真 Chrome 裁判；支持三阶段专项与 `--shot` 存档 |
 | `self-play.mjs` | 国际象棋固定 10 局稳定性审计 |
 | `xiangqi.html` | 中国象棋 9×10 UI；3D 感全景、2D 推演、可能回应、路线后果、实战历史和威胁 |
 | `xiangqi-engine.js` | 中国象棋规则、唯一评估函数、排序、威胁、搜索与 PV |
@@ -390,11 +394,12 @@ xiangqi-worker.js
 `verify.mjs` 固定 8 项：起始局面 20 / 400 / 8902 / 197281，Kiwipete
 48 / 2039 / 97862，以及 `count(fen, 0) === 1`。
 
-`live-check.mjs` 用 `EXPECTED_RESULTS = 115` 锁定 115 项，覆盖：
+`live-check.mjs` 用 `EXPECTED_RESULTS = 116` 锁定 116 项，覆盖：
 
 - L0–L4 真实 geometry、DOM 分叉数和 Node 独立 perft 对撞；
 - 零 `THREE.Points`、无预分配 / drawRange / 隐藏孤儿对象；
 - 3D / 2D 路径、真实变体棋盘、FEN 回合、蓝 / 金两条路线；
+- 放大全景按当前推演 FEN 真正重根、全局总览无损切回、焦点 generation 隔离与时间走廊花束；
 - 棋子 SVG 几何与真实像素，避免白棋因 Unicode / 字体回退变黑；
 - 棋子助手、几何攻击、合法一步吃子、回吃和亏交换；
 - 390×844、短横屏、平板、安全区、44px 触控；
@@ -570,7 +575,7 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 国际象棋起始 perft 1/2/3/4 | 20 / 400 / 8,902 / 197,281 |
 | 中国象棋起始 perft 1/2/3/4 | 44 / 1,920 / 79,666 / 3,290,240 |
 | `npm test` | 国际 8/8 + 中国 20/20 + 门户 27/27 |
-| `node live-check.mjs` | 115/115 |
+| `node live-check.mjs` | 116/116 |
 | `node xiangqi-live-check.mjs` | 71/71 |
 | Phase 1 双渲染复核 | SwiftShader 5/5 + 本机 GPU 5/5 |
 | Phase 2 叙事复核 | SwiftShader 5/5 + 本机 GPU 5/5 |
@@ -590,8 +595,8 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
 | 中国威胁 | 全部真实攻击线保留；单条主强调、“攻→危”端点与手动攻击者切换；仍只是几何攻击线 |
 | 中国有限动效 | 棋子位移 / 落点 / 攻击流有限次后停止；减少动态保留静态语义，切回普通不补播；持续 rAF 为 0 |
 | 中国棋子视觉 | 象牙漆面三层渐变 + 双刻线 + 四层静态纵深；选中 / 上一步走内圈，威胁走外圈，不互相压扁 |
-| 国际 10 局自走（本次实测） | 583 plies / 543 searches；五类错误汇总全 0；最大搜索 22.8ms |
-| 中国 10 局自走（本次实测） | 833 plies / 833 searches / 1,550 PV 节点；5 终局 / 5 capped；五类错误全 0；最大搜索 29.9ms |
+| 国际 10 局自走（本次实测） | 767 plies / 727 searches；五类错误汇总全 0；最大搜索 24.7ms |
+| 中国 10 局自走（本次实测） | 788 plies / 788 searches / 1,428 PV 节点；6 终局 / 4 capped；五类错误全 0；最大搜索 24.4ms |
 | 环境 | Node v22.23.1、chess.js 1.4.0、three.js 0.160.0 |
 
 当前 Phase 3 运行源码冻结于 commit `c261223`。以下 SHA-256 已在 GitHub Pages
@@ -705,12 +710,14 @@ git rev-list --left-right --count origin/main...main
   保留真实回应，金色建议不冒充已知未来；动画使用独立 FEN 重放，预演期只读。
 - 国际象棋首拍期间的主 SVG / 2D 树 / 变体棋盘 / 测试钩子旁路已统一封住；两页回应列表保留
   手机横滑、焦点与 ARIA 状态，终局零回应不伪造第二步。
+- 国际象棋放大全景默认跟随正在看的局面逐步重根；实战 FEN、焦点 FEN 和 Worker generation 分账，
+  手机在新 L1 几何到达前也有确定性标签可继续点，标签不计入真实云节点。
 - 中国棋子已改为轻量的象牙漆面与刻字双圈；选中 / 上一步使用内圈，威胁使用外圈，三种状态不再
   重写或遮掉棋子本身的纵深阴影，预演编号也已移到左侧避开右上“危”。
 - 新增第八个运行文件 `future-map.css`。
-- 当前源码基线：`npm test` 为 **8/8 + 20/20 + 27/27**，国际真机 **115/115**，
+- 当前源码基线：`npm test` 为 **8/8 + 20/20 + 27/27**，国际真机 **116/116**，
   中国真机 **71/71**；Phase 1 与 Phase 2 专项在 SwiftShader / 本机 GPU 均各 **5/5**，
   Phase 3 双页专项为 **6/6 + 9/9**。
-- 两套 10 局本次实测已完成：国际 583 plies，中国 833 plies；非法着、FEN、PV、分叉、威胁和注释
+- 两套 10 局本次实测已完成：国际 767 plies，中国 788 plies；非法着、FEN、PV、分叉、威胁和注释
   失败全部为 0。
 - 当前运行源码 commit、八个文件 SHA-256 与线上复验结果以第 6 节发布封印为准。

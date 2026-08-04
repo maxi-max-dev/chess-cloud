@@ -35,6 +35,12 @@
 共享 shader uniform，不逐帧改 geometry，也不进入路径计数；静置、切后台、离开视口或减少动态时
 仍会彻底停帧。顶部层数只对真实计数做 300ms 字形揭示，不显示随机假数字。
 
+国际象棋放大全景默认进入“跟随推演”：中央大节点是**正在看的局面**，每点一步都会以该步后的真实
+FEN 重新展开 L1–L4，实战 FEN 和棋谱保持不动；过去路径留在焦点后方，可由面包屑回退。空间布局采用
+固定时间轴上的分支花束，x 轴表示未来深度、y/z 表示同层合法分支，避免各代方向反复偏转后卷成线球。
+“全局总览”按钮可随时回到以实战现在为根的完整树，再切回跟随模式也不丢条件路径。L1 几何抵达前，
+可点标签先使用同一确定性布局占位；真实 geometry 到达后接管位置，占位标签从不进入路径计数。
+
 双页棋子与推演细节也统一为有限动效：选中棋子只呼吸一个 2 秒周期；真实位移完成后才原子确认视觉
 落点，再播放 400ms 涟漪，吃子额外碎成 10 粒并在 500ms 内清理。推演面板只在新一代内容建立时做
 一次 200ms 扫描，悬停连演路径按 ply 逐段点亮。所有效果都不进入棋子 / 路径真值，减少动态保留
@@ -141,7 +147,7 @@ AI 搜索在独立 Worker 中进行，主线程保留 watchdog 与合法 fallbac
 | `index.html` | 统一棋局未来地图的双规则入口 |
 | `future-map.css` | 两页共用的产品壳、路线角色、图例、语境栏与响应式规则 |
 | `chess.html` / `engine.js` / `worker.js` | 国际象棋 UI、唯一评估 / 搜索、AI、1–10 ply 推荐主线与 L1–L4 路径 Worker |
-| `verify.mjs` / `live-check.mjs` / `self-play.mjs` | 国际象棋棋核、115 项真 Chrome、10 局稳定性验收 |
+| `verify.mjs` / `live-check.mjs` / `self-play.mjs` | 国际象棋棋核、116 项真 Chrome、10 局稳定性验收 |
 | `xiangqi.html` / `xiangqi-engine.js` / `xiangqi-worker.js` | 中国象棋 UI、规则 / 唯一评估 / 搜索、搜索与分叉 Worker |
 | `xiangqi-verify.mjs` / `xiangqi-live-check.mjs` / `xiangqi-self-play.mjs` | 中国象棋棋核、71 项真 Chrome、固定 10 局稳定性验收 |
 | `portal-check.mjs` | 首页、共享未来地图契约、两个规则入口和运行代码红线的 27 项静态验收 |
@@ -180,10 +186,10 @@ node xiangqi-self-play.mjs
 当前本地固定验收项数，以及本次 10 局实测记录：
 
 - `npm test`：国际象棋 **8/8**、中国象棋 **20/20**、统一门户 **27/27**；
-- `node live-check.mjs`：**115/115**；
+- `node live-check.mjs`：**116/116**；
 - `node xiangqi-live-check.mjs`：**71/71**；
-- `node self-play.mjs`：10 局、583 plies、543 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
-- `node xiangqi-self-play.mjs`：10 局、833 plies、833 次搜索、1,550 个 PV 节点；
+- `node self-play.mjs`：10 局、767 plies、727 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
+- `node xiangqi-self-play.mjs`：10 局、788 plies、788 次搜索、1,428 个 PV 节点；
   `illegalMoves / fenMismatches / pvFailures / branchFailures / threatFailures` 全为 0。
 
 自对弈固定的是局数、种子、单局上限和零错误断言；搜索采用墙钟预算，精确 plies / searches / PV

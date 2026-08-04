@@ -350,6 +350,11 @@
   }
   body.cloud-view-2d #cloudControls .cloud-3d-only { display: none !important; }
   #cloudMotion[aria-pressed="true"] { color: #bdefff; border-color: rgba(143,216,255,.55); }
+  #cloudFocusMode[aria-pressed="true"] {
+    color: #d9f4ff;
+    border-color: rgba(143,216,255,.62);
+    background: rgba(34,75,112,.44);
+  }
   #cloudExplorer {
     display: none; position: absolute; z-index: 6;
     top: calc(max(10px, var(--safe-top)) + 60px);
@@ -1325,6 +1330,8 @@
       <button id="cloudZoomOut" class="cloud-full-only cloud-3d-only" type="button" aria-label="缩小路径网">－</button>
       <button id="cloudZoomIn" class="cloud-full-only cloud-3d-only" type="button" aria-label="放大路径网">＋</button>
       <button id="cloudResetView" class="cloud-full-only cloud-3d-only" type="button">回到全景</button>
+      <button id="cloudFocusMode" class="cloud-full-only cloud-3d-only" type="button"
+        aria-pressed="true" aria-label="切到全局总览">跟随推演</button>
       <button id="cloudMotion" class="cloud-full-only cloud-3d-only" type="button" aria-pressed="false">自动巡航：关</button>
     </div>
     <aside id="cloudExplorer" aria-label="变体棋盘">
@@ -1568,8 +1575,8 @@ const AI_BUDGET_MS = 1000; // 给冷启动/调度留出余量；迭代加深到�
 const COMPACT_AI_BUDGET_MS = 900;  // 手机/矮视口给渲染与触控留足余量，守住总应手 ≤3 秒
 const AI_WATCHDOG_MS = 2200; // Worker/JIT 再慢也在这里切到预存的合法保底步
 const BATCH_PARENTS = 400; // L4 渐进回传；完成后合并为一个真实 geometry，压低交互 draw call
-const ROOT_FAN = 0.34;      // 第一层只向「未来」方向张开，不再围成球壳
-const CLOUD_TARGET_X = 8.2; // 镜头看树体中段，让「现在」留在画面左边
+const CLOUD_TARGET_X = 8.2; // 全局总览看树体中段，让「实战现在」留在画面左边
+const CLOUD_FOCUS_TARGET_X = 5.1; // 跟随推演时让焦点局面靠近画面中心，同时给未来留出纵深
 const CLOUD_LABELS_MAX = 8; // 只标少量真实走法，不能给几十万条路径造 DOM
 const PAGE_QUERY = new URLSearchParams(location.search);
 const CINEMA_MODE = PAGE_QUERY.get('cinema') === '1';
@@ -1585,9 +1592,10 @@ const COLS = 5;                    // 分叉图往前排几步
 const SHOW = [7, 6, 5, 4, 4];      // 每列先列出几条（其余折起来）
 const RANK_DEPTH = 2;              // 排序往前看几步
 
-// 路径网每层往外推多远 / 散开的锥半角 / 线条不透明度，下标 = 层号
+// 路径网每层沿时间轴推进的距离 / 每个父分支的花束半径 / 线条不透明度，下标 = 层号。
+// x 轴只负责“未来有多远”，y/z 只负责“这一层有哪些分支”，避免深层方向不断偏转后卷成线球。
 const STEP    = [0, 9.0, 5.6, 3.7, 2.25];
-const SPREAD  = [0, 0, 0.26, 0.17, 0.11];
+const BOUQUET = [0, 5.4, 2.15, 1.02, 0.48];
 // 深层依然逐条真实绘制，但压低透明度，避免 20 万条线重新糊成一个发光球。
 const EDGE_OPAC = [0.88, 0.62, 0.115, 0.018, 0.0028];
 
@@ -1605,6 +1613,8 @@ const tree2dBodyEl = document.getElementById('tree2dBody');
 const cloudLayerLegendEl = document.getElementById('cloudLayerLegend');
 const cloudChoiceEl = document.getElementById('cloudChoice');
 let cloudViewMode = '3d';
+let cloudFocusMode = CINEMA_MODE ? 'overview' : 'follow';
+let cloudFocusDeferred = false;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
 renderer.setPixelRatio(1); // 缩略窗固定 DPR1；全屏按设备能力提升，避免小窗白烧像素
 // Composer 的最终输出会经过色域传递；用近黑的蓝紫工作色，落到屏幕上仍是深空而非灰蓝幕布。
@@ -1771,7 +1781,8 @@ function cssColor(score, boost = 1) {
 // 铁律：路径数一律从几何体 position.count / 2 现读，绝不自己记数。
 const layers = new Map();
 let cloudState = {
-  fen: '', depth: 0, ms: 0, workerMs: 0, mainMs: 0,
+  fen: '', liveFen: '', focusDepth: 0, focusMode: 'overview',
+  depth: 0, ms: 0, workerMs: 0, mainMs: 0,
   growing: false, deepPending: false, error: '', paused: false, gen: 0,
 };
 let cloudFirstMoves = [];
@@ -1804,6 +1815,7 @@ function clearCloud() {
   cloudLayerParents.clear();
   cloudTimingByDepth.clear();
   cloudLabelsEl.replaceChildren();
+  delete cloudLabelsEl.dataset.focusSignature;
   layers.clear();
   requestCloudRender();
 }
@@ -1894,7 +1906,12 @@ function releaseDeepCloud() {
     return true;
   }
   if (wasGrowingDeep && !thinking) {
-    const gen = prepareCloud({ preserveExplorer: true });
+    const gen = prepareCloud({
+      preserveExplorer: true,
+      rootFen: cloudState.fen || game.fen(),
+      focusDepth: cloudState.focusDepth,
+      focusMode: cloudState.focusMode,
+    });
     startCloudWorker({ gen, startDepth: 1, targetDepth: SYNC_DEPTH });
   }
   return wasGrowingDeep;
@@ -1946,8 +1963,8 @@ function appendLayer(depth, parents, scores) {
     return;
   }
   const parent = layers.get(depth - 1);
-  const ppos = parent.pos, pdir = parent.dir;
-  const step = STEP[depth], spread = SPREAD[depth];
+  const ppos = parent.pos;
+  const step = STEP[depth], bouquet = BOUQUET[depth];
 
   // 最深层没有下一代，不保存也不临时分配 child pos/dir；局中可少掉十余 MB GC 压力。
   const keepLayout = depth < DEEP_DEPTH;
@@ -1963,35 +1980,24 @@ function appendLayer(depth, parents, scores) {
     while (i + k < n && parents[i + k] === p) k++;   // 同一个父亲的孩子是连续一段
 
     const px = ppos[p * 3], py = ppos[p * 3 + 1], pz = ppos[p * 3 + 2];
-    const ax = pdir[p * 3], ay = pdir[p * 3 + 1], az = pdir[p * 3 + 2];
-
-    let hx = 0, hy = 0;
-    if (Math.abs(ax) < 0.9) hx = 1; else hy = 1;
-    let ux = ay * 0 - az * hy, uy = az * hx - ax * 0, uz = ax * hy - ay * hx;
-    const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
-    const vx = ay * uz - az * uy, vy = az * ux - ax * uz, vz = ax * uy - ay * ux;
     const phi0 = hash01(p + depth * 131.7) * 6.28318530718;
 
     for (let j = 0; j < k; j++) {
-      // 每一层都沿父节点的前进方向张开。第一层用较宽的锥角，
-      // 所以画面语义是「一个现在 → 向右长出的未来」，而不是包住根点的球壳。
-      const fan = depth === 1 ? ROOT_FAN : spread;
-      const a = fan * Math.sqrt((j + 0.5) / k);
+      // 每个父节点的孩子占据一个独立花束：所有层都只沿 +x 进入未来，
+      // 同层的合法着在 y/z 平面用黄金角排布。父节点自身的位置会把整束带到对应的首着航道，
+      // 因而深层仍能看出“属于哪条第一步”，不会重新绕回根点形成毛线球。
+      const radius = bouquet * Math.sqrt((j + 0.5) / k);
       const ph = phi0 + j * GOLDEN;
-      const sa = Math.sin(a), ca = Math.cos(a);
-      const wx = ux * Math.cos(ph) + vx * Math.sin(ph);
-      const wy = uy * Math.cos(ph) + vy * Math.sin(ph);
-      const wz = uz * Math.cos(ph) + vz * Math.sin(ph);
-      let cx = ax * ca + wx * sa, cy = ay * ca + wy * sa, cz = az * ca + wz * sa;
-      const l = Math.hypot(cx, cy, cz) || 1; cx /= l; cy /= l; cz /= l;
-      // 径向抖动：孩子不落在同一个半径上，不然每层都是一层壳
+      // 时间轴也做少量确定性抖动，避免一层节点像工程图一样贴在同一块平板上。
       const jr = depth >= 2 ? 0.72 + 0.58 * hash01(p * 3.7 + j * 11.31 + depth * 57.3) : 1;
       const o = (i + j) * 3;
-      const childX = px + cx * step * jr;
-      const childY = py + cy * step * jr;
-      const childZ = pz + cz * step * jr;
+      const childX = px + step * jr;
+      const childY = py + Math.cos(ph) * radius;
+      const childZ = pz + Math.sin(ph) * radius;
       if (keepLayout) {
-        dir[o] = cx; dir[o + 1] = cy; dir[o + 2] = cz;
+        const dx = childX - px, dy = childY - py, dz = childZ - pz;
+        const dl = Math.hypot(dx, dy, dz) || 1;
+        dir[o] = dx / dl; dir[o + 1] = dy / dl; dir[o + 2] = dz / dl;
         pos[o] = childX; pos[o + 1] = childY; pos[o + 2] = childZ;
       }
       const eo = (i + j) * 6;
@@ -2209,19 +2215,26 @@ function skyIsVisibleNow() {
     && r.left < innerWidth && r.top < innerHeight;
 }
 
-function prepareCloud({ preserveExplorer = false } = {}) {
+function prepareCloud({
+  preserveExplorer = false,
+  rootFen = game.fen(),
+  focusDepth = 0,
+  focusMode = 'overview',
+} = {}) {
   const gen = ++cloudState.gen;
   if (cloudWorker) { cloudWorker.terminate(); cloudWorker = null; }
   cloudWorkerTargetDepth = 0;
   clearCloud();
   cloudLegendRevealedDepths.clear();
   cloudLayerLegendEl.replaceChildren();
-  cloudTarget.set(CLOUD_TARGET_X, 0, 0);
-  cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
+  const targetX = focusMode === 'follow' ? CLOUD_FOCUS_TARGET_X : CLOUD_TARGET_X;
+  cloudTarget.set(targetX, 0, 0);
+  cloudTargetGoal.set(targetX, 0, 0);
 
-  const fen = game.fen();
-  if (!preserveExplorer || explorerState.rootFen !== fen) resetExplorer(false);
-  else explorerState.choices = [];
+  const fen = rootFen;
+  // 焦点云可以从预演 FEN 重生，但变体路径的根仍必须是实战局面；
+  // preserveExplorer 只在实战根没有变化时保留面包屑。
+  if (!preserveExplorer || explorerState.rootFen !== game.fen()) resetExplorer(false);
   exploreChoiceCache.clear();
   exploreReplyCountCache.clear();
   if (cloudViewMode === '2d') {
@@ -2242,7 +2255,8 @@ function prepareCloud({ preserveExplorer = false } = {}) {
   }
   addRoot(0);
   cloudState = {
-    fen, depth: 0, ms: 0, workerMs: 0, mainMs: 0,
+    fen, liveFen: game.fen(), focusDepth, focusMode,
+    depth: 0, ms: 0, workerMs: 0, mainMs: 0,
     growing: false, deepPending: false, error: '', paused: false, gen,
   };
   updateHud();
@@ -2396,8 +2410,8 @@ function growPreparedCloud(gen = cloudState.gen) {
   return startCloudWorker({ gen, startDepth: 1, targetDepth });
 }
 
-function rebuildCloud() {
-  const gen = prepareCloud();
+function rebuildCloud(options = {}) {
+  const gen = prepareCloud(options);
   if (!thinking) growPreparedCloud(gen);
   return gen;
 }
@@ -3365,7 +3379,12 @@ function renderCloudLayerLegend() {
     span.dataset.depth = String(depth);
     span.dataset.value = String(value);
     span.dataset.source = 'geometry-position-count';
-    span.textContent = `${depth === 0 ? '现在' : `${depth}步后`} ${value.toLocaleString('en-US')}`;
+    const rootLabel = CINEMA_MODE
+      ? '现在'
+      : cloudState.focusMode === 'follow'
+      ? (cloudState.focusDepth > 0 ? '焦点局面' : '实战现在')
+      : '实战现在';
+    span.textContent = `${depth === 0 ? rootLabel : `${depth}步后`} ${value.toLocaleString('en-US')}`;
     cloudLegendRevealedDepths.add(depth);
     spans.push(span);
   }
@@ -3419,7 +3438,10 @@ function updateHud() {
     return;
   }
   document.getElementById('cloudStats').innerHTML =
-    `铺了 <b>${layerTxt}</b>　·　当前可见层 ${Math.round(cloudState.ms)} ms 计算`
+    (cloudState.focusMode === 'follow'
+      ? `跟随推演 · 焦点已深入 <b>${cloudState.focusDepth}</b> 步　·　`
+      : '全局总览　·　')
+    + `铺了 <b>${layerTxt}</b>　·　当前可见层 ${Math.round(cloudState.ms)} ms 计算`
     + (fastPreview ? '　·　快速预览；放大后加载完整第 4 层' : '')
     + (lastAi ? `　·　AI 应手 <b>${lastAi.totalMs} ms</b>（搜到 ${lastAi.depth} 层）` : '');
   document.getElementById('cloudCount').innerHTML = cloudState.growing
@@ -4926,6 +4948,9 @@ futureCommitEl.onclick = () => commitCurrentPreviewFirstMove(true);
 
 function clearFutureRoute({ focus = true } = {}) {
   if (thinking || forkStale) return false;
+  const focusTransition = cloudShouldFollowFocus() && explorerState.path.length > 0
+    ? startCloudFocusCollapse(null, -1)
+    : null;
   cancelHoverPreview({ restoreExplicit: false });
   cancelFutureBoardPreview(false);
   selected = null;
@@ -4937,6 +4962,9 @@ function clearFutureRoute({ focus = true } = {}) {
   expanded = [];
   renderFork();
   renderExplorer();
+  if (cloudShouldFollowFocus()) {
+    rebuildCloudForFocus({ transitionOrigin: focusTransition?.endpoint || null });
+  }
   renderBoard();
   renderCoachIdle();
   forkWrap.scrollTo({ left: 0, top: 0, behavior: 'auto' });
@@ -4972,6 +5000,58 @@ const EXPLORE_MAX_PLY = SYNC_DEPTH;
 let explorerState = { rootFen: '', path: [], choices: [] };
 let tree2dRenderKey = '';
 let tree2dConnectorFrame = 0;
+
+function cloudShouldFollowFocus() {
+  return cloudFocusMode === 'follow'
+    && cloudViewMode === '3d'
+    && document.body.classList.contains('cloud-full')
+    && explorerState.rootFen === game.fen();
+}
+
+function desiredCloudRoot() {
+  return cloudShouldFollowFocus() ? explorerFen() : game.fen();
+}
+
+function rebuildCloudForFocus({ transitionOrigin = null } = {}) {
+  if (thinking) return false;
+  const follow = cloudShouldFollowFocus();
+  const rootFen = follow ? explorerFen() : game.fen();
+  const focusDepth = follow ? explorerState.path.length : 0;
+  const focusMode = follow ? 'follow' : 'overview';
+  const targetX = follow ? CLOUD_FOCUS_TARGET_X : CLOUD_TARGET_X;
+
+  // 后台选路只更新条件路径，不清掉屏幕上已完成的 L3；回到前台再以最新焦点一次重根。
+  // 这样旧 Worker 不会串入新焦点，也不会在 document.hidden 时留下只有 L0 的半朵云。
+  if (document.hidden && cloudState.fen !== rootFen) {
+    cloudFocusDeferred = true;
+    return false;
+  }
+  cloudFocusDeferred = false;
+
+  if (cloudState.fen === rootFen && !cloudState.paused) {
+    cloudState.liveFen = game.fen();
+    cloudState.focusDepth = focusDepth;
+    cloudState.focusMode = focusMode;
+    cloudTargetGoal.set(targetX, 0, 0);
+    syncCloudMap();
+    maybeStartDeepCloud();
+    requestCloudRender();
+    return false;
+  }
+
+  const gen = prepareCloud({
+    preserveExplorer: true,
+    rootFen,
+    focusDepth,
+    focusMode,
+  });
+  if (transitionOrigin && !reducedMotion) startCloudRebirth(transitionOrigin);
+  // prepareCloud 会原子清掉旧云；先铺一组不参与节点计数的标签占位，
+  // 让用户无需等待 Worker 的第一层即可继续选择下一步。
+  syncCloudMap();
+  growPreparedCloud(gen);
+  return true;
+}
 
 function fenTurnContext(fen) {
   const fields = String(fen).trim().split(/\s+/);
@@ -5092,7 +5172,7 @@ function renderExplorer() {
 
   explorePathEl.innerHTML =
     `<button type="button" data-explore-depth="0"${explorerState.path.length === 0 ? ' class="is-current"' : ''}>`
-    + `现在 · 已走 ${fenTurnContext(explorerState.rootFen).completedPly} 手</button>`
+    + `实战现在 · 已走 ${fenTurnContext(explorerState.rootFen).completedPly} 手</button>`
     + explorerState.path.map((move, index) => {
       const turn = explorerStepContext(index);
       return `<button type="button" data-explore-depth="${index + 1}"`
@@ -5114,7 +5194,7 @@ function renderExplorer() {
       ? `<b>已展开从当前局面向后的 ${EXPLORE_MAX_PLY} 步；点上方路径回退。</b><br>`
         + `${explorerState.path.map((move) => esc(move.san)).join(' → ')} 后，`
         + `<span style="color:${situation.color}">${situation.label}</span>。`
-      : `如果走到 <b>${explorerState.path.map((move) => esc(move.san)).join(' → ')}</b>：`
+      : `正在看的局面 <b>${explorerState.path.map((move) => esc(move.san)).join(' → ')}</b>：`
         + `<b style="color:${situation.color}">${situation.label}</b>。`
         + `现在轮到${side}，可从下面换一枚棋子或另一种走法。`)
     : `<b>当前棋局已走 ${fenTurnContext(fen).completedPly} 手。</b><br>`
@@ -5147,6 +5227,9 @@ function chooseExplorerMoveAt(parentDepth, rank) {
   const choices = explorerChoicesFor(parentFen);
   const move = choices[rank];
   if (!move) return false;
+  const focusTransition = cloudShouldFollowFocus()
+    ? startCloudFocusCollapse(move, 1)
+    : null;
   explorerState.path = prefix;
   explorerState.choices = choices;
   explorerState.path.push({
@@ -5157,7 +5240,11 @@ function chooseExplorerMoveAt(parentDepth, rank) {
   syncForkFromExplorer(depth + 1);
   renderExplorer();
   if (cloudViewMode === '3d') {
-    focusExplorerNode();
+    if (cloudShouldFollowFocus()) {
+      rebuildCloudForFocus({ transitionOrigin: focusTransition?.endpoint || null });
+    } else {
+      focusExplorerNode();
+    }
     if (document.body.classList.contains('cloud-full')) {
       (
         exploreChoicesEl.querySelector('button[data-explore-rank]')
@@ -5183,12 +5270,20 @@ function chooseExplorerRootAfter(after) {
 
 function rewindExplorer(depth) {
   const nextDepth = Math.max(0, Math.min(Number(depth) || 0, explorerState.path.length));
+  const changed = nextDepth !== explorerState.path.length;
+  const focusTransition = changed && cloudShouldFollowFocus()
+    ? startCloudFocusCollapse(null, -1)
+    : null;
   const nextExplicitDepth = Math.min(routeSelectionDepth, nextDepth);
   explorerState.path = explorerState.path.slice(0, nextDepth);
   syncForkFromExplorer(nextExplicitDepth);
   renderExplorer();
   if (cloudViewMode === '3d') {
-    focusExplorerNode();
+    if (cloudShouldFollowFocus()) {
+      rebuildCloudForFocus({ transitionOrigin: focusTransition?.endpoint || null });
+    } else {
+      focusExplorerNode();
+    }
     explorePathEl.querySelector('button.is-current')?.focus({ preventScroll: true });
   } else {
     centerTreeSelections(nextDepth, true);
@@ -5653,6 +5748,13 @@ function explorerGraphChoices(route = traceExplorerRoute()) {
 }
 
 function focusExplorerNode() {
+  if (cloudShouldFollowFocus()) {
+    cloudTargetGoal.set(CLOUD_FOCUS_TARGET_X, 0, 0);
+    updateCloudFocusRoute();
+    setCloudMotion(false);
+    requestCloudRender();
+    return true;
+  }
   const route = traceExplorerRoute();
   const step = route.at(-1);
   if (!step) {
@@ -5669,51 +5771,183 @@ function focusExplorerNode() {
   return !!step;
 }
 
-function updateCloudRoute(route = traceCloudRoute()) {
+function replaceCloudRoute(points, {
+  color = 0x8fd8ff,
+  opacity = 0.92,
+  userData = {},
+} = {}) {
   if (cloudRouteLine) {
     cloudGroup.remove(cloudRouteLine);
     cloudRouteLine.geometry.dispose();
     cloudRouteLine = null;
   }
-  if (route.length === 0) {
+  if (points.length < 6) {
     requestCloudRender();
     return;
   }
-  const points = [0, 0, 0];
-  for (const step of route) points.push(...step.position);
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(points), 3));
-  cloudRouteMaterial.color.setHex(routeSelectionDepth > 0 ? 0x8fd8ff : 0xf1c66b);
+  cloudRouteMaterial.color.setHex(color);
+  cloudRouteMaterial.opacity = opacity;
   cloudRouteLine = markBloomObject(new THREE.Line(geo, cloudRouteMaterial));
-  cloudRouteLine.userData = { kind: 'selected-route', depth: route.length, san: route.map((s) => s.san).join(' ') };
+  cloudRouteLine.userData = { kind: 'selected-route', ...userData };
   cloudRouteLine.frustumCulled = false;
   cloudRouteLine.renderOrder = 10;
   cloudGroup.add(cloudRouteLine);
   requestCloudRender();
 }
 
+function updateCloudRoute(route = traceCloudRoute()) {
+  const points = [0, 0, 0];
+  for (const step of route) points.push(...step.position);
+  replaceCloudRoute(points, {
+    color: routeSelectionDepth > 0 ? 0x8fd8ff : 0xf1c66b,
+    opacity: 0.92,
+    userData: {
+      depth: route.length,
+      san: route.map((step) => step.san).join(' '),
+      role: 'future-route',
+    },
+  });
+}
+
+function focusTrailPoint(depth, total = explorerState.path.length) {
+  const offset = depth - total;
+  return [
+    offset * 2.7,
+    Math.sin(offset * 1.08) * 0.42,
+    Math.sin(offset * 0.73) * 0.3,
+  ];
+}
+
+function focusChoiceFallback(rank, count) {
+  const phi0 = hash01(1 * 131.7) * 6.28318530718;
+  const radius = BOUQUET[1] * Math.sqrt((rank + 0.5) / Math.max(1, count));
+  const ph = phi0 + rank * GOLDEN;
+  return [STEP[1], Math.cos(ph) * radius, Math.sin(ph) * radius];
+}
+
+function updateCloudFocusRoute() {
+  const total = explorerState.path.length;
+  if (total === 0) {
+    replaceCloudRoute([]);
+    return;
+  }
+  const points = [];
+  for (let depth = 0; depth <= total; depth++) points.push(...focusTrailPoint(depth, total));
+  replaceCloudRoute(points, {
+    color: 0x719cc4,
+    opacity: 0.58,
+    userData: {
+      depth: total,
+      san: explorerState.path.map((step) => step.san).join(' '),
+      role: 'focus-history',
+    },
+  });
+}
+
 function syncCloudMap() {
   if (cloudViewMode === '2d') {
     cloudLabelsEl.replaceChildren();
+    delete cloudLabelsEl.dataset.focusSignature;
     updateCloudRoute([]);
     renderCloudTree2d();
     return;
   }
-  const first = columns[0];
-  const depthOne = layers.get(1);
-  if (!first || !depthOne?.pos || cloudFirstMoves.length === 0) {
-    cloudLabelsEl.replaceChildren();
-    updateCloudRoute([]);
-    return;
-  }
-
   const exploring =
     explorerState.rootFen === game.fen()
     && (
       document.body.classList.contains('cloud-full')
       || explorerState.path.length > 0
     );
+  const followingFocus = exploring && cloudShouldFollowFocus();
+  const first = columns[0];
+  const depthOne = layers.get(1);
+  // 焦点重根清空旧几何后，先用确定性的 DOM 坐标保留下一步标签；
+  // L1 到达后再原位接管为真实节点，避免手机连续触摸撞上短暂空窗。
+  if ((!first || !depthOne?.pos || cloudFirstMoves.length === 0) && !followingFocus) {
+    cloudLabelsEl.replaceChildren();
+    delete cloudLabelsEl.dataset.focusSignature;
+    updateCloudRoute([]);
+    return;
+  }
   if (exploring) {
+    if (cloudShouldFollowFocus()) {
+      const focusFen = explorerFen();
+      const absoluteDepth = explorerState.path.length + 1;
+      const focusRootReady = cloudState.fen === focusFen
+        && cloudState.focusMode === 'follow';
+      const focusGeometryReady = focusRootReady && !!layers.get(1)?.pos;
+      const graphChoices = explorerState.choices.slice(0, CLOUD_LABELS_MAX)
+        .map((move, rank) => {
+          const meta = focusGeometryReady ? cloudMoveMeta(move.after) : null;
+          return {
+            move,
+            rank,
+            index: meta?.index ?? rank,
+            fallback: meta ? null : focusChoiceFallback(rank, explorerState.choices.length),
+          };
+        });
+      const labels = graphChoices.map(({ move, rank, index, fallback }) =>
+        `<button type="button" class="cloud-label cloud-move-label cloud-explore-label"`
+        + ` data-depth="${absoluteDepth}"${fallback
+          ? ` data-world="${fallback.join(',')}" data-pending-geometry="true"`
+          : ' data-layer-depth="1"'}`
+        + ` data-index="${index}"`
+        + ` data-explore-rank="${rank}" data-san="${esc(move.san)}"`
+        + ` data-situation="${scoreSituation(move.score).key}" aria-pressed="false"`
+        + ` title="从焦点继续 ${esc(move.san)} · 引擎原分 ${scoreText(move.score)}"`
+        + ` style="--move-color:${cssColor(move.score, 1.25)}">`
+        + `<b>${esc(move.san)}</b><small>${scoreSituation(move.score).short}</small></button>`
+      ).join('');
+      const history = explorerState.path.length === 0 ? '' : [
+        `<button type="button" class="cloud-label cloud-path-label cloud-history-label"`
+          + ` data-depth="-1" data-explore-depth="0" data-history="true"`
+          + ` data-world="${focusTrailPoint(0).join(',')}"><small>实战</small><b>现在</b></button>`,
+        ...explorerState.path.slice(0, -1).map((step, index) => {
+          const turn = explorerStepContext(index);
+          return `<button type="button" class="cloud-label cloud-path-label cloud-history-label"`
+            + ` data-depth="${index + 1}" data-explore-depth="${index + 1}" data-history="true"`
+            + ` data-world="${focusTrailPoint(index + 1).join(',')}" data-san="${esc(step.san)}"`
+            + ` aria-label="回到第 ${turn.fullmove} 回合${turn.sideLabel} ${esc(step.san)}">`
+            + `<small>${turn.fullmove}回合·${turn.sideLabel[0]}</small><b>${esc(step.san)}</b></button>`;
+        }),
+      ].join('');
+      const focusLabel = `<button type="button" class="cloud-label cloud-root-label is-selected"`
+        + ` data-depth="0" data-layer-depth="0" data-index="0" data-focus-root="true"`
+        + ` data-explore-depth="${explorerState.path.length}" aria-current="step">`
+        + `${explorerState.path.length ? '正在看的局面' : '实战现在'}</button>`;
+      const focusSignature = JSON.stringify({
+        root: explorerState.rootFen,
+        path: explorerState.path.map((move) => move.after),
+        choices: graphChoices.map(({ move }) => move.after),
+      });
+      // 同一焦点的 L1 到达只更新按钮与几何的绑定，不重建用户正在触摸的 DOM。
+      // 否则 touchstart / touchend 之间替换同一个按钮，浏览器会正确地取消 click。
+      if (
+        cloudLabelsEl.dataset.focusSignature !== focusSignature
+        || !cloudLabelsEl.querySelector('[data-focus-root="true"]')
+      ) {
+        cloudLabelsEl.innerHTML = history + focusLabel + labels;
+        cloudLabelsEl.dataset.focusSignature = focusSignature;
+      } else if (focusGeometryReady) {
+        for (const { rank, index } of graphChoices) {
+          const button = cloudLabelsEl.querySelector(`[data-explore-rank="${rank}"]`);
+          if (!button) continue;
+          button.dataset.index = String(index);
+          delete button.dataset.pendingGeometry;
+        }
+      }
+      cloudChoiceEl.innerHTML = explorerState.path.length
+        ? `焦点：<b>${explorerState.path.map((move) => esc(move.san)).join(' → ')}</b>`
+          + `；从这里有 ${explorerState.choices.length} 个真实下一步`
+          + `${focusGeometryReady ? '' : '，深层正在展开…'}`
+        : `从「实战现在」出发；${explorerState.choices.length} 个真实下一步`
+          + `${focusGeometryReady ? '' : '，深层正在展开…'}`;
+      updateCloudFocusRoute();
+      requestCloudRender();
+      return;
+    }
     const route = traceExplorerRoute();
     const graphChoices = explorerGraphChoices(route);
     const labels = graphChoices.map(({ move, rank, depth, index }) =>
@@ -5732,6 +5966,7 @@ function syncCloudMap() {
         + ` aria-label="回到第 ${turn.fullmove} 回合${turn.sideLabel} ${esc(step.san)}">`
         + `<small>${turn.fullmove}回合·${turn.sideLabel[0]}</small><b>${esc(step.san)}</b></button>`;
     }).join('');
+    delete cloudLabelsEl.dataset.focusSignature;
     cloudLabelsEl.innerHTML =
       `<button type="button" class="cloud-label cloud-root-label${route.length === 0 ? ' is-selected' : ''}"`
       + ` data-depth="0" data-index="0" data-explore-depth="0">现在</button>${breadcrumbs}${labels}`;
@@ -5763,6 +5998,7 @@ function syncCloudMap() {
       + ` data-index="${step.index}" data-san="${esc(step.san)}">`
       + `<small>${turn.fullmove}回合·${turn.sideLabel[0]}</small><b>${esc(step.san)}</b></div>`;
   }).join('');
+  delete cloudLabelsEl.dataset.focusSignature;
   cloudLabelsEl.innerHTML =
     `<div class="cloud-label cloud-root-label" data-depth="0" data-index="0">现在</div>${labels}${breadcrumbs}`;
 
@@ -5779,7 +6015,8 @@ function positionCloudLabels() {
   if (cloudViewMode !== '3d') return;
   const full = document.body.classList.contains('cloud-full');
   const w = skyBox.clientWidth, h = skyBox.clientHeight;
-  if (!layers.get(1)?.pos || !w || !h) return;
+  const hasCustomWorld = !!cloudLabelsEl.querySelector('[data-world]');
+  if ((!layers.get(1)?.pos && !hasCustomWorld) || !w || !h) return;
   const skyRect = skyBox.getBoundingClientRect();
   const exclusions = full
       ? [
@@ -5802,9 +6039,15 @@ function positionCloudLabels() {
   for (const el of labels) {
     const depth = +el.dataset.depth;
     const index = +el.dataset.index;
-    if (depth === 0) labelWorld.set(0, 0, 0);
+    const customWorld = el.dataset.world?.split(',').map(Number);
+    const layerDepth = el.dataset.layerDepth === undefined
+      ? depth
+      : Number(el.dataset.layerDepth);
+    if (customWorld?.length === 3 && customWorld.every(Number.isFinite)) {
+      labelWorld.set(customWorld[0], customWorld[1], customWorld[2]);
+    } else if (layerDepth === 0) labelWorld.set(0, 0, 0);
     else {
-      const pos = layers.get(depth)?.pos;
+      const pos = layers.get(layerDepth)?.pos;
       if (!pos) continue;
       const o = index * 3;
       labelWorld.set(pos[o], pos[o + 1], pos[o + 2]);
@@ -5827,8 +6070,11 @@ function positionCloudLabels() {
       candidates.push({
         el, x, y, z: labelCameraSpace.z,
         priority:
-          depth === 0 ? 10000
+          el.dataset.focusRoot === 'true' ? 10000
+          : el.classList.contains('cloud-explore-label') ? 9200 - Math.abs(labelCameraSpace.z)
           : el.classList.contains('is-selected') ? 9000
+          : el.dataset.history === 'true' ? 8200 + depth
+          : depth === 0 ? 8800
           : el.classList.contains('cloud-path-label') ? 8600 - depth
           : labelCameraSpace.z,
       });
@@ -5896,11 +6142,22 @@ cloudLabelsEl.addEventListener('pointerover', (event) => {
   const move = columns[0].ranked[rank];
   if (move) scheduleHoverPreview(move, `cloud:0:${rank}`);
 });
-cloudLabelsEl.addEventListener('pointerdown', () => {
+cloudLabelsEl.addEventListener('pointerdown', (event) => {
   hoverFocusSuppressedUntil = performance.now() + 500;
   if (hoverPreviewTimer) clearTimeout(hoverPreviewTimer);
   hoverPreviewTimer = 0;
   hoverPreviewKey = '';
+  if (event.pointerType !== 'touch') return;
+  const explorerDepth = event.target.closest?.('button[data-explore-depth]');
+  const explorerChoice = event.target.closest?.('button[data-explore-rank]');
+  if (!explorerDepth && !explorerChoice) return;
+  // 触屏不等待 click：焦点重根会让标签和镜头立即移动，若等到 touchend，
+  // 浏览器可能因按下/抬起不再命中同一按钮而取消 click。按中时原子接管，
+  // 鼠标与键盘仍走上面的 click 语义。
+  event.preventDefault();
+  event.stopPropagation();
+  if (explorerDepth) rewindExplorer(+explorerDepth.dataset.exploreDepth);
+  else chooseExplorerMove(+explorerChoice.dataset.exploreRank);
 });
 cloudLabelsEl.addEventListener('pointerleave', () => cancelHoverPreview());
 cloudLabelsEl.addEventListener('focusin', (event) => {
@@ -6103,11 +6360,13 @@ function stopThinkingPulse(shouldRecord = true) {
   return true;
 }
 
-function startCloudCollapse(move) {
+function startCloudCollapseAt(endpoint, {
+  pulse = false,
+  eventType = 'focus_collapse_started',
+} = {}) {
   if (reducedMotion || cloudViewMode !== '3d' || layers.size === 0) return false;
   disposeCloudCollapse(false);
   stopThinkingPulse(false);
-  const endpoint = cloudMoveEndpoint(move);
   cloudNarrative.lastEndpoint.copy(endpoint);
   const group = new THREE.Group();
   group.userData = { kind: 'collapse-snapshot' };
@@ -6145,15 +6404,37 @@ function startCloudCollapse(move) {
   };
   cloudNarrative.searchStartedAt = aiClock;
   cloudNarrative.collapseStartedAt = performance.now();
-  recordCloudNarrative('collapse_started', { snapshotEdges });
+  recordCloudNarrative(eventType, { snapshotEdges });
 
-  const pulse = createThinkingPulse(endpoint);
-  cloudNarrative.pulseLine = pulse;
-  cloudNarrative.pulseStartedAt = now;
-  cloudGroup.add(pulse);
-  recordCloudNarrative('thinking_pulse_started');
+  if (pulse) {
+    const pulseLine = createThinkingPulse(endpoint);
+    cloudNarrative.pulseLine = pulseLine;
+    cloudNarrative.pulseStartedAt = now;
+    cloudGroup.add(pulseLine);
+    recordCloudNarrative('thinking_pulse_started');
+  }
   requestCloudRender();
   return true;
+}
+
+function startCloudCollapse(move) {
+  return startCloudCollapseAt(cloudMoveEndpoint(move), {
+    pulse: true,
+    eventType: 'collapse_started',
+  });
+}
+
+function startCloudFocusCollapse(move = null, direction = 1) {
+  const endpoint = move
+    ? cloudMoveEndpoint(move)
+    : new THREE.Vector3(direction * 4.2, 0, 0);
+  return {
+    endpoint,
+    active: startCloudCollapseAt(endpoint, {
+      pulse: false,
+      eventType: direction >= 0 ? 'focus_collapse_started' : 'focus_rewind_started',
+    }),
+  };
 }
 
 function startCloudRebirth(origin = cloudNarrative.lastEndpoint) {
@@ -6309,6 +6590,37 @@ function updateCloudModeButton() {
   if (typeof updateFutureMapDataset === 'function') updateFutureMapDataset();
 }
 
+function updateCloudFocusModeButton() {
+  const button = document.getElementById('cloudFocusMode');
+  const follow = cloudFocusMode === 'follow';
+  button.setAttribute('aria-pressed', String(follow));
+  button.setAttribute('aria-label', follow ? '切到全局总览' : '切到跟随推演');
+  button.textContent = follow ? '跟随推演' : '全局总览';
+  document.body.dataset.cloudFocus = cloudFocusMode;
+}
+
+function setCloudFocusMode(mode) {
+  const next = mode === 'overview' ? 'overview' : 'follow';
+  if (next === cloudFocusMode) {
+    updateCloudFocusModeButton();
+    return cloudFocusMode;
+  }
+  const transition = cloudViewMode === '3d'
+    && document.body.classList.contains('cloud-full')
+    ? startCloudFocusCollapse(null, next === 'follow' ? 1 : -1)
+    : null;
+  cloudFocusMode = next;
+  updateCloudFocusModeButton();
+  setCloudMotion(false);
+  if (cloudViewMode === '3d' && document.body.classList.contains('cloud-full')) {
+    rebuildCloudForFocus({ transitionOrigin: transition?.endpoint || null });
+  } else {
+    syncCloudMap();
+  }
+  updateHud();
+  return cloudFocusMode;
+}
+
 function setCloudViewMode(mode) {
   const next = mode === '2d' ? '2d' : '3d';
   if (next === cloudViewMode) {
@@ -6334,8 +6646,9 @@ function setCloudViewMode(mode) {
     renderExplorer();
   } else {
     clearTreePathConnectors();
-    syncCloudMap();
-    if (explorerState.path.length > 0) focusExplorerNode();
+    if (document.body.classList.contains('cloud-full')) rebuildCloudForFocus();
+    else syncCloudMap();
+    if (explorerState.path.length > 0 && !cloudShouldFollowFocus()) focusExplorerNode();
     scheduleResize();
     if (document.body.classList.contains('cloud-full')) maybeStartDeepCloud();
     requestCloudRender();
@@ -6349,8 +6662,9 @@ function resetCloudView() {
   view.pitch = DEFAULT_VIEW.pitch;
   view.dist = DEFAULT_VIEW.dist;
   setCloudMotion(false);
-  cloudTarget.set(CLOUD_TARGET_X, 0, 0);
-  cloudTargetGoal.set(CLOUD_TARGET_X, 0, 0);
+  const targetX = cloudShouldFollowFocus() ? CLOUD_FOCUS_TARGET_X : CLOUD_TARGET_X;
+  cloudTarget.set(targetX, 0, 0);
+  cloudTargetGoal.set(targetX, 0, 0);
   requestCloudRender();
   return true;
 }
@@ -6409,12 +6723,23 @@ function toggleCloudFull(force) {
   scheduleResize();
   if (full) {
     renderExplorer();
-    if (cloudViewMode === '3d') maybeStartDeepCloud();
+    if (cloudViewMode === '3d') rebuildCloudForFocus();
     requestAnimationFrame(() => document.getElementById('cloudClose').focus({ preventScroll: true }));
   } else {
     setCloudMotion(false);
     releaseDeepCloud();
-    syncCloudMap();
+    if (cloudViewMode === '3d' && cloudState.fen !== game.fen()) {
+      rebuildCloud({
+        preserveExplorer: true,
+        rootFen: game.fen(),
+        focusDepth: 0,
+        focusMode: 'overview',
+      });
+    } else {
+      cloudState.focusDepth = 0;
+      cloudState.focusMode = 'overview';
+      syncCloudMap();
+    }
     document.getElementById('cloudOpen').focus({ preventScroll: true });
   }
   updateHud();
@@ -6428,6 +6753,8 @@ document.getElementById('cloudMode').onclick = () =>
 document.getElementById('cloudResetView').onclick = resetCloudView;
 document.getElementById('cloudZoomOut').onclick = () => zoomCloud(1.18);
 document.getElementById('cloudZoomIn').onclick = () => zoomCloud(0.84);
+document.getElementById('cloudFocusMode').onclick = () =>
+  setCloudFocusMode(cloudFocusMode === 'follow' ? 'overview' : 'follow');
 document.getElementById('cloudMotion').onclick = () => setCloudMotion(!view.auto);
 addEventListener('keydown', (event) => {
   if (
@@ -6569,8 +6896,19 @@ document.addEventListener('visibilitychange', () => {
     updateHud();
     return;
   }
-  if (cloudState.paused && !thinking && cloudState.fen === game.fen()) {
-    rebuildCloud();
+  const desiredRoot = desiredCloudRoot();
+  const desiredMode = cloudShouldFollowFocus() ? 'follow' : 'overview';
+  if (
+    !thinking
+    && (
+      cloudFocusDeferred
+      || cloudState.fen !== desiredRoot
+      || cloudState.focusMode !== desiredMode
+    )
+  ) {
+    rebuildCloudForFocus();
+  } else if (cloudState.paused && !thinking) {
+    rebuildCloudForFocus();
   } else {
     cloudState.paused = false;
     maybeStartDeepCloud();
@@ -6638,6 +6976,11 @@ window.__cloudStats = () => {
   for (const l of layerList) total += l.nodes;
   return {
     fen: cloudState.fen,
+    liveFen: cloudState.liveFen,
+    focusDepth: cloudState.focusDepth,
+    focusMode: cloudState.focusMode,
+    requestedMode: cloudFocusMode,
+    focusDeferred: cloudFocusDeferred,
     depth: cloudState.depth,
     nodes: nodesAt(cloudState.depth),
     ms: Math.round(cloudState.ms),
@@ -6857,6 +7200,18 @@ function cloudMapSnapshot() {
       objects: rec.objects,
     }));
   return {
+    rootFen: cloudState.fen,
+    liveFen: game.fen(),
+    focus: {
+      mode: cloudState.focusMode,
+      requestedMode: cloudFocusMode,
+      depth: cloudState.focusDepth,
+      path: explorerState.path.map((move) => move.san),
+      renderedFen: explorerFen(),
+      layout: 'time-corridor-bouquet',
+      routeRole: cloudRouteLine?.userData.role || 'none',
+      rootPosition: cloudNowNode.position.toArray(),
+    },
     layers: layerRows,
     firstLinks,
     routePoints,
@@ -7748,6 +8103,7 @@ window.__test = {
     return rec.objects.every((obj) => obj.visible === !!visible);
   },
   setCloudAuto: setCloudMotion,
+  setCloudFocusMode,
   pickBranch: (col, idx) => chooseForkBranch(col, idx),
   expandCol: (col) => setColumnExpanded(col, true),
   collapseCol: (col) => setColumnExpanded(col, false),
@@ -7773,6 +8129,7 @@ if (CINEMA_MODE) {
   for (const id of ['boardPanel', 'stage']) document.getElementById(id).inert = true;
 }
 updateCloudModeButton();
+updateCloudFocusModeButton();
 resize();
 renderBoard();
 rebuildCloud();
