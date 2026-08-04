@@ -5245,7 +5245,7 @@ function chooseExplorerMoveAt(parentDepth, rank) {
   ensureExplorerRoot();
   const depth = Number(parentDepth);
   if (!Number.isInteger(depth) || depth < 0
-    || depth > explorerState.path.length || !futureDepthSelectable(depth)) return false;
+    || depth > explorerState.path.length || !explorerDepthSelectable(depth)) return false;
   if (thinking || depth >= EXPLORE_MAX_PLY) return false;
   const prefix = explorerState.path.slice(0, depth);
   const parentFen = prefix.at(-1)?.after || explorerState.rootFen;
@@ -5280,6 +5280,22 @@ function chooseExplorerMoveAt(parentDepth, rank) {
     centerTreeSelections(depth + 1, true);
   }
   return true;
+}
+
+function explorerDepthSelectable(parentDepth) {
+  const depth = Number(parentDepth);
+  if (futureDepthSelectable(depth)) return true;
+  if (!Number.isInteger(depth) || depth <= 0 || depth > routeSelectionDepth
+    || thinking || forkStale) return false;
+  const preview = futurePreviewIsActive() ? futurePreviewPlayback : null;
+  const first = columns[0]?.ranked[columns[0].chosen];
+  // 云图是“连续往后想”的直接操作面：用户触摸下一层时，可以接管仍在播放的
+  // 只读棋盘预演，不必等 660ms 首拍结束。syncForkFromExplorer 会用新的完整
+  // 条件路线换代旧 playback；真实落子、AI 应手与棋子原子提交协议不受影响。
+  return !!preview
+    && !!first
+    && preview.frames[0]?.fen === first.after
+    && (preview.phase === 'playing' || preview.phase === 'conditional-playing');
 }
 
 function chooseExplorerMove(rank) {
@@ -6036,6 +6052,7 @@ function syncCloudMap() {
 const labelWorld = new THREE.Vector3();
 const labelProjected = new THREE.Vector3();
 const labelCameraSpace = new THREE.Vector3();
+let cloudTouchClickSuppressedUntil = 0;
 function positionCloudLabels() {
   if (cloudViewMode !== '3d') return;
   const full = document.body.classList.contains('cloud-full');
@@ -6133,6 +6150,13 @@ function focusCloudMove(after) {
 }
 
 cloudLabelsEl.addEventListener('click', (ev) => {
+  // Chromium 触摸抬起后仍可能补发兼容 click；pointerdown 已经原子选线，
+  // 此时 DOM 又已重根，放任旧 click 会误点到新一层并一次跳两步。
+  if (performance.now() < cloudTouchClickSuppressedUntil) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    return;
+  }
   const explorerDepth = ev.target.closest
     ? ev.target.closest('button[data-explore-depth]')
     : null;
@@ -6181,6 +6205,7 @@ cloudLabelsEl.addEventListener('pointerdown', (event) => {
   // 鼠标与键盘仍走上面的 click 语义。
   event.preventDefault();
   event.stopPropagation();
+  cloudTouchClickSuppressedUntil = performance.now() + 700;
   if (explorerDepth) rewindExplorer(+explorerDepth.dataset.exploreDepth);
   else chooseExplorerMove(+explorerChoice.dataset.exploreRank);
 });
