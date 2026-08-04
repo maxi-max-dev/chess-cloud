@@ -17,7 +17,7 @@
 |---|---|
 | `index.html` | 统一产品首页；选择国际象棋或中国象棋规则 |
 | `chess.html` | 国际象棋规则与界面；棋子助手、3D 全景、2D 推演树、五列分叉和真实路线后果 |
-| `xiangqi.html` | 中国象棋规则与界面；9×10 棋盘、3D 感全景、2D 推演树、可能回应、威胁和实战历史 |
+| `xiangqi.html` | 中国象棋规则与界面；9×10 棋盘、完整 1–10 ply 全景、2D 推演树、可能回应、威胁和实战历史 |
 | `future-map.css` | 两个棋种共用的产品壳、颜色角色、图例、路线语境栏和移动端规则 |
 
 规则生成、评估和 Worker 各自独立；共用的是产品定位、视觉语法和同形的选路状态契约。灰色表示
@@ -117,7 +117,9 @@ AI 搜索在独立 Worker 中进行，主线程保留 watchdog 与合法 fallbac
 | 4 | 3,290,240 |
 
 页面会把当前全部合法下一步真实渲染出来。默认 2D 推演树逐条查看分叉，也可切到 3D 感全景，把
-第一层全部真实路线放进同一视角；两种模式共用同一条预演与同一个走后局面。零点击云演自动选择
+第一层全部真实路线与当前所选的完整 1–10 ply 主线放进同一视角；主线按播放进度标记已走、当前和
+未走节点，结束后仍常驻。点任一步可回看该步后的真实 FEN，每个节点同时显示该局面的真实后续
+合法着数。两种模式共用同一条预演与同一个走后局面。零点击云演自动选择
 浅层排序第一名，并按 1–10 ply 选择器（默认 4）逐手重算后续推荐应对；所有黑方合法回应仍完整列出，换线会立即
 接管并使旧 run 失效。路线语境栏在“运动完成原子提交 → 落点脉冲 → 威胁展开”的顺序中更新；只有
 “采纳首步继续 / 走这步”或棋盘合法落点才真正改变实战 FEN。节点分叉数来自真实子局面，排序不是预测、历史胜率
@@ -149,7 +151,7 @@ AI 搜索在独立 Worker 中进行，主线程保留 watchdog 与合法 fallbac
 | `chess.html` / `engine.js` / `worker.js` | 国际象棋 UI、唯一评估 / 搜索、AI、1–10 ply 推荐主线与 L1–L4 路径 Worker |
 | `verify.mjs` / `live-check.mjs` / `self-play.mjs` | 国际象棋棋核、116 项真 Chrome、10 局稳定性验收 |
 | `xiangqi.html` / `xiangqi-engine.js` / `xiangqi-worker.js` | 中国象棋 UI、规则 / 唯一评估 / 搜索、搜索与分叉 Worker |
-| `xiangqi-verify.mjs` / `xiangqi-live-check.mjs` / `xiangqi-self-play.mjs` | 中国象棋棋核、71 项真 Chrome、固定 10 局稳定性验收 |
+| `xiangqi-verify.mjs` / `xiangqi-live-check.mjs` / `xiangqi-self-play.mjs` | 中国象棋棋核、72 项真 Chrome、固定 10 局稳定性验收 |
 | `portal-check.mjs` | 首页、共享未来地图契约、两个规则入口和运行代码红线的 27 项静态验收 |
 | `HANDOFF.md` / `BLOCKED.md` / `PROGRESS.md` | 自足交接、边界决策、迭代记录 |
 
@@ -187,7 +189,7 @@ node xiangqi-self-play.mjs
 
 - `npm test`：国际象棋 **8/8**、中国象棋 **20/20**、统一门户 **27/27**；
 - `node live-check.mjs`：**116/116**；
-- `node xiangqi-live-check.mjs`：**71/71**；
+- `node xiangqi-live-check.mjs`：**72/72**；
 - `node self-play.mjs`：10 局、767 plies、727 次搜索；异常局、非法着、FEN、PV、注释失败全为 0；
 - `node xiangqi-self-play.mjs`：10 局、788 plies、788 次搜索、1,428 个 PV 节点；
   `illegalMoves / fenMismatches / pvFailures / branchFailures / threatFailures` 全为 0。

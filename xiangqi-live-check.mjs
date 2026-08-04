@@ -47,7 +47,7 @@ let nextId = 1;
 const pending = new Map();
 const pageErrors = [];
 const results = [];
-const EXPECTED_RESULTS = 71;
+const EXPECTED_RESULTS = 72;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const moveKey = (move) => `${move.from}-${move.to}`;
@@ -647,8 +647,10 @@ async function autoplayAudit() {
     '零点击云演完成',
   );
   const completed = await evaluate(`(() => {
+    window.__futureTest.setMode('overview-3d');
     const snapshot = window.__futureTest.snapshot();
     const board = document.getElementById('board');
+    const overviewSvg = document.getElementById('xqOverviewSvg');
     const runEvents = snapshot.autoplay.history.filter(
       (event) => event.positionId === snapshot.identity.positionId
         && event.runId === snapshot.identity.runId
@@ -679,6 +681,26 @@ async function autoplayAudit() {
         returnDisabled: document.getElementById('xqReturnToPlay').disabled,
         adoptDisabled: document.getElementById('xqAdoptPreview').disabled,
       },
+      overview: {
+        routeDepth: Number(overviewSvg.dataset.routeDepth),
+        selectedRoot: overviewSvg.querySelectorAll('[data-overview-key][data-selected="true"]').length,
+        routeEdges: [...overviewSvg.querySelectorAll('[data-overview-route-edge]')].map((edge) => ({
+          depth: Number(edge.dataset.depth),
+          state: edge.dataset.routeState,
+          played: edge.dataset.played,
+        })),
+        routeNodes: [...overviewSvg.querySelectorAll('[data-overview-route-depth]')].map((node) => ({
+          depth: Number(node.dataset.overviewRouteDepth),
+          fen: node.dataset.fen,
+          parentFen: node.dataset.parentFen,
+          label: node.dataset.label,
+          branchCount: Number(node.dataset.branchCount),
+          state: node.dataset.routeState,
+          resolved: node.dataset.resolved,
+        })),
+        factCount: Number(document.querySelector('[data-overview-fact-count]')?.dataset.count),
+        fact: document.getElementById('xqOverviewFact').textContent,
+      },
       runEvents,
     };
   })()`);
@@ -705,6 +727,7 @@ async function autoplayAudit() {
   );
   const deepAutoplay = await evaluate(`(() => {
     const snapshot = window.__futureTest.snapshot();
+    const overviewSvg = document.getElementById('xqOverviewSvg');
     const runEvents = snapshot.autoplay.history.filter(
       (event) => event.positionId === snapshot.identity.positionId
         && event.runId === snapshot.identity.runId
@@ -716,12 +739,65 @@ async function autoplayAudit() {
       elapsedMs: snapshot.autoplay.elapsedMs,
       stage: snapshot.preview.stage,
       liveFen: window.__xiangqiTest.fen,
+      selectedPath: snapshot.selectedPath,
+      overview: {
+        routeDepth: Number(overviewSvg.dataset.routeDepth),
+        selectedRoot: overviewSvg.querySelectorAll('[data-overview-key][data-selected="true"]').length,
+        routeEdges: [...overviewSvg.querySelectorAll('[data-overview-route-edge]')].map((edge) => ({
+          depth: Number(edge.dataset.depth),
+          state: edge.dataset.routeState,
+        })),
+        routeNodes: [...overviewSvg.querySelectorAll('[data-overview-route-depth]')].map((node) => ({
+          depth: Number(node.dataset.overviewRouteDepth),
+          fen: node.dataset.fen,
+          parentFen: node.dataset.parentFen,
+          label: node.dataset.label,
+          branchCount: Number(node.dataset.branchCount),
+          state: node.dataset.routeState,
+          resolved: node.dataset.resolved,
+        })),
+        factCount: Number(document.querySelector('[data-overview-fact-count]')?.dataset.count),
+        fact: document.getElementById('xqOverviewFact').textContent,
+      },
       ordered: Array.from({ length: 10 }, (_, index) => index + 1).every((ply) => {
         const commit = runEvents.findIndex((event) => event.type === 'motion_committed' && event.ply === ply);
         const impact = runEvents.findIndex((event) => event.type === 'landing_impact' && event.ply === ply);
         const threat = runEvents.findIndex((event) => event.type === 'threats_revealed' && event.ply === ply);
         return commit >= 0 && impact > commit && threat > impact;
       }),
+    };
+  })()`);
+  await setViewport(1440, 900);
+  await evaluate(`document.getElementById('xqOverview').scrollIntoView({ block: 'center' })`);
+  await sleep(120);
+  const overviewDesktopShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-overview-10.png'),
+    Buffer.from(overviewDesktopShot.data, 'base64'),
+  );
+  await setViewport(390, 844);
+  await evaluate(`document.getElementById('xqOverview').scrollIntoView({ block: 'center' })`);
+  await sleep(120);
+  const overviewMobileShot = await send('Page.captureScreenshot', { format: 'png' });
+  fs.writeFileSync(
+    SHOT.replace(/\.png$/i, '-overview-10-mobile.png'),
+    Buffer.from(overviewMobileShot.data, 'base64'),
+  );
+  await setViewport(1440, 900);
+  await evaluate(`document.getElementById('xqOverview').scrollIntoView({ block: 'center' })`);
+  const routeSeek = await evaluate(`(() => {
+    const node = document.querySelector('[data-overview-route-depth="6"]');
+    node?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const snapshot = window.__futureTest.snapshot();
+    return {
+      clicked: !!node,
+      stage: snapshot.preview.stage,
+      committedFen: snapshot.preview.committedFen,
+      liveFen: window.__xiangqiTest.fen,
+      routeDepth: Number(document.getElementById('xqOverviewSvg').dataset.routeDepth),
+      routeNodes: document.querySelectorAll('[data-overview-route-depth]').length,
+      currentDepth: Number(document.querySelector('[data-overview-route-depth][data-route-state="current"]')?.dataset.overviewRouteDepth),
+      bridgeTitle: document.getElementById('xqPlayBridgeTitle').textContent,
     };
   })()`);
   await evaluate('window.__futureTest.setPreviewDepth(4)');
@@ -764,6 +840,48 @@ async function autoplayAudit() {
       + `｜10ply=${deepAutoplay.depth}/${deepAutoplay.elapsedMs}ms/order:${deepAutoplay.ordered}`
       + `｜文案=${completed.copy.title}`
       + `｜实战未变=${sameFen(completed.liveFen, START_FEN)}`,
+  );
+
+  const overviewRouteOk = (sample, expectedDepth, selectedPath) => {
+    const nodes = sample.overview.routeNodes;
+    const edges = sample.overview.routeEdges;
+    return sample.overview.routeDepth === expectedDepth
+      && sample.overview.selectedRoot === 1
+      && nodes.length === expectedDepth - 1
+      && edges.length === expectedDepth - 1
+      && sample.overview.factCount === 44 + expectedDepth - 1
+      && sample.overview.fact.includes(`所选主线 ${expectedDepth} 步完整展开`)
+      && nodes.every((node, index) => {
+        const depth = index + 2;
+        const step = selectedPath[depth - 1];
+        const parent = selectedPath[depth - 2];
+        return node.depth === depth
+          && sameFen(node.fen, step.afterFen)
+          && sameFen(node.parentFen, parent.afterFen)
+          && node.label === step.label
+          && node.branchCount === generateLegalMoves(parseFen(step.afterFen)).length
+          && node.resolved === 'true'
+          && node.state === (depth === expectedDepth ? 'current' : 'past');
+      })
+      && edges.every((edge, index) => edge.depth === index + 2
+        && edge.state === (edge.depth === expectedDepth ? 'current' : 'past'));
+  };
+  record(
+    overviewRouteOk(completed, 4, completed.selectedPath)
+      && overviewRouteOk(deepAutoplay, 10, deepAutoplay.selectedPath)
+      && routeSeek.clicked
+      && routeSeek.stage === 'settled'
+      && sameFen(routeSeek.committedFen, deepAutoplay.selectedPath[5].afterFen)
+      && sameFen(routeSeek.liveFen, START_FEN)
+      && routeSeek.routeDepth === 10
+      && routeSeek.routeNodes === 9
+      && routeSeek.currentDepth === 6
+      && routeSeek.bridgeTitle.includes('第 6/10 步'),
+    '中国象棋全景常驻展开完整 1–10 ply 主线，并可从任一步回看真实局面与后续分叉',
+    `4ply=${completed.overview.routeNodes.length + 1}/${completed.overview.factCount}`
+      + `｜10ply=${deepAutoplay.overview.routeNodes.length + 1}/${deepAutoplay.overview.factCount}`
+      + `｜回看=${routeSeek.currentDepth}/${routeSeek.routeDepth}`
+      + `｜实战未变=${sameFen(routeSeek.liveFen, START_FEN)}`,
   );
 
   const sequenceOk = [1, 2, 3, 4].every((ply) => {
@@ -911,6 +1029,7 @@ async function autoplayAudit() {
     features: [{ name: 'prefers-reduced-motion', value: 'no-preference' }],
   });
   await evaluate(`(() => {
+    window.__futureTest.setMode('tree-2d');
     window.__futureTest.setAutoplay(false);
     window.__xiangqiTest.reset();
   })()`);
