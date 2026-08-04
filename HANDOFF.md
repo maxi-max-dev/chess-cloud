@@ -625,6 +625,36 @@ searches、PV 节点和最大耗时小幅变化。因此稳定验收基线是“
   **1,086ms**；中国 4 ply **3,695ms**、10 ply **7,664ms**、真实 AI 应手 **1,205ms**；
 - 8 个运行文件均已从 Pages 下载并与本地 SHA-256 逐字节对账；页面 JS 错误为 0。
 
+### 焦点棋云发布封印（2026-08-04）
+
+国际象棋逐步重根与时间走廊的运行源码冻结于 commit `0ebaa27`。Pages workflow
+[`30879471675`](https://github.com/maxi-max-dev/chess-cloud/actions/runs/30879471675) 已成功发布；以下八个
+运行文件从公开地址重新下载后均与本地逐字节一致：
+
+| 运行文件 | SHA-256 |
+|---|---|
+| `index.html` | `47416f22d0f98e251f545bb43dc1fc172355be1cc4e9fa0fd8216f3b8ebb1988` |
+| `future-map.css` | `0b37f982f6028289dc0805e05bcc3b45e6adfc8cba6183fcf5a071899423ba14` |
+| `chess.html` | `ca5b1dc5a5f01bcbe72b0ed27fe3bec0ebd61d0762eca3a76f91f8180de829ef` |
+| `engine.js` | `8d20e54fd56e67ca3cd0b29c0d66f586ed5807de8e4781a623f03cf51b7a8959` |
+| `worker.js` | `1ae0ea3c78d63aff081b1abb2bb41155d8d2bca1c82c2945f5745df94e35e520` |
+| `xiangqi.html` | `6b63f7d86c6ac74cc853aee87222b77ca6d62677478536ed763191defe914186` |
+| `xiangqi-engine.js` | `e1e3c2c8862e06a9f75d9a5fedac8c5f0738df6182a9e13b77d90a006d96f290` |
+| `xiangqi-worker.js` | `9dc7d9314231c76418a35e3a9e1e01b665a9aa31efa215a9a7cb19323e7f874e` |
+
+最终验证：
+
+- `npm test`：国际棋核 **8/8**、中国棋核 **20/20**、门户 **27/27**；零跳过。
+- 本地 headless 真机：国际 **116/116**；中国 **71/71**。
+- 最终运行源码线上：中国 **71/71**；国际焦点触摸快验 **3/3**，真实连续触摸
+  `d3 → d6` 严格一触一层，预演棋盘 **32/32**，路线点 **2 → 3**，实战不变、零 JS 错误。
+- 最终源码线上国际应手：冷启动 **694ms**、4× 慢速手机 **1,223ms**、正常深搜 **1,128ms**、
+  Worker 故障保底 **2,316ms**；中国 4 / 10 ply 为 **3,741ms / 7,456ms**，真实 AI **1,150ms**。
+- 最终线上国际全量复跑已通过所有已到达断言，但本机同时运行的 FileProvider / StorageManagement
+  扫描使第三个 58 万边 L4 在 90 秒裁判等待上限内仍在增长，脚本以环境超时退出；裁判阈值没有放宽。
+  同一源码的本地完整 116 项与线上专门复现项均全绿。
+- 该仓库按纪律继续为零构建静态站，没有 lint / build script；模块语法检查与 `git diff --check` 均通过。
+
 ---
 
 ## 7. 下一步候选

@@ -200,6 +200,9 @@ node xiangqi-self-play.mjs
 ```bash
 node live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
 node xiangqi-live-check.mjs --url https://maxi-max-dev.github.io/chess-cloud/
+
+# 快速复现手机 3D 棋云连续两层触摸；不替代上面的 116 项全量验收
+node live-check.mjs --focus-touch-only --url https://maxi-max-dev.github.io/chess-cloud/
 ```
 
 当前发布 commit、逐文件 SHA-256 与线上真 Chrome 复验结果见 `HANDOFF.md`。

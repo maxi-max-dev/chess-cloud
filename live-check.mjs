@@ -1,5 +1,5 @@
 // live-check.mjs —— 无头 Chrome + CDP 真机验收（本地或线上都能跑）
-// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333] [--headed] [--phase-one-only|--phase-two-only|--phase-three-only]
+// 用法：node live-check.mjs [--url https://...] [--shot out.png] [--port 9333] [--headed] [--phase-one-only|--phase-two-only|--phase-three-only|--focus-touch-only]
 // 默认自动选空闲 CDP/静态服务端口；只有需要并行复现某次运行时才显式传 --port。
 // 不给 --url 就自己起一个静态服务器伺候 chess.html；线上可传站点根目录或 chess.html。
 // --headed 使用本机 Chrome/GPU 做视觉复核；默认仍是 CI 同口径的 headless + SwiftShader。
@@ -24,6 +24,7 @@ const HEADED = argv.includes('--headed');
 const PHASE_ONE_ONLY = argv.includes('--phase-one-only');
 const PHASE_TWO_ONLY = argv.includes('--phase-two-only');
 const PHASE_THREE_ONLY = argv.includes('--phase-three-only');
+const FOCUS_TOUCH_ONLY = argv.includes('--focus-touch-only');
 let URL_ = arg('--url', null);
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.png': 'image/png', '.json': 'application/json' };
@@ -4142,6 +4143,84 @@ async function runPhaseOneVisualChecks() {
   );
 }
 
+async function runFocusTouchOnly() {
+  await setViewport(390, 844, 'portraitPrimary');
+  await evalJs('window.__test.reset()');
+  await waitCloudPreview();
+  await evalJs('document.getElementById("cloudOpen").scrollIntoView({ block: "center" })');
+  await settleLayout();
+  const opened = await touchSelector('#cloudOpen');
+  const fullCloud = await waitCloud(60000);
+  await sleep(260);
+  await settleLayout();
+
+  const initialState = await evalJs('window.__test.state()');
+  const initialExplorer = await evalJs('window.__test.explorer()');
+  const initialMap = await evalJs('window.__test.cloudMap()');
+  const legalSans = new Set(new Chess(initialState.fen).moves());
+  const visible = initialMap.labels.filter((label) => label.visible);
+  const roots = visible.filter((label) => label.depth === 0 && label.text.includes('现在'));
+  const moves = visible.filter((label) => label.depth === 1 && label.san);
+  const target = moves[0] || null;
+  record(
+    opened
+      && fullCloud.depth === 4
+      && roots.length === 1
+      && moves.length >= 1
+      && target
+      && legalSans.has(target.san)
+      && initialMap.routePoints === 0,
+    '焦点触摸快验：手机全屏显示真实当前点与合法下一步',
+    `depth=${fullCloud.depth}｜现在=${roots.length}｜候选=${moves.map((move) => move.san).join('/')}`,
+  );
+
+  const historyBefore = initialState.history;
+  if (target) {
+    await touchAt(target.x, target.y);
+    await sleep(280);
+    await settleLayout();
+  }
+  const afterFirst = await evalJs('window.__test.explorer()');
+  const mapAfterFirst = await evalJs('window.__test.cloudMap()');
+  const second = afterFirst.labels.find(
+    (label) => label.visible && label.depth === 2 && label.san,
+  ) || null;
+  if (second) {
+    await touchAt(second.x, second.y);
+    await sleep(280);
+    await settleLayout();
+  }
+  const finalState = await evalJs('window.__test.state()');
+  const finalExplorer = await evalJs('window.__test.explorer()');
+  const finalMap = await evalJs('window.__test.cloudMap()');
+  const previewAudit = auditExplorerPreview(finalExplorer);
+  let replayFen = '';
+  try {
+    const replay = new Chess(initialExplorer.rootFen);
+    replay.move(target?.san);
+    replay.move(second?.san);
+    replayFen = replay.fen();
+  } catch {}
+  record(
+    !!target
+      && !!second
+      && finalExplorer.path.length === 2
+      && finalExplorer.path[0]?.san === target.san
+      && finalExplorer.path[1]?.san === second.san
+      && finalExplorer.renderedFen === replayFen
+      && explorerPreviewOk(previewAudit)
+      && JSON.stringify(finalState.history) === JSON.stringify(historyBefore)
+      && finalState.fen === initialState.fen
+      && mapAfterFirst.routePoints === 2
+      && finalMap.routePoints === 3,
+    '焦点触摸快验：连续两次触摸严格一触一层且不改实战',
+    `点 ${target?.san || '无'}→${second?.san || '无'}`
+      + `｜path=${finalExplorer.path.map((move) => move.san).join('→')}`
+      + `｜preview=${previewAudit.actualCount}/${previewAudit.expectedCount}`
+      + `｜route=${mapAfterFirst.routePoints}→${finalMap.routePoints}`,
+  );
+}
+
 async function main() {
   if (PORT > 0) {
     if (await portInUse(PORT)) throw new Error(`CDP 端口 ${PORT} 已被占用，请换一个 --port`);
@@ -4191,6 +4270,13 @@ async function main() {
   }
   if (!ready) throw new Error('页面自检钩子未就绪');
   await send('Page.bringToFront');
+
+  if (FOCUS_TOUCH_ONLY) {
+    await runFocusTouchOnly();
+    record(pageErrors.length === 0, '页面无 JS 报错', pageErrors.slice(0, 3).join(' | ') || '零报错');
+    await finishRun(3);
+    return;
+  }
 
   if (PHASE_ONE_ONLY) {
     await runPhaseOneVisualChecks();
