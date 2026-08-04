@@ -2039,6 +2039,7 @@ let aiRequestId = 0;
 let aiPending = null;
 let aiWatchdog = 0;
 let searchWorker = null;
+let searchWorkerReady = false;
 let searchWorkerGeneration = 0;
 const forkPvGuideEl = document.getElementById('forkPvGuide');
 const forkPvRailEl = document.getElementById('forkPvRail');
@@ -2158,10 +2159,16 @@ function clearAiWatchdog() {
 function createSearchWorker() {
   const worker = new Worker('./worker.js', { type: 'module' });
   searchWorker = worker;
+  searchWorkerReady = false;
   searchWorkerGeneration++;
   worker.onmessage = (ev) => {
     const m = ev.data;
-    if (worker !== searchWorker || !aiPending) return;
+    if (worker !== searchWorker) return;
+    if (m.type === 'pong') {
+      searchWorkerReady = true;
+      return;
+    }
+    if (!aiPending) return;
     if ((m.type === 'searchDone' || m.type === 'searchError')
       && (m.id !== aiPending.id || aiPending.fen !== game.fen())) return;
     if (m.type === 'searchDone') onAiMove(m.result);
@@ -2437,8 +2444,14 @@ function requestAi() {
     },
   };
   clearAiWatchdog();
-  aiWatchdog = setTimeout(() => useFallbackAi('超过硬时限'), AI_WATCHDOG_MS);
   if (!searchWorker) createSearchWorker();
+  // 线上首次加载时，Worker 的 CDN 模块可能尚未完成。不要把用户的第一步
+  // 排在模块加载后，更不能依赖可能被首帧合成拖晚的主线程 watchdog。
+  if (!searchWorkerReady) {
+    useFallbackAi('搜索预热未完成');
+    return;
+  }
+  aiWatchdog = setTimeout(() => useFallbackAi('超过硬时限'), AI_WATCHDOG_MS);
   searchWorker.postMessage({ type: 'search', id, fen, timeBudgetMs });
 }
 
@@ -2727,6 +2740,18 @@ function releaseDeferredAiResult() {
 function completePendingBoardMotion(motionId, { emit = true } = {}) {
   const motion = pendingBoardMotion;
   if (!motion || Number(motionId) !== motion.id || motion.fen !== game.fen()) return false;
+  const settledPiece = boardPiecesEl.querySelector(
+    `[data-detail-motion-id="${motion.id}"]`,
+  );
+  if (settledPiece) {
+    settledPiece.classList.remove('board-piece-arrive');
+    delete settledPiece.dataset.detailMotionId;
+    delete settledPiece.dataset.detailMotionSource;
+    delete settledPiece.dataset.detailCaptured;
+    delete settledPiece.dataset.detailCaptureSquare;
+    settledPiece.style.removeProperty('--detail-move-x');
+    settledPiece.style.removeProperty('--detail-move-y');
+  }
   recordPhaseThreeEvent('piece_motion_completed', {
     source: motion.source, square: motion.to, motionId: motion.id,
   });
@@ -7869,6 +7894,13 @@ function resetGame(fen = null) {
   if (fen) {
     try { new Chess(fen); } catch { return false; }
   }
+  const mayReuseInitialFork = !fen
+    && routeSelectionDepth === 0
+    && branchPath.length === 0
+    && expanded.length === 0
+    && explorerState.path.length === 0
+    && !forkStale;
+  const resetActiveSearchWorker = !!aiPending || thinking || !searchWorker;
   // CDP/WebKit may coalesce media-query change events while a tab is backgrounded;
   // reset is a lifecycle boundary, so re-read the authoritative media query here.
   reducedMotion = motionPreference.matches;
@@ -7876,10 +7908,13 @@ function resetGame(fen = null) {
   presentationGen++;
   clearAiWatchdog();
   aiPending = null;
-  restartSearchWorker();
+  // 空闲重开沿用已经预热好的 Worker；只有确实存在旧请求时才换代。
+  // 这样既隔离旧回包，也不会让每次 reset 后的第一手重新承担模块冷启动。
+  if (resetActiveSearchWorker) restartSearchWorker();
   cancelHoverPreview({ restoreExplicit: false });
   cancelFutureBoardPreview(false);
   if (fen) game.load(fen); else game.reset();
+  const reuseInitialFork = mayReuseInitialFork && columns[0]?.fen === game.fen();
   resetCloudView();
   selected = null;
   forkPreview = null;
@@ -7907,7 +7942,9 @@ function resetGame(fen = null) {
   resetForkTransient();
   renderBoard();
   rebuildCloud();
-  renderFork();
+  // 首屏/连续重开时，默认五列已经和起始 FEN 同源；复用现成排序，
+  // 不在用户可能立刻落子的临界路径上再跑一遍 depth-2 五列搜索。
+  renderFork(false, !reuseInitialFork);
   if (cloudViewMode === '2d') renderExplorer();
   renderCoachIdle();
   setStatusText(fen
@@ -8064,6 +8101,7 @@ window.__test = {
   terminateAiWorker: () => {
     if (!searchWorker) return false;
     searchWorker.terminate();
+    searchWorkerReady = false;
     return true;
   },
   layout: layoutSnapshot,
