@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#071017">
+<meta name="description" content="Chess Cloud unfolds the real next moves, strongest replies and route consequences of chess and xiangqi into an interactive map of a position's future.">
+<title>Chess Cloud · A map of the position ahead</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23071017'/%3E%3Cpath d='M16 42L32 16l16 26M21 34h22' fill='none' stroke='%2379e6db' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='16' cy='42' r='5' fill='%23ef665c'/%3E%3Ccircle cx='32' cy='16' r='5' fill='%23f1c66b'/%3E%3Ccircle cx='48' cy='42' r='5' fill='%2379e6db'/%3E%3C/svg%3E">
+<style>
+  :root {
+    color-scheme: dark;
+    --ink: #f3f7f5;
+    --muted: #a8b7b6;
+    --line: rgba(202, 224, 218, .17);
+    --panel: rgba(12, 25, 31, .78);
+    --cyan: #79e6db;
+    --gold: #f1c66b;
+    --red: #ef665c;
+  }
+
+  * { box-sizing: border-box; }
+
+  html {
+    min-height: 100%;
+    background: #071017;
+  }
+
+  body {
+    min-height: 100svh;
+    margin: 0;
+    overflow-x: hidden;
+    color: var(--ink);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(circle at 14% 14%, rgba(37, 139, 139, .2), transparent 33rem),
+      radial-gradient(circle at 88% 82%, rgba(167, 98, 48, .18), transparent 35rem),
+      linear-gradient(145deg, #071017 0%, #0b1820 50%, #071117 100%);
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    opacity: .15;
+    background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(to bottom, #000, transparent 88%);
+  }
+
+  .route-lines {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    opacity: .34;
+  }
+
+  .route-lines path {
+    fill: none;
+    stroke: url(#routeGradient);
+    stroke-width: 1.1;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .shell {
+    position: relative;
+    width: min(1180px, calc(100% - 40px));
+    min-height: 100svh;
+    margin: 0 auto;
+    padding:
+      max(24px, env(safe-area-inset-top))
+      0
+      max(26px, env(safe-area-inset-bottom));
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  header {
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 11px;
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 760;
+    letter-spacing: .12em;
+    text-decoration: none;
+  }
+
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(121,230,219,.54);
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    box-shadow: inset 0 0 18px rgba(121,230,219,.13);
+  }
+
+  .brand-mark::before {
+    content: "";
+    width: 13px;
+    height: 13px;
+    border: 2px solid var(--cyan);
+    border-left-color: transparent;
+    border-radius: 50%;
+    transform: rotate(-35deg);
+  }
+
+  .principle {
+    margin: 0;
+    color: #b8c7c5;
+    font-size: 12px;
+    letter-spacing: .08em;
+  }
+
+  .lang-switch {
+    margin-left: 14px;
+    padding: 3px 9px;
+    border: 1px solid rgba(202,224,218,.24);
+    border-radius: 999px;
+    color: #8fa3a1;
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-decoration: none;
+  }
+
+  .lang-switch:hover { color: var(--cyan); border-color: rgba(121,230,219,.5); }
+
+  main {
+    align-self: center;
+    padding: clamp(38px, 7vh, 86px) 0;
+  }
+
+  .eyebrow {
+    margin: 0 0 13px;
+    color: var(--cyan);
+    font-size: 12px;
+    font-weight: 760;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+  }
+
+  h1 {
+    max-width: 800px;
+    margin: 0;
+    font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+    font-size: clamp(40px, 7vw, 78px);
+    font-weight: 500;
+    line-height: 1.02;
+    letter-spacing: -.045em;
+  }
+
+  .intro {
+    max-width: 700px;
+    margin: 20px 0 34px;
+    color: var(--muted);
+    font-size: clamp(15px, 1.8vw, 18px);
+    line-height: 1.75;
+  }
+
+  .games {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .game-card {
+    position: relative;
+    min-height: 330px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 24px;
+    color: inherit;
+    text-decoration: none;
+    background:
+      linear-gradient(145deg, rgba(20, 39, 46, .9), rgba(8, 18, 24, .88));
+    box-shadow:
+      0 22px 70px rgba(0,0,0,.25),
+      inset 0 1px rgba(255,255,255,.05);
+    transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease;
+  }
+
+  .game-card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(115deg, rgba(255,255,255,.055), transparent 35%);
+  }
+
+  .game-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(121,230,219,.5);
+    box-shadow:
+      0 28px 82px rgba(0,0,0,.34),
+      inset 0 1px rgba(255,255,255,.08);
+  }
+
+  .game-card.xiangqi:hover { border-color: rgba(241,198,107,.5); }
+
+  .game-card:focus-visible {
+    outline: 3px solid var(--cyan);
+    outline-offset: 4px;
+  }
+
+  .card-copy {
+    position: relative;
+    z-index: 2;
+    width: 58%;
+    min-width: 250px;
+    padding: clamp(25px, 4vw, 38px);
+  }
+
+  .card-tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 10px;
+    border: 1px solid rgba(121,230,219,.28);
+    border-radius: 999px;
+    color: var(--cyan);
+    background: rgba(121,230,219,.07);
+    font-size: 11px;
+    font-weight: 750;
+    letter-spacing: .1em;
+  }
+
+  .xiangqi .card-tag {
+    color: var(--gold);
+    border-color: rgba(241,198,107,.28);
+    background: rgba(241,198,107,.07);
+  }
+
+  h2 {
+    margin: 25px 0 8px;
+    font-family: Georgia, "Noto Serif SC", "Songti SC", serif;
+    font-size: clamp(29px, 4vw, 42px);
+    font-weight: 500;
+    line-height: 1.08;
+  }
+
+  .english-name {
+    display: block;
+    margin-top: 7px;
+    color: #778b8b;
+    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+  }
+
+  .card-copy p {
+    max-width: 330px;
+    margin: 19px 0 27px;
+    color: #aebdbc;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .enter {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 11px;
+    color: #eaf8f5;
+    font-size: 14px;
+    font-weight: 750;
+  }
+
+  .enter::after {
+    content: "→";
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(255,255,255,.2);
+    border-radius: 50%;
+    transition: transform .22s ease;
+  }
+
+  .game-card:hover .enter::after { transform: translateX(4px); }
+
+  .mini {
+    position: absolute;
+    right: -30px;
+    bottom: -24px;
+    width: min(48%, 270px);
+    aspect-ratio: 1;
+    transform: rotate(-7deg);
+    filter: drop-shadow(0 24px 25px rgba(0,0,0,.42));
+  }
+
+  .mini.western {
+    border: 8px solid #25353a;
+    border-radius: 15px;
+    background:
+      conic-gradient(from 90deg, #d8d4c5 25%, #49646a 0 50%, #d8d4c5 0 75%, #49646a 0)
+      0 0 / 25% 25%;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.18);
+  }
+
+  .western .disc,
+  .xq-disc {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-family: Georgia, serif;
+    font-weight: 800;
+  }
+
+  .western .disc {
+    width: 9.8%;
+    aspect-ratio: 1;
+    color: #223037;
+    background: linear-gradient(#fdfbf1, #b9b8af);
+    border: 1px solid rgba(255,255,255,.75);
+    box-shadow: 0 3px 4px rgba(0,0,0,.4);
+    font-size: clamp(7px, 1vw, 12px);
+  }
+
+  .western .dark {
+    color: #d8e2df;
+    background: linear-gradient(#42545b, #111b20);
+    border-color: rgba(255,255,255,.18);
+  }
+
+  .mini.xq {
+    aspect-ratio: 9 / 10;
+    right: -2px;
+    bottom: -42px;
+    border: 7px solid #493a2a;
+    border-radius: 13px;
+    background-color: #c8a66d;
+    background-image:
+      linear-gradient(rgba(69,45,24,.72) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(69,45,24,.72) 1px, transparent 1px);
+    background-size: 12.5% 11.111%;
+    box-shadow:
+      inset 0 0 32px rgba(77,40,17,.34),
+      inset 0 0 0 1px rgba(255,245,207,.25);
+  }
+
+  .mini.xq::after {
+    content: "楚 河　　 汉 界";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 44.3%;
+    height: 11.4%;
+    display: grid;
+    place-items: center;
+    color: rgba(66,37,21,.78);
+    background: #c8a66d;
+    border-block: 1px solid rgba(69,45,24,.72);
+    font: 700 clamp(8px, 1.15vw, 12px)/1 "Songti SC", serif;
+    letter-spacing: .08em;
+  }
+
+  .xq-disc {
+    z-index: 2;
+    width: 11%;
+    aspect-ratio: 1;
+    color: #a62f27;
+    background: radial-gradient(circle at 35% 28%, #fff3d0, #d9b97d 72%, #8a6841);
+    border: 2px solid currentColor;
+    box-shadow: 0 3px 5px rgba(45,21,10,.45);
+    font-size: clamp(7px, 1.1vw, 12px);
+  }
+
+  .xq-disc.black { color: #252f31; }
+
+  footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    color: #708282;
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  footer strong {
+    color: #9fb0af;
+    font-weight: 650;
+  }
+
+  @media (max-width: 760px) {
+    .shell { width: min(100% - 28px, 580px); }
+    .principle { font-size: 0; letter-spacing: 0; }
+    .lang-switch { font-size: 11px; letter-spacing: .06em; margin-left: 0; }
+    main { padding: 36px 0 46px; }
+    h1 { max-width: 340px; font-size: clamp(40px, 13vw, 58px); }
+    .intro { margin: 17px 0 27px; font-size: 15px; }
+    .games { grid-template-columns: 1fr; }
+    .game-card { min-height: 288px; border-radius: 20px; }
+    .card-copy { width: 68%; min-width: 0; padding: 25px 22px; }
+    .card-copy p { margin: 15px 0 19px; font-size: 13px; }
+    .mini { right: -34px; width: 47%; }
+    .mini.xq { right: -12px; bottom: -38px; width: 42%; }
+    footer { align-items: flex-start; flex-direction: column; gap: 7px; }
+  }
+
+  @media (max-width: 410px) {
+    .game-card { min-height: 304px; }
+    .card-copy { width: 74%; }
+    .mini { opacity: .82; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .game-card,
+    .enter::after { transition: none; }
+  }
+</style>
+</head>
+<body>
+<svg class="route-lines" viewBox="0 0 1440 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+  <defs>
+    <linearGradient id="routeGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#79e6db" stop-opacity="0"/>
+      <stop offset=".46" stop-color="#79e6db" stop-opacity=".52"/>
+      <stop offset="1" stop-color="#f1c66b" stop-opacity=".08"/>
+    </linearGradient>
+  </defs>
+  <path d="M-40 680 C180 600 225 510 390 476 S660 540 790 420 S1040 260 1490 315"/>
+  <path d="M360 476 C440 390 470 280 450 130"/>
+  <path d="M790 420 C850 500 960 580 1150 650"/>
+  <path d="M790 420 C960 405 1090 430 1280 520"/>
+</svg>
+
+<div class="shell">
+  <header>
+    <a class="brand" href="./" aria-label="Chess Cloud home">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span>CHESS CLOUD</span>
+    </a>
+    <p class="principle">Every number comes from a real position <a class="lang-switch" href="../">中文</a></p>
+  </header>
+
+  <main>
+    <p class="eyebrow">Explore the next move</p>
+    <h1>The next move, unfolded into a map.</h1>
+    <p class="intro">
+      Chess Cloud lays out every legal move you actually have. Open any line to keep playing out
+      the opponent&rsquo;s strongest replies, and what that route captures, threatens or leaves exposed.
+    </p>
+
+    <div class="games" aria-label="Choose a game">
+      <a class="game-card chess" data-game="chess" href="./chess.html">
+        <div class="card-copy">
+          <span class="card-tag">The same map</span>
+          <h2>International Chess<span class="english-name">Chess</span></h2>
+          <p>Chess rules, full board: every legal next move, the strongest replies, and what each line does immediately.</p>
+          <span class="enter">Open the board</span>
+        </div>
+        <div class="mini western" aria-hidden="true">
+          <span class="disc dark" style="left:7%;top:7%">R</span>
+          <span class="disc dark" style="left:44%;top:7%">K</span>
+          <span class="disc dark" style="left:82%;top:19%">N</span>
+          <span class="disc" style="left:20%;top:70%">P</span>
+          <span class="disc" style="left:57%;top:82%">K</span>
+          <span class="disc" style="left:82%;top:70%">R</span>
+        </div>
+      </a>
+
+      <a class="game-card xiangqi" data-game="xiangqi" href="./xiangqi.html">
+        <div class="card-copy">
+          <span class="card-tag">The same map</span>
+          <h2>Xiangqi<span class="english-name">Chinese chess</span></h2>
+          <p>The same map under real xiangqi rules: branches, forced replies, captures, checks and exposure all read the same way.</p>
+          <span class="enter">Open the board</span>
+        </div>
+        <div class="mini xq" aria-hidden="true">
+          <span class="xq-disc black" style="left:44.5%;top:1.5%">将</span>
+          <span class="xq-disc black" style="left:7%;top:23.5%">炮</span>
+          <span class="xq-disc black" style="left:82%;top:34.5%">卒</span>
+          <span class="xq-disc" style="left:19.5%;top:67%">兵</span>
+          <span class="xq-disc" style="left:57%;top:78%">炮</span>
+          <span class="xq-disc" style="left:44.5%;top:89%">帅</span>
+        </div>
+      </a>
+    </div>
+  </main>
+
+  <footer>
+    <span><strong>Rules and branches computed live</strong> · an estimate is never written up as a fact</span>
+    <span>Built by Max</span>
+  </footer>
+</div>
+</body>
+</html>
